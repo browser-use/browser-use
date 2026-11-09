@@ -496,6 +496,42 @@ async def test_a_compaction_item_the_provider_cannot_read_is_dropped_and_the_his
 	assert 'cmp_unreadable' not in retries[1] and 'TASK-TEXT' in retries[1]
 
 
+GATEWAY_REJECTED = (400, {'error': {'message': 'The model rejected this request. Check the input, tools and output limits.',
+	'type': 'invalid_request', 'code': 'invalid_request'}})  # fmt: skip
+
+
+async def test_the_gateways_400_on_a_compacted_request_resends_it_once_without_the_compaction_item(responses_server, tmp_path):
+	"""bub2-010 through the gateway: it answers OpenAI's 400 invalid_encrypted_content as invalid_request, without the
+	code or the item id (cloud llmgateway publicError), and the run ended. The item a compacted request carries is the
+	newest: the request goes out once more without it; a second 400 is not the item's, and ends the run."""
+	url, requests, replies = responses_server
+	replies += [
+		[reasoning(1), call('python', {'code': 'print(6 * 7)'}, 1)],
+		[sealed(2), reasoning(2), call('python', {'code': 'print(1)'}, 2)],
+		GATEWAY_REJECTED,
+		[sealed(4), reasoning(4), call('python', {'code': 'print(2)'}, 4)],
+	]
+	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None, compact_at_tokens=10)
+	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 5), result.error
+	rejected, again, after = (json.dumps(requests[i][1]['input']) for i in (2, 3, 4))
+	assert 'cmp_2' in rejected and 'cmp_2' not in again and 'TASK-TEXT' in again and requests[3][1]['context_management']
+	assert 'cmp_4' in after and 'TASK-TEXT' not in after
+
+	requests.clear()
+	replies += [
+		[sealed(1), reasoning(1), call('python', {'code': 'print(6 * 7)'}, 1)],
+		[sealed(2), reasoning(2), call('python', {'code': 'print(1)'}, 2)],
+		GATEWAY_REJECTED,
+		GATEWAY_REJECTED,
+	]
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None, compact_at_tokens=10)
+	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
+	assert (result.status, len(requests)) == ('error', 4)  # cmp_1 is still sent: one resend, not one per item
+	assert 'cmp_1' in json.dumps(requests[3][1]['input']) and 'invalid_request' in (result.error or '')
+
+
 @pytest.fixture
 def models_server():
 	"""The gateway's GET /models: answers with `reply` = [status, body, content type]."""

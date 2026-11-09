@@ -400,13 +400,16 @@ class StreamedRequest(WrapperModel):
 	async def request(self, messages: Any, model_settings: Any, model_request_parameters: Any) -> ModelResponse:
 		"""bub2-010 (gpt-6-luna, 1 of 5 streamed compactions): the next request got 400 invalid_encrypted_content on the
 		compaction item and the run ended. The messages still hold the history that item replaced, so the request goes
-		out again without it and the server compacts that history again; never more often than there are such items."""
+		out again without it and the server compacts that history again; never more often than there are such items, and
+		once for the gateway's 400, which does not say which item."""
+		guessed = False
 		while True:
 			try:
 				return await self._request(messages, model_settings, model_request_parameters)
 			except ModelAPIError as e:
-				if not (item := _unreadable_compaction(e, messages)):
+				if not (item := _unreadable_compaction(e, messages, guessed)):
 					raise
+				guessed = guessed or e.provider_error_code != 'invalid_encrypted_content'
 				logger.warning(f'{self.model_name} could not read compaction item {item}; sending the history it replaced')
 				messages = [_without_part(m, item) if isinstance(m, ModelResponse) else m for m in messages]
 
@@ -447,13 +450,17 @@ def _sealed_as_completed(response: ModelResponse, final: Any) -> ModelResponse:
 	return replace(response, parts=[*missing, *parts])
 
 
-def _unreadable_compaction(error: ModelAPIError, messages: Sequence[ModelMessage]) -> str | None:
-	"""The id of the compaction item in `messages` that the provider's 400 invalid_encrypted_content names, if any."""
-	if error.provider_error_code != 'invalid_encrypted_content':
-		return None
-	ids = re.findall(r'\bcmp_\w+', error.body if isinstance(error.body, str) else json.dumps(error.body, default=str))
-	sent = {p.id for m in messages if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, CompactionPart)}
-	return next((i for i in ids if i in sent), None)
+def _unreadable_compaction(error: ModelAPIError, messages: Sequence[ModelMessage], guessed: bool) -> str | None:
+	"""The id of the compaction item in `messages` that the provider's 400 invalid_encrypted_content names, if any. The
+	gateway answers every provider 400 as invalid_request with neither the code nor the message (cloud llmgateway
+	publicError), so there it is the newest item, the only one a request carries, once (`guessed`: already tried)."""
+	sent = [p.id for m in messages if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, CompactionPart)]
+	if error.provider_error_code == 'invalid_encrypted_content':
+		ids = re.findall(r'\bcmp_\w+', error.body if isinstance(error.body, str) else json.dumps(error.body, default=str))
+		return next((i for i in ids if i in sent), None)
+	if error.provider_error_code == 'invalid_request' and getattr(error, 'status_code', None) == 400 and sent and not guessed:
+		return sent[-1]
+	return None
 
 
 def _without_part(message: ModelResponse, item: str) -> ModelResponse:
