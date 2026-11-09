@@ -228,7 +228,10 @@ def _outputs(output_type: Any) -> list[Any]:
 			try:
 				value = adapter.validate_json(r['value'])
 			except ValidationError as e:
-				raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}')
+				try:  # a str comes back as is, not as JSON text: answer = 'no' for Literal['yes', 'no'] or a StrEnum
+					value = adapter.validate_python(r['value'])
+				except ValidationError:
+					raise ModelRetry(f'Value does not match the result schema: {str(e)[:2000]}') from None
 		ctx.deps.success, ctx.deps.finish_via = success, 'finish_from_repl'
 		return clean(ctx, value)
 

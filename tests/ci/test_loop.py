@@ -769,3 +769,29 @@ async def test_a_secret_the_model_quoted_is_redacted_where_browser_use_quotes_it
 	assert (result.status, result.output) == ('completed', Count(n=3))
 	assert secret in str(seen)  # the provider still gets the conversation as it was
 	assert secret not in str(result.messages) and '<secret:pw>' in str(result.messages), result.messages
+
+
+@pytest.mark.parametrize('schema', ['literal', 'enum'])
+async def test_finish_from_repl_delivers_a_plain_string_for_a_string_schema(tmp_path, schema):
+	"""finish_from_repl(expression='answer') with answer = 'no' and output_model_schema=Literal['yes', 'no'] (or a
+	StrEnum): the REPL hands a str back as is, and it was parsed as JSON text: 'Invalid JSON', one model turn lost on
+	every such delivery (live: gpt-6-luna on bu-fast, 2/2 runs)."""
+	import enum
+	from typing import Literal
+
+	class Answer(enum.StrEnum):
+		yes = 'yes'
+		no = 'no'
+
+	class Repl(FakeRepl):
+		async def call(self, op, code, timeout):
+			return (
+				{'output': '', 'error': None, 'images': [], 'value': 'no'}
+				if op == 'eval'
+				else await super().call(op, code, timeout)
+			)
+
+	model, seen = script(('finish_from_repl', {'expression': 'answer', 'success': True}))
+	output_type = Literal['yes', 'no'] if schema == 'literal' else Answer
+	result = await run(build_agent(model, output_type=output_type), 'task', Session(repl=Repl(tmp_path)), 'function:x')
+	assert (result.status, result.output, len(seen)) == ('completed', 'no', 1)
