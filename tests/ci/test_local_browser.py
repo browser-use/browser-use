@@ -582,6 +582,19 @@ async def test_attach_starts_the_daemon_once_your_chrome_has_remote_debugging_on
 	assert calls == [None, 'butestattached', None] and opened == []
 
 
+def test_attach_reuses_a_daemon_that_already_reaches_its_browser(attaches, monkeypatch):
+	"""rc5 merge: `BU_NAME=<a daemon BU_CDP_WS started> browser-use` (CI's chrome fixture, an orchestrator's daemon)
+	failed with remote-debugging-setup, though that daemon discovers nothing."""
+	from browser_harness import admin
+
+	from browser_use import harness_cloud
+
+	calls, opened = attaches
+	monkeypatch.setattr(admin, 'require_existing_daemon', lambda name=None: None)  # healthy, attached by BU_CDP_WS
+	harness_cloud.ensure_daemon(name='butestcdp')
+	assert calls == ['butestcdp'] and opened == []
+
+
 # End to end with the real Chrome
 
 

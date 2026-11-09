@@ -580,10 +580,14 @@ async def test_helpers_refuse_disallowed_urls(daemon, site, tmp_path):
 def test_mcp_http_get_checks_every_redirect_and_stays_local(site, monkeypatch):
 	"""NET-4: --mcp with allowed_domains checked only http_get's first URL, so a redirect from an allowed host fetched
 	any host, and with BROWSER_USE_API_KEY set the URL and headers went to the fetch-use proxy instead."""
+	import socket
+
 	import fetch_use
 
 	from browser_use.mcp import cli_mcp
 
+	real = socket.getaddrinfo  # Windows' resolver has no *.localhost (Chrome's, used by the other site tests, does)
+	monkeypatch.setattr(socket, 'getaddrinfo', lambda h, *a, **k: real('127.0.0.1' if h.endswith('.localhost') else h, *a, **k))
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'bu_test')
 	monkeypatch.setattr(fetch_use, 'fetch_sync', lambda *a, **k: pytest.fail('http_get went through fetch-use'))
 	mcp = cli_mcp.CLIMCPServer(own_browser=True, allowed_domains=['allowed.localhost'])
