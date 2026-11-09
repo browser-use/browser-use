@@ -480,6 +480,27 @@ async def test_fresh_chromium_end_to_end_has_no_cookies_and_leaves_nothing(chrom
 	assert proc.poll() is not None and not tmp.exists() and not browser_mod._LIVE
 
 
+async def test_a_launched_browsers_pages_run_at_full_speed_out_of_sight(chrome_binary, tmp_path):
+	"""1.0 dropped 0.x's (and Playwright's) --disable-background-timer-throttling, --disable-renderer-backgrounding and
+	--disable-backgrounding-occluded-windows. A page the agent is not looking at ran its timers ~15x slower: a tab in the
+	background, and on a headed Chrome (the macOS default) every tab once the window was covered or the screen locked
+	(live: 3 of 60 setInterval ticks, 1 of ~130 animation frames, document hidden)."""
+	model, _ = script(
+		(
+			'python',
+			{
+				'code': "a = new_tab('data:text/html,<p>a'); wait_for_load(); js('(window.t = 0, setInterval(() => window.t++, 50), 1)'); "
+				"new_tab('data:text/html,<p>b'); wait_for_load(); wait(3); switch_tab(a); ticks = js('window.t')"
+			},
+		),
+		('finish_from_repl', {'success': True, 'expression': 'ticks'}),
+	)
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	result = await Agent('Count', model, browser=browser, workspace=tmp_path).run()
+	assert result.status == 'completed', result.error
+	assert int(result.final_result() or 0) > 30, result.final_result()  # 60 at full speed; throttled: 1 per second
+
+
 async def test_a_launched_browser_has_one_tab(chrome_binary):
 	"""C63: Chrome's launch tab stayed next to the tab our named daemon opens: list_tabs() gave 2, headed showed a blank
 	extra tab."""
