@@ -1,5 +1,5 @@
 """What a run reports to telemetry: counts, names, hostnames and classes. Never text that the task, the model, a page or
-an exception wrote (TELEMETRY.md). Names the model's code can choose (imported modules, exception classes, cdp()
+an exception wrote. Names the model's code can choose (imported modules, exception classes, cdp()
 methods) are kept only when Python, an installed package or the CDP protocol defines them."""
 
 from __future__ import annotations

@@ -266,6 +266,20 @@ def test_ports_schemes_and_hostless_urls():
 	assert not ok('ftp://example.com/', ['example.com'])  # no scheme in the pattern = http and https
 
 
+def test_file_urls_blocked_under_every_rule():
+	# Chrome reads file://localhost/<path> (and file://<any host>/) from the local disk, keeping that URL
+	file_urls = ('file:///etc/passwd', 'file://localhost/etc/hosts', 'FILE://LOCALHOST/proc/self/environ', ' file://h/x')
+	for rules in (
+		DomainRules.of(['example.com']),
+		DomainRules.of(prohibited=['evil.com']),
+		DomainRules.of(block_ips=True),
+		DomainRules.of(['file://*', 'localhost']),
+	):
+		for url in file_urls:
+			assert (why := rules.blocked(url)) and 'is a file: URL or has no host' in why, (rules, url)
+	assert DomainRules.of().blocked('file://localhost/etc/hosts') is None  # no rules: no restriction
+
+
 def test_rules_messages_prompt_and_env():
 	rules = DomainRules.of(['example.com', '*.example.org'])
 	assert rules.blocked('https://evil.com/x') == 'blocked: evil.com is not in allowed_domains (example.com, *.example.org)'
@@ -556,10 +570,38 @@ async def test_helpers_refuse_disallowed_urls(daemon, site, tmp_path):
 				and 'PermissionError: blocked: evil.localhost is not in allowed_domains (allowed.localhost)' in r['error']
 			), code
 			assert r['stats']['events'] == {'domain_blocked': 1}
+		# http_get took the opener to call (_urlopen=): a fresh one followed the redirect to evil unchecked
+		redirect = site['allowed'] + '/redirect'
+		r = await repl.call(
+			'exec', f'import urllib.request; http_get({redirect!r}, _urlopen=urllib.request.build_opener().open)', 30
+		)
+		assert r['error'], r['output']
 		r = await repl.call('exec', 'len(list_tabs()) == n', 30)
 		assert r['output'].strip() == 'True'
 	finally:
 		await repl.close()
+	assert evil_hits() == []
+
+
+def test_mcp_http_get_checks_every_redirect_and_stays_local(site, monkeypatch):
+	"""NET-4: --mcp with allowed_domains checked only http_get's first URL, so a redirect from an allowed host fetched
+	any host, and with BROWSER_USE_API_KEY set the URL and headers went to the fetch-use proxy instead."""
+	import socket
+
+	import fetch_use
+
+	from browser_use.mcp import cli_mcp
+
+	real = socket.getaddrinfo  # Windows' resolver has no *.localhost (Chrome's, used by the other site tests, does)
+	monkeypatch.setattr(socket, 'getaddrinfo', lambda h, *a, **k: real('127.0.0.1' if h.endswith('.localhost') else h, *a, **k))
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'bu_test')
+	monkeypatch.setattr(fetch_use, 'fetch_sync', lambda *a, **k: pytest.fail('http_get went through fetch-use'))
+	mcp = cli_mcp.CLIMCPServer(own_browser=True, allowed_domains=['allowed.localhost'])
+	Site.hits.clear()
+	out, failed = mcp._execute(f'print(http_get({site["allowed"] + "/ok"!r}))', connect=False)
+	assert not failed and '<title>allowed.localhost/ok</title>' in out, out
+	out, failed = mcp._execute(f'http_get({site["allowed"] + "/redirect"!r})', connect=False)
+	assert failed and 'PermissionError: blocked: evil.localhost is not in allowed_domains' in out, out
 	assert evil_hits() == []
 
 

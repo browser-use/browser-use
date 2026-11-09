@@ -19,7 +19,7 @@
 #########################################################################################
 
 
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 LABEL name="browseruse" \
     maintainer="Nick Sweeting <dockerfile@browser-use.com>" \
@@ -140,7 +140,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-$TARGETARCH$T
      #    xfonts-scalable xfonts-utils xserver-common xvfb \
      && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.9@sha256:8b940d3a9d65bed080436972241af2e21c84b5e8c9193f7014ed71479ee795ff /uv /uvx /bin/
 
 # Copy only dependency manifest
 WORKDIR /app

@@ -44,6 +44,7 @@ from browser_use.remote_upload import set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.highlight import Highlighter
 from browser_use.repl.network_idle import wait_for_network_idle
+from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import (
 	MAX_OUTPUT_CHARS,
 	SECRET_PLACEHOLDER,
@@ -143,7 +144,7 @@ PROGRESS_EVENTS = ('Browser.downloadProgress', 'Page.downloadProgress')
 
 
 class CellStats:
-	"""Telemetry counts of one cell (TELEMETRY.md): helper and cdp() method names with call counts, errors and time,
+	"""Telemetry counts of one cell: helper and cdp() method names with call counts, errors and time,
 	hostnames, captcha and download events. Never arguments, URLs, page text or values. Sent with the cell's result,
 	then reset. Each update is a few dict operations under one lock (~1 us); helpers and CDP calls take milliseconds."""
 
@@ -231,9 +232,9 @@ class CellStats:
 						if not copy:  # the model never downloaded a page it only opened (Browser.json_page_copies)
 							self.started.append(str(params.get('suggestedFilename') or params.get('url')))
 			elif method in PROGRESS_EVENTS and params.get('state') in ('completed', 'canceled'):
-				if method == 'Browser.downloadProgress':  # Browser.stop() waits for the rest
-					_log_download({'done': params.get('guid'), 'state': params['state']})
-				if params['state'] == 'completed':  # either event: a tab another client attached sends only Page's
+				# either event: a tab another client attached sends only Page's. Browser.stop() waits for the rest
+				_log_download({'done': params.get('guid'), 'state': params['state']})
+				if params['state'] == 'completed':
 					self.name_download(params)
 			elif method == 'Page.frameNavigated' and _json_page(params):
 				_log_download({'json_page': params['frame'].get('url')})
@@ -371,23 +372,34 @@ def _checked(fn, check_url):
 	return checked
 
 
-def _check_redirects(check_url) -> None:
-	"""http_get (urllib) follows redirects: every hop is checked too, for any urllib.request.urlopen in the worker."""
+def redirect_checking_opener(check_url) -> urllib.request.OpenerDirector:
+	"""An opener that calls check_url on every redirect hop before following it."""
 
 	class CheckedRedirects(urllib.request.HTTPRedirectHandler):
 		def redirect_request(self, req, fp, code, msg, headers, newurl):
 			check_url(newurl)
 			return super().redirect_request(req, fp, code, msg, headers, newurl)
 
-	urllib.request.install_opener(urllib.request.build_opener(CheckedRedirects))
+	return urllib.request.build_opener(CheckedRedirects)
+
+
+def _check_redirects(check_url) -> None:
+	"""http_get (urllib) follows redirects: every hop is checked too, for any urllib.request.urlopen in the worker."""
+	urllib.request.install_opener(redirect_checking_opener(check_url))
 
 
 def http_get(url, headers=None, timeout=20.0):
 	"""Plain HTTP from this machine, not the browser (no browser IP, cookies or proxy). Returns str, or bytes when the
 	body is not UTF-8 text (zip, pdf, image). browser-harness's own decoded every body (UnicodeDecodeError on binary), and
 	its fetch-use branch never runs here: the worker has no BROWSER_USE_API_KEY."""
+	return _http_get(url, headers, timeout, urllib.request.urlopen)
+
+
+def _http_get(url, headers, timeout, urlopen):
+	"""http_get through urlopen. Not on http_get itself: the agent calls that, and passing its own opener skipped the
+	redirect check (--cli-mcp passes its checked opener here)."""
 	h = {'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip', **(headers or {})}
-	with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+	with urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
 		data = r.read()
 		if r.headers.get('Content-Encoding') == 'gzip':
 			data = gzip.decompress(data)
@@ -645,6 +657,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
 	helpers.http_get = http_get
 	helpers.wait_for_network_idle = wait_for_network_idle  # browser-4; delete with network_idle.py at harness >= 0.1.14
+	install_page_info()  # cli-1: waits for a new document's <html>; delete with page_info.py
 	if rules:  # before the * import below, so the agent's names are the checked ones
 		for name in ('new_tab', 'http_get'):  # new_tab: before it opens an empty tab; http_get: plain HTTP from here
 			helpers.__dict__[name] = _checked(getattr(helpers, name), check_url)

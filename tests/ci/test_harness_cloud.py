@@ -252,6 +252,45 @@ def test_a_socket_path_too_long_for_the_os_is_one_line_before_a_cloud_browser_is
 	assert created == []
 
 
+def test_a_runtime_dir_other_users_can_write_is_refused_and_the_cloud_marker_is_private(monkeypatch, shared_runtime_dir):
+	"""EXEC-3 / NET-3: our socket-path error suggested BH_RUNTIME_DIR=/tmp/bh, and browser-harness uses a dir that
+	already exists as is. Another user's /tmp/bh held the daemon socket (they could swap it for a fake daemon) and the
+	.cloud marker (0644: the browser id, which alone drives the cloud browser)."""
+	from browser_harness import admin, helpers
+
+	from browser_use import harness_cloud
+
+	shared = shared_runtime_dir
+	created = []
+	monkeypatch.setattr(admin, 'start_remote_daemon', lambda *a, **k: created.append(a) or {'id': 'b-secret'})
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: created.append(a))
+	monkeypatch.setattr(admin, 'daemon_alive', lambda name=None: False)
+	monkeypatch.setattr(admin, 'NAME', admin.NAME)  # route() rebinds these
+	monkeypatch.setattr(helpers, 'NAME', helpers.NAME)
+	ns: dict = {}
+	harness_cloud.install(ns)
+	for call in (lambda: ns['start_remote_daemon'](_name('shared')), lambda: ns['ensure_daemon']()):
+		with pytest.raises(harness_cloud.CloudBrowserError, match=r'is writable by other users.*chmod 700'):
+			call()
+	shared.chmod(0o700)
+	getuid = os.getuid
+	monkeypatch.setattr(os, 'getuid', lambda: getuid() + 1)  # the same dir, owned by someone else
+	with pytest.raises(harness_cloud.CloudBrowserError, match='owned by another user') as raised:
+		ns['ensure_daemon']()
+	assert 'chmod' not in str(raised.value) and 'BH_RUNTIME_DIR to a new path' in str(raised.value)  # not theirs to chmod
+	assert created == []
+	monkeypatch.setattr(os, 'getuid', getuid)  # now a private dir of our own
+	name = _name('private')
+	old = os.umask(0o022)
+	try:
+		harness_cloud._marker(name).write_text('')  # 0644, as an older version wrote it
+		ns['start_remote_daemon'](name)
+	finally:
+		os.umask(old)
+	marker = harness_cloud._marker(name)
+	assert marker.read_text() == 'b-secret' and marker.stat().st_mode & 0o777 == 0o600
+
+
 def test_stopping_a_cloud_browser_twice_is_a_no_op_and_an_unknown_name_is_one_line():
 	"""Live: a second stop_remote_daemon(name) after a successful stop (the skill says to stop when done; the agent cannot
 	tell a timeout from a stop) raised a 20-line traceback ending in "daemon 'x' is unavailable for required clean

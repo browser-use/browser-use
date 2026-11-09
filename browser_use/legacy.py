@@ -30,7 +30,7 @@ _CODE_AGENT = 'from browser_use import Agent: the 1.0 agent writes Python itself
 _CLI = 'the browser-use CLI pipes Python to browser-harness (browser-use --help), and browser-use --cli-mcp serves it over MCP.'
 _USAGE = 'result.usage (tokens) and result.cost_usd.'
 _LLM_ERROR = "result.error (run() returns status='error' for provider failures)."
-_TELEMETRY = 'telemetry is internal (TELEMETRY.md); ANONYMIZED_TELEMETRY=false turns it off.'
+_TELEMETRY = 'telemetry is internal; ANONYMIZED_TELEMETRY=false turns it off.'
 _SKILLS = 'none (Cloud Skills were removed).'
 _UTILS = 'none: it was a 0.x internal helper; copy what you need.'
 _OBSERVABILITY = (

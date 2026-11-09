@@ -1,5 +1,5 @@
 """Links in what browser-use prints: a terminal makes every character up to the next space part of the link, so a
-period, comma or parenthesis right after a URL breaks it ("...TELEMETRY.md." opens a 404)."""
+period, comma or parenthesis right after a URL breaks it ("...MIGRATING.md." opens a 404)."""
 
 import ast
 import io

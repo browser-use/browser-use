@@ -35,7 +35,7 @@ def _set_harness_client_env() -> None:
 
 def _scrub_harness_telemetry() -> None:
 	"""browser-harness's cli_event carries the piped code, its output, helper arguments and error text. In the
-	browser-use CLI those never leave the machine: every event is scrubbed (TELEMETRY.md), then sent by the library's
+	browser-use CLI those never leave the machine: every event is scrubbed, then sent by the library's
 	sender to the library's PostHog project under its device id, next to the same machine's agent_events (browser-harness
 	would send it to its own project under its own install id, and create that id). ANONYMIZED_TELEMETRY turns it off as
 	in the library (browser-harness alone only knows 0, false, no and off): its is_enabled() says so too, else it built the
@@ -201,8 +201,10 @@ def _run_doctor() -> int:
 	print(f'browser-use {_browser_use_version()} (browser-harness {admin._version()}), Python {platform.python_version()}')
 	try:
 		local = find_binary()
-	except RuntimeError as e:  # none installed, or only a Snap one
-		local, local_text = None, f'{str(e).splitlines()[0]}  (browser-use install)'
+	except RuntimeError as e:  # none installed (its error names `browser-use install`), or only a Snap one (it does not)
+		local, local_text = None, str(e).splitlines()[0]
+		if 'browser-use install' not in local_text:  # Playwright's Chromium is found past a Snap one
+			local_text += '  (or: browser-use install)'
 	else:
 		local_text = local
 	try:
@@ -311,16 +313,20 @@ def _run_login_command(argv: list[str]) -> int:
 	command = ['login', *argv]
 	if any(arg in {'-h', '--help'} for arg in argv):
 		return _normalize_captured_cli_output(auth.run_auth_cli, command)
-	if '--api-key-stdin' in argv:
-		try:
-			sys.stdin = StringIO(_read_api_key_stdin())
-		except auth.AuthError as e:
-			print(e, file=sys.stderr)
-			return 1
-	harden_login_callback()
-	if notice := set_aside_corrupt_store():
-		print(notice, file=sys.stderr)
-	code = auth.run_auth_cli(command)
+	try:  # Ctrl-C at the hidden key prompt, during the key check or while it waits for the approval: nothing stored
+		if '--api-key-stdin' in argv:
+			try:
+				sys.stdin = StringIO(_read_api_key_stdin())
+			except auth.AuthError as e:
+				print(e, file=sys.stderr)
+				return 1
+		harden_login_callback()
+		if notice := set_aside_corrupt_store():
+			print(notice, file=sys.stderr)
+		code = auth.run_auth_cli(command)
+	except KeyboardInterrupt:
+		print('Login cancelled.', file=sys.stderr)
+		return 130
 	if code == 0 and '--json' not in argv:
 		print(LOGIN_DONE)
 		if os.environ.get('BROWSER_USE_API_KEY'):
@@ -463,9 +469,10 @@ class _HarnessStderr:
 def _run_browser_harness(code: str | None = None) -> int | None:
 	import os
 
-	from browser_harness import run
+	from browser_harness import helpers, run
 
 	from browser_use.browser.browser import _name_daemon_files
+	from browser_use.repl.page_info import install as install_page_info
 
 	global _delegated_to_harness
 
@@ -477,6 +484,8 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	_scrub_harness_telemetry()
 	_patch_browser_harness_cli_text()
 	_guard_cloud_browsers(run, code)
+	install_page_info()  # cli-1: run.py star-imported the helpers already, so rebind its name too
+	run.page_info = helpers.page_info
 	args = sys.argv[1:]
 	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
 		from browser_use import harness_cloud
@@ -630,7 +639,7 @@ Recommended: install the skill so your coding agent remembers this:
 
 You can also paste this into your agent to get started:
 
-  Install browser-use with `uv tool install browser-use`, run `browser-use skill install`
+  Install browser-use with `uv tool install browser-use=={version}`, run `browser-use skill install`
   to register the skill, and connect it to my browser. If setup or connection fails,
   follow https://github.com/browser-use/browser-harness/blob/main/install.md
 
@@ -733,7 +742,7 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	code = None
 	if not args:
 		if sys.stdin.isatty():
-			print(_QUICKSTART)
+			print(_QUICKSTART.replace('{version}', _browser_use_version()))
 			return 0, 'quickstart'
 		code = sys.stdin.read()
 		if not code.strip():

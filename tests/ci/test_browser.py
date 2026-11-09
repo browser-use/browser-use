@@ -191,8 +191,18 @@ async def test_a_socket_path_too_long_for_the_os_names_the_path_before_anything_
 	monkeypatch.setattr(ipc, '_sock_path', lambda name: long_dir / f'bu-{name}.sock')
 	with pytest.raises(RuntimeError, match=r'socket path is \d+ bytes, over the 10\d-byte limit.*BH_RUNTIME_DIR') as raised:
 		await Browser().start()
-	assert str(long_dir) in str(raised.value)
+	assert str(long_dir) in str(raised.value) and '/tmp/bh' not in str(raised.value)  # EXEC-3: a per-user dir
 	assert not [c for c in cloud if c[0] == 'POST'] and not browser_mod._LIVE  # no cloud browser created
+
+
+async def test_a_runtime_dir_other_users_can_write_is_refused_before_anything_starts(cloud, shared_runtime_dir):
+	"""EXEC-3: browser-harness keeps the daemon's socket (its only lock on POSIX) in a BH_RUNTIME_DIR that already
+	exists, as is: in another user's /tmp/bh they could swap it for a fake daemon and get every CDP command."""
+	with pytest.raises(RuntimeError, match=r'is writable by other users \(mode 777\).*chmod 700'):
+		await Browser().start()
+	with pytest.raises(RuntimeError, match='writable by other users'):
+		await Browser('chrome').start()  # the shared default daemon too
+	assert not [c for c in cloud if c[0] in ('POST', 'daemon')] and not browser_mod._LIVE
 
 
 async def test_a_rejected_provider_key_or_unknown_model_never_creates_a_cloud_browser(cloud, monkeypatch, tmp_path):
@@ -576,7 +586,7 @@ async def test_a_cloud_browser_start_is_logged_at_info(cloud, caplog, monkeypatc
 
 
 async def test_the_cloud_browser_id_is_never_logged_whole_or_put_in_a_command_line(cloud, caplog, monkeypatch):
-	"""The id is the cloud browser's CDP hostname and drives it without a key (TELEMETRY.md). Every default Browser()
+	"""The id is the cloud browser's CDP hostname and drives it without a key. Every default Browser()
 	logged it at INFO and handed it to the watchdog and the MCP reaper as argv, which any local user's ps shows."""
 	import logging
 	import subprocess
@@ -898,6 +908,31 @@ def test_a_cdp_url_with_a_query_keeps_it_after_the_version_path(monkeypatch):
 	assert asked == ['http://host:9222/json/version?token=t', 'https://host/cdp/json/version', 'http://host:9222/json/version']
 
 
+async def test_a_download_that_sends_only_page_events_never_holds_the_stop(monkeypatch, tmp_path):
+	"""RC local-1: a tab whose session never got Browser.setDownloadBehavior (Browser('chrome') on yours, a tab another
+	client attached) sends only Page.download* events. Their completion was never counted, so stop() waited
+	DOWNLOADS_TIMEOUT_S (300 s) and warned that the finished files were lost."""
+	from browser_use.repl import worker
+
+	def begin(guid):
+		return {
+			'method': 'Page.downloadWillBegin',
+			'params': {'guid': guid, 'url': f'https://h/{guid}', 'suggestedFilename': guid},
+		}
+
+	def done(guid):
+		return {'method': 'Page.downloadProgress', 'params': {'guid': guid, 'state': 'completed'}}
+
+	monkeypatch.setattr(worker, 'STATE', tmp_path)
+	worker.CellStats().observe([begin('a'), done('a'), begin('b')])  # b finishes after the REPL worker closed
+	monkeypatch.setattr(browser_mod, '_daemon_request', lambda name, req: {'events': [done('b')]})
+	monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 0)
+	browser = Browser('chromium')
+	browser._downloads_dir = tmp_path / 'downloads'
+	browser.note_downloads(tmp_path / 'downloads.jsonl')
+	assert await browser._finish_downloads() == 2
+
+
 async def test_a_cancelled_run_never_waits_for_a_running_download(cloud, monkeypatch, tmp_path):
 	"""Review: task.cancel() / Ctrl-C with a download still running held the stop (and cloud billing) for
 	DOWNLOADS_TIMEOUT_S, waiting for progress that would never be looked at."""
@@ -1001,6 +1036,7 @@ async def test_local_start_is_bounded_when_chrome_never_allows_remote_debugging(
 
 	monkeypatch.setattr(admin, 'ensure_daemon', ensure_daemon)
 	monkeypatch.setattr(admin, 'daemon_alive', lambda name=None: True)  # skip discovery of this machine's Chromes
+	monkeypatch.setattr(browser_mod._local, 'require_debug_port', lambda: None)  # your Chrome has remote debugging on
 	with pytest.raises(RuntimeError, match='did not allow remote debugging within 120s'):
 		await Browser('chrome').start()
 	assert calls == [browser_mod.LOCAL_START_WAIT_S]

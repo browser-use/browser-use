@@ -1,4 +1,4 @@
-"""Sends telemetry to PostHog from one background thread (TELEMETRY.md). Nothing on the agent path waits on the network
+"""Sends telemetry to PostHog from one background thread. Nothing on the agent path waits on the network
 or the disk: run_started() and capture_run() are a dict update and a queue.put. The thread builds each event, gzips it
 and POSTs it (3 s timeout, one retry); a failed send goes to an outbox the next process sends. At exit, events still
 queued go to a detached sender process, so a one-shot script neither waits for the network nor loses its event.
@@ -40,9 +40,10 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 	'import sys, os, urllib.request\n'
 	'url = sys.argv[1]\n'
 	'for path in sys.argv[2:]:\n'
+	'    claimed = path[:-3] + f".{os.getpid()}.sending"\n'
+	'    try: os.replace(path, claimed)\n'
+	'    except OSError: continue\n'  # another sender has it
 	'    try:\n'
-	'        claimed = path[:-3] + f".{os.getpid()}.sending"\n'
-	'        os.replace(path, claimed)\n'
 	'        data = open(claimed, "rb").read()\n'
 	'        headers = {"Content-Type": "application/json", "Content-Encoding": "gzip"}\n'
 	'        urllib.request.urlopen(urllib.request.Request(url, data, headers), timeout=10).read()\n'
@@ -50,10 +51,12 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 	'    except Exception:\n'
 	'        try: os.replace(claimed, path)\n'
 	'        except Exception: pass\n'
+	'        break\n'  # offline: one timeout, the rest waits for the next process
 )
 
 _device_id: str | None = None
 _device_id_lock = threading.Lock()
+_tls: Any = None  # the thread's TLS context, made once under ProductTelemetry._lock (_online)
 
 
 def telemetry_dir() -> Path:
@@ -150,6 +153,13 @@ def _alive(pid: int) -> bool:
 	return True
 
 
+def _size(path: Path) -> int:
+	try:
+		return path.stat().st_size
+	except OSError:  # claimed or sent meanwhile
+		return 0
+
+
 class ProductTelemetry:
 	"""One per process (telemetry()). Reads ANONYMIZED_TELEMETRY on every call."""
 
@@ -168,6 +178,8 @@ class ProductTelemetry:
 		self._active: dict[str, tuple[Callable[[], dict], Callable[[], dict], float]] = {}
 		self.send_failures = 0  # failed sends since the last success (outbox files left at start included)
 		self.dropped = 0
+		self._exiting = False  # set at exit: the thread claims no more files (_claim) and sends nothing (_online)
+		self._handed: set[str] = set()  # run_ids of the events the exit handler wrote for its sender
 
 	@property
 	def enabled(self) -> bool:
@@ -191,7 +203,7 @@ class ProductTelemetry:
 					if self.notice:
 						logger.info(
 							'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false '
-							'turns it off), see https://github.com/browser-use/browser-use/blob/main/TELEMETRY.md'
+							'turns it off)'
 						)
 					atexit.register(self._at_exit)
 					self._atexit = True
@@ -334,23 +346,42 @@ class ProductTelemetry:
 		import urllib.request
 
 		headers = {'Content-Type': 'application/json', 'Content-Encoding': 'gzip'}
+		request = urllib.request.Request(f'{POSTHOG_HOST}/batch/', data, headers)
 		try:
-			with urllib.request.urlopen(urllib.request.Request(f'{POSTHOG_HOST}/batch/', data, headers), timeout=timeout) as r:
+			with urllib.request.urlopen(request, timeout=timeout, context=_tls) as r:
 				return 200 <= r.status < 300
 		except Exception:
 			return False
 
+	def _online(self) -> bool:
+		"""False once the process is exiting: the exit handler sends what is left. Else the TLS context exists: made here,
+		under the lock the exit handler takes. Made by urlopen, its certificate loading ran in OpenSSL while the exit freed
+		OpenSSL: a CLI call that exited as its thread began its first send segfaulted (0.6% of offline calls on macOS)."""
+		global _tls
+		with self._lock:
+			if self._exiting:
+				return False
+			if _tls is None:
+				import ssl
+
+				try:
+					_tls = ssl.create_default_context()
+				except Exception:  # - urlopen makes its own, as before
+					pass
+			return True
+
 	def _send(self, job: Job) -> None:
 		data = self._body([self._event(job)])
-		ok = self._post(data)
-		if not ok:
+		ok = self._online() and self._post(data)
+		if not ok and not self._exiting:
 			time.sleep(1)
-			ok = self._post(data)
+			ok = self._online() and self._post(data)
 		if ok:
 			self.send_failures = 0
 		else:
 			self.send_failures += 1
-			self._to_outbox(data, job.run_id)
+			if job.run_id not in self._handed:  # else written again after the exit sender took it: sent twice
+				self._to_outbox(data, job.run_id)
 		self._pending.pop(job.run_id, None)
 		self._unmark(job.run_id)
 
@@ -360,8 +391,14 @@ class ProductTelemetry:
 		try:
 			box = telemetry_dir() / 'outbox'
 			box.mkdir(parents=True, exist_ok=True)
-			files = list(box.glob('*.gz'))
-			if len(files) >= OUTBOX_FILES or sum(f.stat().st_size for f in files) + len(data) > OUTBOX_BYTES:
+			files = self._outbox()
+			claims = list(box.glob('*.sending'))  # being sent: back in the box if the send fails
+			size = sum(map(_size, files + claims)) + len(data)
+			while files and (len(files) + len(claims) >= OUTBOX_FILES or size > OUTBOX_BYTES):  # full: the oldest goes
+				oldest = files.pop(0)
+				size -= _size(oldest)
+				oldest.unlink(missing_ok=True)
+			if len(files) + len(claims) >= OUTBOX_FILES or size > OUTBOX_BYTES:
 				return None
 			path = box / f'{name}.gz'
 			path.write_bytes(data)
@@ -369,10 +406,11 @@ class ProductTelemetry:
 		except OSError:
 			return None
 
-	def _send_outbox(self) -> None:
+	def _outbox(self) -> list[Path]:
+		"""The outbox's files to send, oldest first: a dead sender's claims are back, files past OUTBOX_DAYS deleted."""
 		box = telemetry_dir() / 'outbox'
 		if not box.is_dir():
-			return
+			return []
 		for claim in box.glob('*.sending'):  # <run_id>.<pid>.sending: a sender that died mid-send (killed, or this
 			try:  # thread at exit) left its claim, and nothing else would ever send it
 				pid = int(claim.name.split('.')[1])
@@ -380,24 +418,45 @@ class ProductTelemetry:
 					os.replace(claim, box / (claim.name.split('.')[0] + '.gz'))
 			except (OSError, ValueError, IndexError):
 				continue
-		files = sorted(box.glob('*.gz'), key=lambda p: p.stat().st_mtime)
+		files: list[tuple[float, Path]] = []
+		for path in box.glob('*.gz'):
+			try:
+				mtime = path.stat().st_mtime
+				if time.time() - mtime > OUTBOX_DAYS * 86400:
+					path.unlink()
+				else:
+					files.append((mtime, path))
+			except OSError:  # another process claimed it
+				continue
+		return [path for _, path in sorted(files, key=lambda e: e[0])]
+
+	def _send_outbox(self) -> None:
+		files = self._outbox()
 		for i, path in enumerate(files):
 			if path.stem in self._pending:  # this process's own queued event, written at exit: the exit sender sends it
 				continue
 			try:
-				if time.time() - path.stat().st_mtime > OUTBOX_DAYS * 86400:
-					path.unlink()
-					continue
-				claimed = path.with_suffix(f'.{os.getpid()}.sending')
-				os.replace(path, claimed)  # another process may be sending the same box
+				claimed = self._claim(path, 'sending') if self._online() else None  # another process may be sending the box
 			except OSError:
 				continue
+			if claimed is None:
+				return
 			if self._post(claimed.read_bytes()):
 				claimed.unlink(missing_ok=True)
 			else:  # offline: the rest waits for the next process
 				os.replace(claimed, path)
 				self.send_failures += len(files) - i
 				return
+
+	def _claim(self, path: Path, kind: str) -> Path | None:
+		"""path renamed to <stem>.<pid>.<kind>, or None once the process is exiting: a claim made then froze mid-send
+		with the process (RC test: the CLI's thread took the outbox's oldest file on every call, so it was never sent)."""
+		with self._lock:
+			if self._exiting:
+				return None
+			claimed = path.with_suffix(f'.{os.getpid()}.{kind}')
+			os.replace(path, claimed)
+			return claimed
 
 	def _marker(self, run_id: str) -> Path:
 		return telemetry_dir() / 'inflight' / f'{run_id}.json'
@@ -444,10 +503,11 @@ class ProductTelemetry:
 				pid = int(marker.get('pid') or 0)
 				if pid == os.getpid() or (_alive(pid) and age < float(props.get('timeout_s') or 0) + CRASH_GRACE_S):
 					continue
-				claimed = path.with_suffix(f'.{os.getpid()}.crashed')
-				os.replace(path, claimed)  # one process sends it
+				claimed = self._claim(path, 'crashed') if self._online() else None  # one process sends it
 			except (OSError, ValueError, KeyError, TypeError):
 				continue
+			if claimed is None:
+				return
 			updated = float(marker.get('updated') or marker.get('started') or 0)
 			props.update(
 				status='crashed',
@@ -461,15 +521,24 @@ class ProductTelemetry:
 				os.replace(claimed, path)
 
 	def _at_exit(self) -> None:
-		"""Events still queued go to a detached sender, so exit does not wait for the network (~10 ms to spawn)."""
+		"""Events still queued go to a detached sender, so exit does not wait for the network (~10 ms to spawn). The
+		outbox earlier processes left goes with them: a short-lived process (the CLI) exits before its thread sends it."""
 		try:
-			jobs = list(self._pending.values())
-			if not jobs or os.getpid() != self._pid:
+			if os.getpid() != self._pid:
 				return
+			locked = self._lock.acquire(timeout=0.5)  # held by the thread for one rename or its TLS setup (~10 ms)
+			self._exiting = True
+			jobs = list(self._pending.values())
+			self._handed = {job.run_id for job in jobs}
+			if locked:
+				self._lock.release()
+			backlog = self._outbox()  # also with nothing queued: a run killed before its event still hands the outbox on
 			files = [self._to_outbox(self._body([self._event(job)]), job.run_id) for job in jobs]
+			self._handed = {job.run_id for job, f in zip(jobs, files) if f is not None}  # one not written: the thread's
 			for job in jobs:
 				self._unmark(job.run_id)
 			files = [str(f) for f in files if f is not None]
+			files += [str(f) for f in backlog]
 			if not files:
 				return
 			kw: dict[str, Any] = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}

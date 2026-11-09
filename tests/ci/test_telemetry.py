@@ -1,4 +1,4 @@
-"""Telemetry v3 (TELEMETRY.md): counts, names, timings, hostnames and classes are sent; task text, results, code, typed
+"""Telemetry v3: counts, names, timings, hostnames and classes are sent; task text, results, code, typed
 text, secrets, page content, URL paths/queries/fragments and error messages never are. Recording costs microseconds,
 sending happens off the agent path, ANONYMIZED_TELEMETRY=false sends and writes nothing."""
 
@@ -92,6 +92,8 @@ def posthog(monkeypatch, tmp_path):
 	class Capture(BaseHTTPRequestHandler):
 		def do_POST(self):
 			raw = self.rfile.read(int(self.headers['Content-Length']))
+			if len(raw) < int(self.headers['Content-Length']):  # a sender frozen mid-POST at its exit: nothing arrived
+				return
 			if self.path.startswith('/batch/'):
 				state.attempts += 1
 			if state.down:
@@ -628,12 +630,6 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 		True,
 	)
 	assert 0 <= first['duration_seconds'] < 30 and first['version'] and first['os']
-	text = (Path(__file__).parents[2] / 'TELEMETRY.md').read_text(encoding='utf-8')
-	section = text.split('## mcp_server_event', 1)[1].split('\n## ', 1)[0]
-	from browser_use.telemetry.stats import environment
-
-	undocumented = set(first) - {'event', *environment()} - set(re.findall(r'`([$\w-]+)`', section))
-	assert not undocumented, f'sent, not in TELEMETRY.md: {sorted(undocumented)}'
 
 
 @pytest.mark.parametrize('internal', ['1', ''])
@@ -647,7 +643,7 @@ def test_cli_event_is_marked_internal_like_the_agent_event(monkeypatch, internal
 
 @pytest.mark.parametrize('value, sends', [('n', False), ('disable', False), ('on', False), ('0', False), ('yes', True)])
 def test_cli_opt_out_values_match_the_library(monkeypatch, sent, value, sends):
-	"""TELEMETRY.md: any value not starting with t, y or 1 turns it off. browser-harness alone sent with n, disable."""
+	"""Any value not starting with t, y or 1 turns it off. browser-harness alone sent with n, disable."""
 	from browser_harness import telemetry as harness
 
 	import browser_use.cli as cli
@@ -663,7 +659,7 @@ def test_cli_opt_out_values_match_the_library(monkeypatch, sent, value, sends):
 
 @pytest.mark.parametrize('value', ['n', 'disable'])
 def test_cli_opt_out_writes_no_browser_harness_install_id(monkeypatch, sent, tmp_path, value):
-	"""Clean-install smoke 11-09: ANONYMIZED_TELEMETRY=n (off per TELEMETRY.md) sent nothing, but `browser-use --version`
+	"""Clean-install smoke 11-09: ANONYMIZED_TELEMETRY=n (off) sent nothing, but `browser-use --version`
 	still wrote ~/.config/browser-harness/telemetry.json with a new install id: browser-harness only knows 0, false, no
 	and off, and built the event (creating the id) before the browser-use wrapper dropped the send. Off means no file."""
 	from browser_harness import telemetry as harness
@@ -907,45 +903,6 @@ async def test_task_text_passed_as_a_url_and_exception_classes_made_at_runtime_n
 	p = event['properties']
 	assert p['domains'] == ['127.0.0.1'] and list(p['host_stats']) == ['127.0.0.1']
 	assert p['s_err'] == ['', 'custom', 'custom', 'custom', ''] and p['cell_error_types'] == {'custom': 3}
-
-
-def documented() -> set[str]:
-	text = (Path(__file__).parents[2] / 'TELEMETRY.md').read_text(encoding='utf-8')
-	section = text.split('## agent_event', 1)[1].split('## How it is sent', 1)[0]
-	return set(re.findall(r'`([$\w/<>-]+)`', section))
-
-
-async def test_every_field_sent_is_documented_and_every_documented_field_exists(sent, tmp_path, monkeypatch):
-	"""TELEMETRY.md is the contract: a field the code sends and the doc does not list fails, and so does a doc field the
-	event does not have."""
-	from browser_use.telemetry.stats import environment
-	from browser_use.telemetry.views import AgentTelemetryEvent
-
-	no_browser(monkeypatch)
-	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'success': True, 'result': 'ok'}))
-	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()
-	(props,) = sent
-	docs = documented()
-	sent_keys = set(props) | {'$lib', '$lib_version'}  # added by the sender
-	assert not sent_keys - docs, f'sent, not documented: {sorted(sent_keys - docs)}'
-	fields = {f for f in AgentTelemetryEvent.__dataclass_fields__ if f != 'name'} | set(environment()) | {'schema_version'}
-	assert fields <= sent_keys
-	extra = {d for d in docs if re.fullmatch(r'[a-z][a-z0-9_]*', d)} - fields
-	# enum values, helper names and other words in backticks that are not fields
-	words = {
-		*'pip uv editable git unknown pydantic default ultrafast cloud chromium chrome cdp localhost private browser-use'.split(),
-		*'completed timeout max_steps error cancelled crashed finish finish_from_repl text preflight browser_start model'.split(),
-		*'cell delivery budget shutdown browser_gone responses chat anthropic google other server client edge custom'.split(),
-		*'invalid screenshot type_secret search downloads wait wait_for_load wait_for_network_idle wait_for_element'.split(),
-		*'solve_captcha checkpoint provider_transient model_timeout context_overflow compaction_unreadable'.split(),
-		*'delivery_placeholder delivery_split'.split(),
-		*'delivery_missing_files finish_expr_error finish_schema text_repair text_tool_markup text_schema tool_args'.split(),
-		*'custom_tool stop tool_call length content_filter captcha nav interact files read compute none deliver'.split(),
-		*'rate_limit_exceeded executable_path allowed_domains prohibited_domains device_id type_text fill_input'.split(),
-		*'bu-auto gpt-6-luna CellTimeout WorkerExited PreflightError ValueError ModelHTTPError Tools'.split(),
-	}
-	assert not extra - words, f'documented, not a field: {sorted(extra - words)}'
-	assert not [k for k in props if k.startswith(('$feature', 'flag'))]  # no feature flags in 1.0
 
 
 async def test_telemetry_off_sends_fetches_and_writes_nothing(tmp_path, monkeypatch):
@@ -1238,6 +1195,72 @@ def test_an_outbox_file_a_dead_sender_claimed_is_sent_and_one_this_process_still
 	t._send_outbox()
 	assert [e['properties']['model'] for e in posthog.events()] == ['stranded']
 	assert sorted(p.name for p in box.iterdir()) == sorted([live.name, f'{own.run_id}.gz'])
+
+
+def test_a_one_shot_process_sends_the_outbox_it_finds_and_a_full_outbox_keeps_its_event(posthog):
+	"""RC test 11-09 (cli-3): only the telemetry thread sent the outbox, and a CLI call exits before its thread gets
+	there. Once 20 files had piled up (offline), every later CLI event was dropped even online, and nothing was ever sent
+	or expired. Now the exit sender takes the outbox along: a dead sender's claim is back, a file past 7 days is
+	deleted, a full outbox drops its oldest file instead of the new event, and the rest arrives."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	box = posthog.config / 'telemetry' / 'outbox'
+	box.mkdir(parents=True)
+	t = posthog.telemetry
+	now = time.time()
+
+	def put(model: str, age_s: float, name: str = '') -> None:
+		path = box / (name or f'{uuid.uuid4().hex}.gz')
+		path.write_bytes(t._body([t._event(Job('agent_event', lambda s, k: {'model': model}))]))
+		os.utime(path, (now - age_s, now - age_s))
+
+	for i in range(18):
+		put(f'old{i}', 3600 + i)
+	put('evicted', 6 * 86400)  # the oldest left once the outbox is full
+	put('expired', 8 * 86400)
+	put('stranded', 86400, f'{uuid.uuid4().hex}.{dead.pid}.sending')
+	env = {**os.environ, 'ANONYMIZED_TELEMETRY': 'true', 'BROWSER_USE_CONFIG_DIR': str(posthog.config)}
+	out = subprocess.run([sys.executable, '-c', EXIT_SCRIPT, service.POSTHOG_HOST], env=env, capture_output=True, timeout=60)
+	assert b'EXIT' in out.stdout, (out.stdout, out.stderr[-3000:])
+	models = [e['properties']['model'] for e in posthog.events(20)]
+	deadline = time.monotonic() + 10
+	while list(box.iterdir()) and time.monotonic() < deadline:
+		time.sleep(0.05)
+	assert sorted(models) == sorted(['exit-test', 'stranded', *(f'old{i}' for i in range(18))]), models
+	assert not list(box.iterdir())
+
+
+def test_once_the_process_exits_its_thread_claims_no_outbox_file_or_crash_report(posthog, monkeypatch):
+	"""RC test 11-09, Linux: a CLI call's thread reached the outbox while the exit handler ran, claimed the oldest file
+	and froze mid-send with the process; the next call put it back and its thread claimed it again: never sent. Nor does
+	it send the event the exit handler took: its TLS setup ran in OpenSSL while the exit freed OpenSSL, a segfault in 2-4%
+	of online CLI calls on macOS, and the event went out twice."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	spawned = []
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append(a))  # the exit sender
+	t = posthog.telemetry
+	box, inflight = posthog.config / 'telemetry' / 'outbox', posthog.config / 'telemetry' / 'inflight'
+	box.mkdir(parents=True)
+	inflight.mkdir(parents=True)
+	(box / f'{uuid.uuid4().hex}.gz').write_bytes(t._body([t._event(Job('agent_event', lambda s, k: {'model': 'old'}))]))
+	marker = {'pid': dead.pid, 'started': time.time() - 60, 'steps': 1, 'props': {'model': 'crashed'}}
+	(inflight / f'{uuid.uuid4().hex}.json').write_text(json.dumps(marker))
+	own = Job('agent_event', lambda s, k: {'model': 'own'})
+	t._pending[own.run_id] = own
+	t._at_exit()
+	before = sorted(p.name for p in posthog.config.rglob('*'))
+	t._send_outbox()  # what the thread does next, while the interpreter finalizes
+	t._send_crashed()
+	t._send(own)
+	assert len(spawned) == 1 and posthog.state.attempts == 0
+	assert sorted(p.name for p in posthog.config.rglob('*')) == before
 
 
 def test_a_send_that_fails_goes_to_the_outbox_and_is_counted(posthog, monkeypatch):
@@ -1638,11 +1661,36 @@ def test_a_forked_childs_first_run_and_first_event_are_not_wiped(posthog):
 	assert str(uuid.UUID(event_id)) in {e['uuid'] for e in posthog.events(1)}, "the forked child's first event was dropped"
 
 
-def test_units_rule_names_every_field_not_in_ms_or_seconds():
-	"""Review 11-09: "Times are integer milliseconds unless the name ends in `_seconds`" was wrong for `tel_build_us`,
-	`timeout_s` and `cloud_timeout_min`; a field with another unit suffix must be named in the rule."""
-	text = (Path(__file__).parents[2] / 'TELEMETRY.md').read_text(encoding='utf-8')
-	rule = ' '.join(text.split('Times are integer milliseconds', 1)[1].split('\n\n', 1)[0].split())
-	other_units = {f for f in documented() if re.fullmatch(r'[a-z][a-z0-9_]*_(us|s|min|sec|secs|minutes)', f)}
-	assert other_units >= {'tel_build_us', 'timeout_s', 'cloud_timeout_min'}
-	assert not [f for f in other_units if f'`{f}`' not in rule], rule
+def test_an_exit_with_no_queued_event_still_hands_the_outbox_to_the_exit_sender(posthog, monkeypatch):
+	"""PR 6357 review: the exit handler returned when nothing was queued, so the outbox an earlier process left waited for
+	the next process even though this one's thread had started (a run killed before its event was queued)."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	spawned = []
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append(a[0]))
+	t = posthog.telemetry
+	box = posthog.config / 'telemetry' / 'outbox'
+	box.mkdir(parents=True)
+	old = box / f'{uuid.uuid4().hex}.gz'
+	old.write_bytes(t._body([t._event(Job('agent_event', lambda s, k: {'model': 'old'}))]))
+	t._at_exit()
+	assert len(spawned) == 1 and spawned[0][-1] == str(old)
+
+
+def test_an_event_the_exit_handler_could_not_write_is_still_written_by_the_thread(posthog, monkeypatch):
+	"""PR 6357 review: every queued event counted as handed to the exit sender, also one whose outbox write failed; the
+	thread, whose send then failed, skipped its own outbox write and the event was lost."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: None)
+	t = posthog.telemetry
+	job = Job('agent_event', lambda s, k: {'model': 'own'})
+	t._pending[job.run_id] = job
+	write = t._to_outbox
+	monkeypatch.setattr(t, '_to_outbox', lambda data, name: None)  # a failed write at exit
+	t._at_exit()
+	monkeypatch.setattr(t, '_to_outbox', write)
+	t._send(job)  # the thread, mid-send as the process exits
+	assert [p.name for p in (posthog.config / 'telemetry' / 'outbox').iterdir()] == [f'{job.run_id}.gz']

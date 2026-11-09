@@ -92,10 +92,19 @@ def test_kept_user_data_dir_survives_stop_and_a_stale_port_file_is_ignored(fake_
 @posix_only
 def test_browser_that_exits_at_start_raises_with_its_stderr(fake_chrome):
 	lb = _local.LocalBrowser()
-	with pytest.raises(RuntimeError, match=r'exited at start \(code 3\).*boom: bad flag'):
+	with pytest.raises(RuntimeError, match=r'exited at start \(code 3\).*boom: bad flag') as raised:
 		lb.start(executable_path=fake_chrome('exit'), headless=True)
+	assert 'another Chrome' not in str(raised.value)  # rc5 local-3: a fresh temp profile is never locked by another Chrome
 	lb.stop()
 	assert not lb.tmp.exists()
+
+
+@posix_only
+def test_a_kept_user_data_dir_that_exits_at_start_names_the_profile_lock(fake_chrome, tmp_path):
+	lb = _local.LocalBrowser()
+	with pytest.raises(RuntimeError, match=r'exited at start \(code 3\); is another Chrome using .*kept\?.*boom'):
+		lb.start(executable_path=fake_chrome('exit'), headless=True, user_data_dir=tmp_path / 'kept')
+	lb.stop()
 
 
 @posix_only
@@ -411,8 +420,12 @@ def test_playwright_chromium_from_browser_use_install_is_found_last(tmp_path, mo
 		(tmp_path / 'pw' / build / 'chrome-linux64').mkdir(parents=True)
 		(tmp_path / 'pw' / build / 'chrome-linux64' / 'chrome').write_text('')
 	assert _local.find_binary() == str(tmp_path / 'pw/chromium-1248/chrome-linux64/chrome')
-	with pytest.raises(RuntimeError, match='No Google Chrome found'):
+	with pytest.raises(RuntimeError, match='No Google Chrome found') as raised:
 		_local.find_binary(chrome_only=True)  # a copied Chrome profile needs real Chrome
+	assert 'browser-use install' not in str(raised.value)  # Playwright's Chromium cannot open a copied Chrome profile
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', str(tmp_path / 'none'))
+	with pytest.raises(RuntimeError, match=r'No Chrome, Chromium or Edge found .*run `browser-use install`'):
+		_local.find_binary()  # rc5 local-2: the library error names the documented fix, not only `browser-use doctor`
 
 
 def test_a_file_named_like_a_browser_in_the_working_directory_is_never_launched(tmp_path, monkeypatch):
@@ -449,6 +462,9 @@ def debug_dirs(tmp_path, monkeypatch):
 		s.bind(('127.0.0.1', 0))
 		s.listen()
 		servers.append(s)
+		lock = dirs[name] / 'SingletonLock'  # the running browser (this process) took the dir before writing the port
+		if sys.platform != 'win32' and not lock.is_symlink():
+			lock.symlink_to(f'{socket.gethostname()}-{os.getpid()}')
 		(dirs[name] / 'DevToolsActivePort').write_text(f'{s.getsockname()[1]}\n/devtools/browser/{name}\n')
 
 	yield live
@@ -482,16 +498,103 @@ def test_attach_never_scans_when_the_shared_daemon_is_up_or_a_cdp_endpoint_is_se
 	browser_mod._check_one_chrome()  # the daemon will not discover anything
 
 
-async def test_attach_failure_names_the_fix(monkeypatch):
+async def test_attach_failure_names_the_fix(debug_dirs, monkeypatch):
 	from browser_harness import admin
 
 	def ensure_daemon(wait=None, name=None, env=None):
 		raise RuntimeError('remote-debugging-setup: opened chrome://inspect/#remote-debugging in Chrome')
 
+	debug_dirs('chrome')
 	monkeypatch.setattr(admin, 'ensure_daemon', ensure_daemon)
 	monkeypatch.setattr(admin, 'daemon_alive', lambda name=None: True)
 	with pytest.raises(RuntimeError, match=r"(?s)Browser\('chrome'\) could not attach.*chrome://inspect.*Browser\('chromium'\)"):
 		await Browser('chrome').start()
+
+
+@pytest.fixture
+def attaches(debug_dirs, monkeypatch):
+	"""Chrome is open with remote debugging off. Yields the daemons browser-harness was asked to start (it would
+	discover the browser itself) and whether chrome://inspect was opened."""
+	from browser_harness import admin, daemon
+
+	calls: list[str | None] = []
+	opened: list[bool] = []
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda wait=None, name=None, env=None: calls.append(name))
+	monkeypatch.setattr(daemon, 'supported_browser_running', lambda: True)
+	monkeypatch.setattr(admin, '_open_chrome_inspect_once', lambda: opened.append(True))
+	monkeypatch.setattr(admin, '_launch_browser', lambda: pytest.fail('launched a browser'))
+	yield calls, opened
+
+
+async def test_attach_never_lets_browser_harness_guess_port_9222(attaches):
+	"""Fable EXEC-2: with no DevToolsActivePort live (Chrome open, chrome://inspect not ticked yet), Browser('chrome'),
+	the CLI and --cli-mcp still started browser-harness's discovery, which then attached to whatever answered on
+	127.0.0.1:9222 / 9223: another user's Chrome, or a fake one serving its own ws URL. The agent ran there."""
+	from browser_use import harness_cloud
+
+	calls, opened = attaches
+	with pytest.raises(RuntimeError, match=r"(?s)Browser\('chrome'\) could not attach.*chrome://inspect.*never guessed"):
+		await Browser('chrome').start()
+	with pytest.raises(RuntimeError, match=r'(?s)remote-debugging-setup.*chrome://inspect.*BU_CDP_URL'):
+		harness_cloud.ensure_daemon(name=f'butestattach{os.getpid()}')  # the CLI's and --cli-mcp's attach
+	assert calls == [] and opened == [True, True]
+
+
+@posix_only
+@pytest.mark.parametrize('state', ['restarted', 'closed'])
+async def test_attach_refuses_a_left_over_debug_port_another_process_now_holds(attaches, debug_dirs, state):
+	"""Chrome leaves DevToolsActivePort behind when it quits. Whoever then listens on that port got the attach
+	(browser-harness reads the file first), or, answering as no browser, sent browser-harness on to 9222 / 9223."""
+	from browser_harness import daemon
+
+	from browser_use import harness_cloud
+
+	calls, opened = attaches
+	debug_dirs('chrome')
+	port_file, lock = daemon.PROFILES[0] / 'DevToolsActivePort', daemon.PROFILES[0] / 'SingletonLock'
+	if state == 'restarted':
+		os.utime(port_file, (time.time() - 3600, time.time() - 3600))  # written by the Chrome before this one
+	else:
+		lock.unlink()
+	debug_dirs('edge')  # another browser that does have remote debugging on: browser-harness still reads Chrome's first
+	with pytest.raises(RuntimeError, match=r'(?s)could not attach.*left from an earlier browser session'):
+		await Browser('chrome').start()
+	with pytest.raises(RuntimeError, match=r'remote-debugging-setup: .*DevToolsActivePort is left'):
+		harness_cloud.ensure_daemon(name=f'butestleftover{os.getpid()}')
+	assert calls == [] and opened == []
+
+
+async def test_attach_starts_the_daemon_once_your_chrome_has_remote_debugging_on(attaches, debug_dirs, monkeypatch):
+	from browser_harness import admin, daemon
+
+	from browser_use import harness_cloud
+
+	calls, opened = attaches
+	debug_dirs('edge')
+	await Browser('chrome').start()
+	harness_cloud.ensure_daemon(name='butestattached')
+	assert calls == [None, 'butestattached'] and opened == []
+	# Chrome closed: launched as browser-harness does, and attached once it writes DevToolsActivePort
+	(daemon.PROFILES[2] / 'DevToolsActivePort').unlink()
+	monkeypatch.setattr(daemon, 'supported_browser_running', lambda: False)
+	monkeypatch.setattr(admin, '_launch_browser', lambda: debug_dirs('chrome') or (None, None))
+	await Browser('chrome').start()
+	assert calls == [None, 'butestattached', None] and opened == []
+
+
+async def test_attach_reuses_a_daemon_that_already_reaches_its_browser(attaches, monkeypatch):
+	"""rc5 merge: `BU_NAME=<a daemon BU_CDP_WS started> browser-use` (CI's chrome fixture, an orchestrator's daemon)
+	failed with remote-debugging-setup, though that daemon discovers nothing. Browser('chrome') reuses the running
+	default daemon too (_check_one_chrome), so it skips the gate the same way."""
+	from browser_harness import admin
+
+	from browser_use import harness_cloud
+
+	calls, opened = attaches
+	monkeypatch.setattr(admin, 'require_existing_daemon', lambda name=None: None)  # healthy, attached by BU_CDP_WS
+	harness_cloud.ensure_daemon(name='butestcdp')
+	await Browser('chrome').start()
+	assert calls == ['butestcdp', None] and opened == []
 
 
 # End to end with the real Chrome
@@ -786,6 +889,33 @@ async def test_downloads_land_in_the_workspace_after_a_reattach(chrome_binary, t
 	finally:
 		await browser.stop()
 	assert [p.name for p in (tmp_path / 'downloads').iterdir()] == ['after.txt']
+
+
+async def test_a_download_in_the_agents_second_tab_reports_its_progress(chrome_binary, tmp_path):
+	"""RC local-1: Browser.setDownloadBehavior went to the daemon's tab session, and Chrome then sends Browser.download*
+	only for that tab's downloads. A download in the agent's second new_tab() never reported done, so stop() waited
+	DOWNLOADS_TIMEOUT_S (300 s) and warned that the finished file was lost."""
+	link = 'data:text/html,<a id=a href="data:text/plain,hello" download="second.txt">x</a>'
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	browser._downloads_dir = tmp_path / 'downloads'  # what Agent.run sets
+	await browser.start()
+	try:
+		assert browser.name
+		target = browser_mod._daemon_cdp(browser.name, 'Target.createTarget', url=link)['targetId']
+		session = browser_mod._daemon_cdp(browser.name, 'Target.attachToTarget', targetId=target, flatten=True)['sessionId']
+		browser_mod._daemon_request(browser.name, {'meta': 'set_session', 'session_id': session, 'target_id': target})
+		await asyncio.sleep(1)  # as new_tab() then wait_for_load()
+		browser_mod._daemon_cdp(browser.name, 'Runtime.evaluate', expression='document.getElementById("a").click()')
+		events, deadline = [], time.monotonic() + 10
+		while time.monotonic() < deadline and not any(
+			e['method'] == 'Browser.downloadProgress' and e['params'].get('state') == 'completed' for e in events
+		):
+			await asyncio.sleep(0.2)
+			events += browser_mod._daemon_request(browser.name, {'meta': 'drain_events'})['events']
+		assert 'Browser.downloadWillBegin' in {e['method'] for e in events}
+		assert any(e['method'] == 'Browser.downloadProgress' and e['params'].get('state') == 'completed' for e in events)
+	finally:
+		await browser.stop()
 
 
 async def test_two_fresh_browsers_run_side_by_side(chrome_binary):

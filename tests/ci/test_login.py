@@ -38,6 +38,10 @@ class FakeAuthServer:
 					self._json(
 						200, {'authorization_uri': f'{owner.url}/device/authorize?state={body["state"]}', 'expires_in': 600}
 					)
+				elif self.path == '/cloud/cli-auth/device':
+					self._json(200, {'device_code': 'd1', 'user_code': 'ABCD-1234', 'verification_uri': owner.url, 'interval': 1})
+				elif self.path == '/cloud/cli-auth/token' and body.get('device_code'):
+					self._json(400, {'error': 'authorization_pending'})  # the user never approves
 				elif self.path == '/cloud/cli-auth/token':
 					owner.tokens.append(body)
 					start = owner.starts[-1]
@@ -142,6 +146,59 @@ def test_login_failure_exits_nonzero_and_stores_nothing(store, monkeypatch):
 	result = _cli('login', '--no-open')
 	assert result.returncode == 1 and 'network error' in result.stderr
 	assert 'Signed in' not in result.stdout
+	assert not store.exists()
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='SIGINT to a child process is POSIX')
+def test_ctrl_c_during_device_login_cancels_without_a_traceback(store, auth_server):
+	"""rc5 cli-5: Ctrl-C while `login --device-code` waited printed a ~60-line KeyboardInterrupt traceback."""
+	import signal
+
+	auth_server(auto_approve=False)
+	env = {**os.environ, 'PYTHONPATH': os.pathsep.join(p for p in (str(ROOT), os.environ.get('PYTHONPATH', '')) if p)}
+	proc = subprocess.Popen(
+		[sys.executable, '-m', 'browser_use', 'login', '--device-code', '--no-open'],
+		cwd=ROOT,
+		env=env,
+		stdout=subprocess.PIPE,
+		stderr=subprocess.PIPE,
+		text=True,
+	)
+	watchdog = threading.Timer(30, proc.kill)  # a CLI that never prints the wait line ends the read below with EOF
+	watchdog.start()
+	try:
+		assert proc.stdout is not None
+		for line in proc.stdout:
+			if line.startswith('Waiting for login'):
+				break
+		watchdog.cancel()
+		proc.send_signal(signal.SIGINT)
+		out, err = proc.communicate(timeout=30)
+	finally:
+		proc.kill()  # never leave it polling the fake server
+	assert proc.returncode == 130, err
+	assert err.strip() == 'Login cancelled.' and 'Signed in' not in out
+	assert not store.exists()
+
+
+def test_ctrl_c_at_the_api_key_prompt_cancels_without_a_traceback(store, monkeypatch, capsys):
+	"""Ctrl-C at `login --api-key-stdin`'s hidden key prompt, or during its key check, printed a KeyboardInterrupt
+	traceback: only the approval wait was covered."""
+	from browser_use import cli
+
+	for var in ('BH_CLIENT', 'BH_CLIENT_VERSION', 'BH_DEVICE_NAME'):
+		monkeypatch.delenv(var, raising=False)  # restored after the test; the command sets them
+
+	def interrupted():
+		raise KeyboardInterrupt
+
+	monkeypatch.setattr(cli, '_read_api_key_stdin', interrupted)
+	try:
+		code = cli._run_login_command(['--api-key-stdin'])
+	except KeyboardInterrupt:
+		pytest.fail('KeyboardInterrupt escaped `login --api-key-stdin` (a traceback for the user)')
+	assert code == 130
+	assert capsys.readouterr().err.strip() == 'Login cancelled.'
 	assert not store.exists()
 
 

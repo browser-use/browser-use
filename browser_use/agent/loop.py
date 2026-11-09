@@ -64,6 +64,7 @@ from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
 from browser_use.llm import model_ref, skip_responses_transform
+from browser_use.logging_config import printable
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SECRET_PLACEHOLDER, redact_forms, secret_forms
 from browser_use.search import parse_usd
@@ -129,7 +130,7 @@ class Session:
 	success: bool | None = None  # the verdict finish/finish_from_repl must give; None for a plain-text delivery
 	messages: list[ModelMessage] = field(default_factory=list)
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
-	stats: RunStats = field(default_factory=RunStats)  # telemetry counts (TELEMETRY.md)
+	stats: RunStats = field(default_factory=RunStats)  # telemetry counts
 	finish_via: str | None = None  # finish | finish_from_repl | text: how the result was delivered
 	budget_hit: str | None = None  # max_steps | timeout | browser_gone: what forced the delivery-only turn
 	error_type: str | None = None  # class of the exception that ended the run
@@ -139,7 +140,7 @@ class Session:
 	overflowed_step: int | None = None  # Compaction: the request step a context-window error forced a compaction in
 	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
-	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step (TELEMETRY.md)
+	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step
 
 	def delivery_at(self) -> float:
 		"""Seconds into the run at which the delivery-only turn starts: 90% of the budget, or earlier on a short budget
@@ -179,7 +180,8 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 		text = f'{text}\nError: {r["error"]}'.strip()
 	line = redact(next((x for x in code.splitlines() if x.strip()), ''), ctx.deps.repl.secrets)  # live progress (0.x 'Step N')
 	error = (r['error'] or '').strip().splitlines()  # already redacted by Repl.call
-	logger.info(f'step {ctx.run_step}: {line[:120]}' + (f' -> {error[-1][:200]}' if error else ''))
+	# the page controls the error text (a JS exception's message), the model the code: no terminal escapes from either
+	logger.info(printable(f'step {ctx.run_step}: {line[:120]}' + (f' -> {error[-1][:200]}' if error else '')))
 	if ctx.deps.after_tool:
 		await ctx.deps.after_tool('python', {'code': code}, r)
 	if r['images'] and not ctx.deps.vision:

@@ -409,12 +409,35 @@ def _name_daemon_files() -> None:
 		ipc.BH_RUNTIME_DIR_SHARED = ipc.BH_TMP_DIR_SHARED = True
 
 
+def _check_runtime_dir() -> None:
+	"""The daemon's socket (its only lock on POSIX), pid file and our .cloud marker live in browser-harness's runtime
+	dir, its log and screenshots in its tmp dir. browser-harness makes a dir it creates 0700 but uses one that already
+	exists as is, so another user's /tmp/bh could unlink the socket and serve a fake daemon (every CDP command,
+	type_secret's text, the pid _kill_daemon kills). Refuse a dir not owned by this user or writable by others."""
+	from browser_harness import _ipc as ipc
+
+	if sys.platform == 'win32':  # TCP loopback with a token there
+		return
+	for var, path in (('BH_RUNTIME_DIR', ipc._RUNTIME), ('BH_TMP_DIR', ipc._TMP)):
+		st = os.stat(path)
+		if st.st_uid != os.getuid() or st.st_mode & 0o022:
+			other = st.st_uid != os.getuid()  # only its owner can chmod it
+			raise RuntimeError(
+				f'The browser-harness dir {path} is {"owned by another user" if other else "writable by other users"} '
+				f'(mode {st.st_mode & 0o7777:o}), who could take over its daemon. Use a dir only you can write to: '
+				f'{"" if other else f"chmod 700 {path}, or "}set {var} to a new path such as ~/.bh.'
+			)
+		if os.environ.get(var):  # child daemons and workers use this checked path, never a symlink swapped after it
+			os.environ[var] = str(path)
+
+
 def _check_socket_path(name: str) -> None:
 	"""The daemon listens on an AF_UNIX socket, whose path the OS caps (macOS 104 bytes, Linux 108). A longer one (a
 	long BH_HOME, XDG_CONFIG_HOME or TMPDIR) failed inside the daemon with "AF_UNIX path too long", naming nothing; on
 	cloud it read as a stopped remote browser. Raise before anything starts, naming the path and the fix."""
 	from browser_harness import _ipc as ipc
 
+	_check_runtime_dir()
 	if sys.platform == 'win32':  # TCP loopback there
 		return
 	path = str(ipc._sock_path(name))
@@ -422,7 +445,7 @@ def _check_socket_path(name: str) -> None:
 	if len(path.encode()) > limit:
 		raise RuntimeError(
 			f'The browser-harness socket path is {len(path.encode())} bytes, over the {limit}-byte limit of this OS: '
-			f'{path}. Set BH_RUNTIME_DIR to a short directory (e.g. /tmp/bh), or shorten BH_HOME / XDG_CONFIG_HOME / TMPDIR.'
+			f'{path}. Set BH_RUNTIME_DIR to a short directory only you can write to (e.g. ~/.bh), or shorten BH_HOME / XDG_CONFIG_HOME / TMPDIR.'
 		)
 
 
@@ -657,6 +680,7 @@ class Browser:
 		# where stop() copies a cloud browser's downloads when not told: the workspace/downloads of the last Agent that
 		# ran on it (keep_alive leaves the stop, and so the copy, to a later browser.stop())
 		self._downloads_dir: Path | None = None
+		self._downloads_session: str | None = None  # the browser-level CDP session that set where downloads go
 		_install_cleanup()  # here too: the main thread, when start() runs on another
 
 	async def start(self) -> dict[str, str]:
@@ -720,8 +744,17 @@ class Browser:
 		Saved as <guid> and renamed once finished (utils.name_download): with 'allow' a repeated name overwrote the
 		earlier file. The REPL worker renames what finishes during a run, _finish_downloads what finishes after it."""
 		downloads.mkdir(parents=True, exist_ok=True)
+		cdp, params = self._cdp(), {'behavior': 'allowAndName', 'downloadPath': str(downloads), 'eventsEnabled': True}
 		try:
-			self._cdp()('Browser.setDownloadBehavior', behavior='allowAndName', downloadPath=str(downloads), eventsEnabled=True)
+			# On a browser session: the daemon sends other calls on its tab's session, and Chrome then reports
+			# Browser.download* only for that tab, so a download in the agent's second new_tab() stayed 'inProgress'
+			# and stop() waited DOWNLOADS_TIMEOUT_S. One session per daemon: each one would repeat every event.
+			with contextlib.suppress(RuntimeError):  # - the daemon that attached it is gone, and the setting with it
+				if self._downloads_session:
+					cdp('Browser.setDownloadBehavior', self._downloads_session, **params)
+					return
+			self._downloads_session = cdp('Target.attachToBrowserTarget')['sessionId']
+			cdp('Browser.setDownloadBehavior', self._downloads_session, **params)
 		except Exception as e:  # - downloads then go where Chrome puts them
 			logger.warning('Could not send downloads to %s: %s', downloads, e)
 
@@ -812,11 +845,13 @@ class Browser:
 		from browser_harness import admin
 
 		if self.kind == 'chrome' and self.chrome_profile is None:
+			_check_runtime_dir()  # before anything connects to the default daemon's socket in it
 			await asyncio.to_thread(_check_one_chrome)
 			# Bounded: without a wait, browser-harness waits forever on Chrome's "Allow remote debugging?" prompt, and
 			# run(timeout=) only starts counting after the browser started. BH_TAB_MARKER=0: browser-harness's default
 			# prefixes every loaded page's document.title with a horse, which the agent then reads back as the title.
 			try:
+				await asyncio.to_thread(_local.require_debug_port_unless_attached)  # the default daemon, as below
 				await asyncio.to_thread(admin.ensure_daemon, wait=LOCAL_START_WAIT_S, env={'BH_TAB_MARKER': '0'})
 			except RuntimeError as e:
 				if not str(e).startswith('permission-blocked'):
@@ -1063,7 +1098,7 @@ class Browser:
 
 	async def _finish_downloads(self) -> int:
 		"""Wait, up to DOWNLOADS_TIMEOUT_S, for downloads still running, which the stop would lose (cloud: never listed;
-		local: a .crdownload). Their state: the REPL workers' logs, then the daemon's Browser.downloadProgress events
+		local: a .crdownload). Their state: the REPL workers' logs, then the daemon's download progress events
 		since. Returns how many downloads of the session completed."""
 		for log in list(self._download_lines):  # what a worker logged after its run's note_downloads, before it closed
 			self.note_downloads(log)

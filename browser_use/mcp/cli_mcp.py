@@ -30,6 +30,7 @@ from browser_use.browser.browser import _name_daemon_files
 from browser_use.domains import DomainRules
 from browser_use.exceptions import removed
 from browser_use.harness_cloud import CloudBrowserError
+from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
 from browser_use.utils import get_browser_use_version
 
@@ -174,6 +175,25 @@ def _refusing(fn: Any, rules: DomainRules) -> Any:
 		return fn(*args, **kwargs)
 
 	return checked
+
+
+def _checked_http_get(rules: DomainRules) -> Any:
+	"""The agent's http_get (repl/worker.py) with every redirect hop checked against rules. browser-harness's followed a
+	redirect from an allowed host to any host, and with BROWSER_USE_API_KEY set sent the URL and headers to the fetch-use
+	proxy. Its own opener, not install_opener: this process's cloud, login and telemetry calls use urllib too."""
+	from browser_use.repl import worker
+
+	def check(url: str) -> None:
+		if why := rules.blocked(str(url)):
+			raise PermissionError(why)
+
+	opener = worker.redirect_checking_opener(check)
+
+	def http_get(url: str, headers: dict | None = None, timeout: float = 20.0) -> str | bytes:
+		return worker._http_get(url, headers, timeout, opener.open)
+
+	http_get.__doc__ = worker.http_get.__doc__
+	return _refusing(http_get, rules)
 
 
 def _harness_skill_text() -> str:
@@ -328,7 +348,7 @@ class CLIMCPServer:
 		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
 
 	def _record_call(self, name: str, result: types.CallToolResult | None, errors: list[str], seconds: float) -> None:
-		"""One mcp_server_event per tool call (TELEMETRY.md): queued, sent by the telemetry thread; never fails a call."""
+		"""One mcp_server_event per tool call: queued, sent by the telemetry thread; never fails a call."""
 		self._calls += 1
 		try:
 			from browser_harness import telemetry as harness_telemetry
@@ -366,13 +386,15 @@ class CLIMCPServer:
 	def _ensure_namespace(self) -> dict[str, Any]:
 		if self._namespace is None:
 			ns: dict[str, Any] = {}
+			install_page_info()  # cli-1: before the * import binds page_info
 			exec(_NAMESPACE_IMPORTS, ns)
 			harness_cloud.install(ns)
 			ns['start_remote_daemon'] = self._start_remote
 			ns['stop_remote_daemon'] = lambda name=None: harness_cloud.stop(self._remote)
 			if self._browser is not None and self._browser.domains:  # --mcp with a 0.x config's allowed_domains
-				for name in ('new_tab', 'goto_url', 'http_get'):
+				for name in ('new_tab', 'goto_url'):
 					ns[name] = _refusing(ns[name], self._browser.domains)
+				ns['http_get'] = _checked_http_get(self._browser.domains)
 			self._namespace = ns
 		return self._namespace
 

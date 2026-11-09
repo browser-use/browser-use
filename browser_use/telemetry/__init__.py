@@ -1,4 +1,4 @@
-"""Anonymized telemetry for Browser Use: what is sent is listed in TELEMETRY.md; ANONYMIZED_TELEMETRY=false turns it off."""
+"""Anonymized telemetry for Browser Use: counts and names only; ANONYMIZED_TELEMETRY=false turns it off."""
 
 from typing import TYPE_CHECKING
 

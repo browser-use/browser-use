@@ -1,9 +1,12 @@
+import asyncio
 import os
 import re
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -75,6 +78,34 @@ def test_browser_use_doctor_names_browser_use_and_passes_without_a_daemon(tmp_pa
 		assert result.stdout.startswith('browser-use ')
 		assert 'stopped (the next call starts it)' in result.stdout
 		assert 'browser-harness doctor' not in result.stdout and 'FAIL' not in result.stdout
+
+
+def test_browser_use_doctor_names_browser_use_install_once_for_snap_and_for_no_browser(monkeypatch, capsys):
+	"""rc5 local-2: the find_binary error now names `browser-use install`, so doctor stopped adding it; a Snap-only
+	Ubuntu (its default chromium) then lost the hint, though `browser-use install` fixes it there too."""
+	from browser_harness import admin
+
+	import browser_use.browser.browser as browser_module
+	import browser_use.browser.local as local_module
+	from browser_use import cli
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'k')
+	monkeypatch.setattr(browser_module, '_name_daemon_files', lambda: None)
+	monkeypatch.setattr(admin, '_chrome_running', lambda: False)
+	monkeypatch.setattr(admin, 'daemon_alive', lambda: False)
+	for error in (
+		local_module._snap_error('/usr/bin/chromium-browser'),
+		"No Chrome, Chromium or Edge found (tried x). Install one or run `browser-use install` (Playwright's Chromium).",
+	):
+
+		def find_binary(*_a, error=error, **_k):
+			raise RuntimeError(error)
+
+		monkeypatch.setattr(local_module, 'find_binary', find_binary)
+		assert cli._run_doctor() == 0
+		line = next(line for line in capsys.readouterr().out.splitlines() if 'local browser' in line)
+		assert line.count('browser-use install') == 1, line
+		assert 'browser-harness' not in line, line  # `browser-harness doctor --fix-snap` is not on a uv tool install's PATH
 
 
 def test_browser_use_doctor_fix_snap_names_browser_use():
@@ -208,6 +239,17 @@ def test_first_run_text_gives_the_readmes_agent_prompt(monkeypatch, capsys):
 	assert 'prerelease' not in printed and 'docs.browser-use.com' in printed
 
 
+def test_every_install_line_pins_the_released_version_exactly():
+	"""Users and their agents copy these lines: each pins browser-use with == to this release, never >=."""
+	import tomllib
+
+	v = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['version']
+	for f in ('README.md', 'examples/simple.py', 'skills/open-source/SKILL.md'):
+		text = (ROOT / f).read_text(encoding='utf-8')
+		assert f'browser-use=={v}' in text, f
+		assert not re.search(r'browser-use\s*>=', text), f
+
+
 def test_piped_code_never_tells_the_agent_to_update_browser_harness(tmp_path):
 	"""Live: once browser-harness has a newer release on PyPI, every piped call printed (daily) `[browser-harness] agents:
 	run browser-harness --update -y`. browser-use pins browser-harness exactly: that command is not on PATH for
@@ -282,3 +324,83 @@ def test_mac_approve_names_browser_use(monkeypatch, capsys):
 		with pytest.raises(SystemExit) as exited:
 			cli.main()
 		assert exited.value.code == code and capsys.readouterr().out == out
+
+
+def _serve_body_late(delay_s: float, body: bytes = b'<title>late body</title><p>hi</p>'):
+	"""A local page whose server sends the headers at once and the HTML delay_s later. Returns (server, url)."""
+	import threading
+	import time
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	class Handler(BaseHTTPRequestHandler):
+		def do_GET(self):
+			self.send_response(200)
+			self.send_header('Content-Type', 'text/html')
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.flush()
+			time.sleep(delay_s)
+			self.wfile.write(body)
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	return server, f'http://127.0.0.1:{server.server_address[1]}/page'
+
+
+@pytest.mark.parametrize('surface', ['cli', 'mcp', 'repl'])
+async def test_the_documented_first_example_waits_for_the_new_document(daemon, tmp_path, monkeypatch, surface):
+	"""cli-1: `new_tab(url); print(page_info())`, the first example of the CLI help, the docs and the MCP tool, failed
+	about half the time on local Chromium with "Cannot read properties of null (reading 'scrollWidth')": new_tab()
+	returns once the new document commits, before its parser has made <html>. A body sent late makes that every time."""
+	server, url = _serve_body_late(0.5)
+	code = f'new_tab({url!r})\ninfo = page_info()\nprint(info["title"], info["pw"] > 0)\nclose_tab()'
+	try:
+		if surface == 'cli':
+			pythonpath = os.pathsep.join(p for p in (str(ROOT), os.environ.get('PYTHONPATH', '')) if p)
+			env = {**os.environ, 'PYTHONPATH': pythonpath, **daemon}
+			cmd = [sys.executable, '-m', 'browser_use.cli']
+			r = await asyncio.to_thread(subprocess.run, cmd, input=code, env=env, capture_output=True, text=True, timeout=60)
+			out, failed = r.stdout + r.stderr, r.returncode != 0
+		elif surface == 'mcp':
+			from browser_harness import admin, helpers
+
+			from browser_use.mcp import cli_mcp
+
+			monkeypatch.setattr(admin, 'NAME', daemon['BU_NAME'])
+			monkeypatch.setattr(helpers, 'NAME', daemon['BU_NAME'])
+			monkeypatch.setattr(helpers, 'page_info', helpers.page_info)  # the server wraps it for this process
+			out, failed = cli_mcp.CLIMCPServer()._execute(code)
+		else:
+			from browser_use.repl import Repl
+
+			repl = Repl(tmp_path, daemon)
+			try:
+				r = await repl.call('exec', code, 60)
+			finally:
+				await repl.close()
+			out, failed = r['output'] + (r['error'] or ''), r['error'] is not None
+	finally:
+		server.shutdown()
+	assert not failed and 'late body True' in out, out
+
+
+async def test_page_info_waiting_for_the_document_still_reports_a_dialog(daemon, monkeypatch):
+	"""cli-1: a page that alert()s as it loads opens the dialog while page_info() waits for <html>. page_info() returns
+	{dialog}, as browser-harness documents, instead of timing out on an evaluate the open dialog blocks."""
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+
+	server, url = _serve_body_late(0.5, b'<script>alert("hi")</script><p>x</p>')
+	monkeypatch.setattr(admin, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'page_info', helpers.page_info)  # the server wraps it for this process
+	code = f'new_tab({url!r})\ninfo = page_info()\ncdp("Page.handleJavaScriptDialog", accept=True)\nclose_tab()\nprint(info)'
+	try:
+		out, failed = cli_mcp.CLIMCPServer()._execute(code)
+	finally:
+		server.shutdown()
+	assert not failed and "'dialog'" in out and "'hi'" in out, out

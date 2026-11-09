@@ -94,6 +94,20 @@ def daemon(chrome):
 		warnings.warn(f'browser-harness daemon {name} did not stop: {e!r}', stacklevel=1)
 
 
+@pytest.fixture
+def shared_runtime_dir(monkeypatch):
+	"""browser-harness's runtime dir as another user's pre-created /tmp/bh looks (0777; short: AF_UNIX paths are)."""
+	from browser_harness import _ipc as ipc
+
+	if sys.platform == 'win32':
+		pytest.skip('Windows uses token-gated TCP loopback')
+	path = Path(tempfile.mkdtemp(prefix='bh', dir='/tmp'))
+	path.chmod(0o777)
+	monkeypatch.setattr(ipc, '_RUNTIME', path)
+	yield path
+	shutil.rmtree(path, ignore_errors=True)
+
+
 def script(*turns):
 	"""FunctionModel playing tool calls in order. Each turn: (tool, args) or a list of them. Records requests."""
 	seen = []

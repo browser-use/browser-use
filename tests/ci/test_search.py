@@ -138,8 +138,17 @@ def test_preflight_never_raises_on_a_broken_response(raw, expected):
 	def answer():
 		conn, _ = server.accept()
 		with conn:
+			conn.settimeout(10)
 			conn.recv(65536)
 			conn.sendall(raw)
+			# close only after the client did: closing with its POST body unread sent Windows' RST, which the client
+			# read as a network error (None) instead of the answer
+			try:
+				conn.shutdown(socket.SHUT_WR)
+				while conn.recv(65536):
+					pass
+			except OSError:  # the client reset or never closed: the answer was sent
+				pass
 
 	threading.Thread(target=answer, daemon=True).start()
 	try:

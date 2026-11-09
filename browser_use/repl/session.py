@@ -378,7 +378,7 @@ class Repl:
 		env.update(BH_REQUIRE_EXISTING_DAEMON='1', BU_CDP_WS='ws://127.0.0.1:9/browser-use-owns-the-browser')
 		env['BU_REPL_PARENT_PID'] = str(os.getpid())  # the worker exits when we die (worker._watch_parent)
 		# A browser-harness CLI call from a cell would send its piped code and output (page text) as cli_event, and the
-		# allowlisted env drops ANONYMIZED_TELEMETRY. The run is already counted (agent_event, TELEMETRY.md).
+		# allowlisted env drops ANONYMIZED_TELEMETRY. The run is already counted (agent_event).
 		env['BH_TELEMETRY'] = '0'
 		env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # page text is Unicode; Windows defaults to cp1252
 		if self.mode == 'ultrafast':

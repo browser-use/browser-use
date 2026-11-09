@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Browser agent on Pydantic AI: one persistent Python REPL on raw CDP, cloud or local Chrome"
 authors = [{ name = "Gregor Zunic" }]
-version = "1.0.0rc4"
+version = "1.0.0rc5"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11,<4.0"
@@ -28,12 +28,12 @@ dependencies = [
     "mcp==2.3.0",
 ]
 # browser-harness: CDP daemon, browser helpers, CLI, auth (also pulls cdp-use, fetch-use, websockets)
-# genai-prices: cost per run (imported directly). pydantic-ai-slim[openai,anthropic,google]: agent loop (Anthropic and Google built in so model strings just work) (bounded <3: the engine uses its capabilities API); OpenAI Responses (official API, gateway) and chat completions (base_url)
+# genai-prices: cost per run (imported directly). pydantic-ai-slim[openai,anthropic,google]: agent loop (Anthropic and Google built in so model strings just work) (keep it below 3 when bumping the pin: the engine uses its capabilities API); OpenAI Responses (official API, gateway) and chat completions (base_url)
 # pillow: the REPL worker validates and downsizes images before they reach the model
 # python-dotenv: .env loading; uuid7: the anonymous telemetry device id (telemetry is sent with the standard library)
 # mcp: `browser-use --cli-mcp` (the biggest CLI surface) must work without extras
-# google-genai<3: 3.0.0 calls the Gemini API on v1, which rejects tools, so every Gemini run fails on its first request.
-# Pydantic AI caps it the same way (pydantic/pydantic-ai#12700, unreleased on 11-08); lift with pydantic-ai#12732.
+# google-genai: keep the pin below 3 when bumping; 3.0.0 calls the Gemini API on v1, which rejects tools, so every Gemini run fails on its first request.
+# Pydantic AI caps it at <3 the same way (pydantic/pydantic-ai#12700, unreleased on 11-08); lift with pydantic-ai#12732.
 
 [project.optional-dependencies]
 anthropic = []  # kept so `browser-use[anthropic]` installs resolve; Anthropic is a core dependency
@@ -46,7 +46,6 @@ all = ["browser-use[anthropic,google]"]
 Homepage = "https://browser-use.com"
 Documentation = "https://docs.browser-use.com"
 Repository = "https://github.com/browser-use/browser-use"
-Telemetry = "https://github.com/browser-use/browser-use/blob/main/TELEMETRY.md"
 "Terms of Service" = "https://browser-use.com/legal/terms-of-service"
 "Privacy Policy" = "https://browser-use.com/privacy/"
 
