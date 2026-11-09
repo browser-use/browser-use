@@ -69,11 +69,12 @@ at its default).
   the event. A background thread builds it, gzips it and POSTs it to `https://eu.i.posthog.com/batch/` (3 s timeout,
   one retry), with the standard library only. A run never waits on the network.
 - At process exit, events still queued are written to the outbox and sent by a detached `python -I -c` process, so the
-  exit does not wait either.
+  exit does not wait either. It takes the rest of the outbox along: a CLI call exits before its thread would send it.
 - Files, all under `~/.config/browseruse` (`BROWSER_USE_CONFIG_DIR` moves it), and only when telemetry is on:
   `device_id`; `telemetry/inflight/<run_id>.json` while a run is in progress (its configuration fields and step count,
   rewritten every 30 s, deleted when the event is sent; left behind only by a process that died); `telemetry/outbox/`
-  (events that could not be sent yet: at most 20 files and 512 KB, sent by the next process, deleted after 7 days).
+  (events that could not be sent yet: at most 20 files and 512 KB, the oldest dropped first when full, sent by the next
+  process, deleted after 7 days).
 
 ## cli_event (the `browser-use` CLI)
 

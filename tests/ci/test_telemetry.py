@@ -92,6 +92,8 @@ def posthog(monkeypatch, tmp_path):
 	class Capture(BaseHTTPRequestHandler):
 		def do_POST(self):
 			raw = self.rfile.read(int(self.headers['Content-Length']))
+			if len(raw) < int(self.headers['Content-Length']):  # a sender frozen mid-POST at its exit: nothing arrived
+				return
 			if self.path.startswith('/batch/'):
 				state.attempts += 1
 			if state.down:
@@ -1238,6 +1240,72 @@ def test_an_outbox_file_a_dead_sender_claimed_is_sent_and_one_this_process_still
 	t._send_outbox()
 	assert [e['properties']['model'] for e in posthog.events()] == ['stranded']
 	assert sorted(p.name for p in box.iterdir()) == sorted([live.name, f'{own.run_id}.gz'])
+
+
+def test_a_one_shot_process_sends_the_outbox_it_finds_and_a_full_outbox_keeps_its_event(posthog):
+	"""RC test 11-09 (cli-3): only the telemetry thread sent the outbox, and a CLI call exits before its thread gets
+	there. Once 20 files had piled up (offline), every later CLI event was dropped even online, and nothing was ever sent
+	or expired. Now the exit sender takes the outbox along: a dead sender's claim is back, a file past 7 days is
+	deleted, a full outbox drops its oldest file instead of the new event, and the rest arrives."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	box = posthog.config / 'telemetry' / 'outbox'
+	box.mkdir(parents=True)
+	t = posthog.telemetry
+	now = time.time()
+
+	def put(model: str, age_s: float, name: str = '') -> None:
+		path = box / (name or f'{uuid.uuid4().hex}.gz')
+		path.write_bytes(t._body([t._event(Job('agent_event', lambda s, k: {'model': model}))]))
+		os.utime(path, (now - age_s, now - age_s))
+
+	for i in range(18):
+		put(f'old{i}', 3600 + i)
+	put('evicted', 6 * 86400)  # the oldest left once the outbox is full
+	put('expired', 8 * 86400)
+	put('stranded', 86400, f'{uuid.uuid4().hex}.{dead.pid}.sending')
+	env = {**os.environ, 'ANONYMIZED_TELEMETRY': 'true', 'BROWSER_USE_CONFIG_DIR': str(posthog.config)}
+	out = subprocess.run([sys.executable, '-c', EXIT_SCRIPT, service.POSTHOG_HOST], env=env, capture_output=True, timeout=60)
+	assert b'EXIT' in out.stdout, (out.stdout, out.stderr[-3000:])
+	models = [e['properties']['model'] for e in posthog.events(20)]
+	deadline = time.monotonic() + 10
+	while list(box.iterdir()) and time.monotonic() < deadline:
+		time.sleep(0.05)
+	assert sorted(models) == sorted(['exit-test', 'stranded', *(f'old{i}' for i in range(18))]), models
+	assert not list(box.iterdir())
+
+
+def test_once_the_process_exits_its_thread_claims_no_outbox_file_or_crash_report(posthog, monkeypatch):
+	"""RC test 11-09, Linux: a CLI call's thread reached the outbox while the exit handler ran, claimed the oldest file
+	and froze mid-send with the process; the next call put it back and its thread claimed it again: never sent. Nor does
+	it send the event the exit handler took: its TLS setup ran in OpenSSL while the exit freed OpenSSL, a segfault in 2-4%
+	of online CLI calls on macOS, and the event went out twice."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+	dead.wait()
+	spawned = []
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append(a))  # the exit sender
+	t = posthog.telemetry
+	box, inflight = posthog.config / 'telemetry' / 'outbox', posthog.config / 'telemetry' / 'inflight'
+	box.mkdir(parents=True)
+	inflight.mkdir(parents=True)
+	(box / f'{uuid.uuid4().hex}.gz').write_bytes(t._body([t._event(Job('agent_event', lambda s, k: {'model': 'old'}))]))
+	marker = {'pid': dead.pid, 'started': time.time() - 60, 'steps': 1, 'props': {'model': 'crashed'}}
+	(inflight / f'{uuid.uuid4().hex}.json').write_text(json.dumps(marker))
+	own = Job('agent_event', lambda s, k: {'model': 'own'})
+	t._pending[own.run_id] = own
+	t._at_exit()
+	before = sorted(p.name for p in posthog.config.rglob('*'))
+	t._send_outbox()  # what the thread does next, while the interpreter finalizes
+	t._send_crashed()
+	t._send(own)
+	assert len(spawned) == 1 and posthog.state.attempts == 0
+	assert sorted(p.name for p in posthog.config.rglob('*')) == before
 
 
 def test_a_send_that_fails_goes_to_the_outbox_and_is_counted(posthog, monkeypatch):
