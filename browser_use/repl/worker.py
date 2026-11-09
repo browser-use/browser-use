@@ -81,10 +81,13 @@ MAX_IPC_REQUEST = 65_536 - 128
 # the attached tab's document.title with a horse after every load, and the agent read it back as the title. In an
 # isolated world (the page never sees it), strip that prefix as soon as it is set: a mutation observer's callback runs
 # before the next CDP command, so page_info(), js(), current_tab(), list_tabs() and bu all read the page's own title.
+# Selecting a tab again or restarting the worker can install this script again: keep one observer per document.
 UNMARK_JS = """(() => {
+  if (globalThis.__browserUseUnmarkTitle) return;
   const mark = '\\u{1F434} ';
   const strip = () => { if (document.title.startsWith(mark)) document.title = document.title.slice(mark.length); };
   new MutationObserver(strip).observe(document, {subtree: true, childList: true, characterData: true});
+  globalThis.__browserUseUnmarkTitle = true;
   strip();
 })()"""
 # The daemon's error once its websocket to the browser closed: Chrome crashed or quit ("no close frame received or
