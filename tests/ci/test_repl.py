@@ -2,6 +2,7 @@
 
 import ast
 import asyncio
+import time
 from pathlib import Path
 
 import pytest
@@ -277,6 +278,36 @@ async def test_interrupted_cell_never_writes_a_secret_to_disk(tmp_path):
 	assert 'timed out' in r['error']
 	text = Path(r['output_file']).read_text(encoding='utf-8')
 	assert 'got <secret:pw>' in text and 'hunter2' not in text
+
+
+async def test_output_between_cells_never_writes_a_secret_to_disk(tmp_path):
+	"""Live: a thread a cell left running printed the value after the cell ended; fd 1 was worker.log again, raw."""
+	repl = Repl(tmp_path, secrets={'pw': 'hunter2-Zq9'})
+	log = tmp_path / '.browser-use' / 'worker.log'
+	try:
+		code = DIG + (
+			'import os, threading, time, warnings\n'
+			'def later():\n'
+			"\twhile not os.path.exists('go'):  # created once the cell's result arrived: the cell is over\n"
+			'\t\ttime.sleep(0.01)\n'
+			"\tprint('thread', v['pw'], flush=True)\n"
+			"\twarnings.warn('warn ' + v['pw'])\n"
+			'threading.Thread(target=later, daemon=True).start()'
+		)
+		r = await repl.call('exec', code, 30)
+		assert r['error'] is None, r
+		(tmp_path / 'go').touch()
+
+		def logged() -> None:  # the thread's lines reach worker.log (a 10 s deadline)
+			deadline = time.monotonic() + 10
+			while 'warn' not in log.read_text(encoding='utf-8') and time.monotonic() < deadline:
+				time.sleep(0.05)
+
+		await asyncio.to_thread(logged)
+	finally:
+		await repl.close()
+	text = log.read_text(encoding='utf-8')
+	assert 'thread <secret:pw>' in text and 'warn <secret:pw>' in text and 'hunter2' not in text, text
 
 
 async def test_common_encodings_of_a_secret_are_redacted(tmp_path):
