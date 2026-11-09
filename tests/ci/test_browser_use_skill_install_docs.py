@@ -231,7 +231,16 @@ def test_open_source_skill_shows_only_1_0_code():
 	skill_dir = ROOT / 'skills' / 'open-source'
 	assert [p.name for p in skill_dir.rglob('*') if p.is_file()] == ['SKILL.md']
 	text = (skill_dir / 'SKILL.md').read_text(encoding='utf-8')
-	generic = {'timeout', 'id', 'env', 'args', 'headers', 'source', 'skills'}  # also 1.0 words (run(timeout=...))
+	generic = {
+		'timeout',
+		'id',
+		'env',
+		'args',
+		'headers',
+		'source',
+		'skills',
+		'base_url',
+	}  # also 1.0 words (run(timeout=...), ChatOpenAI(base_url=...))
 	for name in {*AGENT_REMOVED, *BROWSER_REMOVED, 'temperature'} - generic:
 		assert not re.search(rf'(?<![\w.]){name}=', text), name
 	for code in re.findall(r'```python\n(.*?)```', text, flags=re.DOTALL):

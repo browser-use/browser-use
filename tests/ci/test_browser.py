@@ -137,6 +137,19 @@ async def test_keep_alive_leaves_cloud_browser_running(cloud, tmp_path):
 	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
 
 
+@pytest.mark.parametrize('method', ['kill', 'close'])
+async def test_the_0x_kill_and_close_at_the_end_of_a_keep_alive_script_stop_the_browser(cloud, tmp_path, method):
+	"""Live (0.x follow-up-tasks template): after both runs, `await browser.kill()` raised AttributeError, so the script
+	crashed and its keep_alive cloud browser stayed billed until the process exited. A call made after the browser
+	started cannot fail before it, so it stops the browser as stop() does."""
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+	browser = Browser(keep_alive=True)
+	await Agent('t', model, browser=browser, workspace=tmp_path).run()
+	assert stops(cloud) == []
+	await getattr(browser, method)()
+	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+
+
 async def test_keep_alive_cloud_downloads_land_in_each_runs_workspace(cloud, monkeypatch, tmp_path):
 	"""H7: with keep_alive the run skipped the download copy and browser.stop() had no downloads_dir, so the cloud
 	browser's downloads were lost. C13: then stop() put every run's files in the last Agent's workspace. Each run now

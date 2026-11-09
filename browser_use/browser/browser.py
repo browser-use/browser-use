@@ -127,11 +127,52 @@ REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative 
 	'proxy_country_code': 'cloud_proxy_country_code.',
 	'timeout': 'cloud_timeout (minutes).',
 	'id': '',
+	# 0.1.x and the 0.6 Playwright-era BrowserSession(...) options
+	**dict.fromkeys(
+		(
+			'locale',
+			'timezone_id',
+			'color_scheme',
+			'contrast',
+			'forced_colors',
+			'reduced_motion',
+			'is_mobile',
+			'has_touch',
+			'extra_http_headers',
+			'offline',
+			'java_script_enabled',
+			'bypass_csp',
+			'ignore_https_errors',
+			'service_workers',
+			'base_url',
+		),
+		'say it in the task: the agent sends the CDP Emulation, Network or Security command itself.',
+	),
+	**dict.fromkeys(
+		(
+			'default_timeout',
+			'default_navigation_timeout',
+			'slow_mo',
+			'strict_selectors',
+			'maximum_wait_page_load_time',
+			'cached_state',
+			'include_dynamic_attributes',
+			'viewport_expansion',
+		),
+		_ENGINE,
+	),
+	**dict.fromkeys(
+		('handle_sigint', 'handle_sigterm', 'handle_sighup'), 'none: a browser 1.0 started is stopped when the process exits.'
+	),
+	**dict.fromkeys(('record_har_omit_content', 'record_har_url_filter'), _RECORDING),
+	'cookies_file': _STORAGE,
+	'context': 'pass options to Browser(...).',
+	'stealth': 'Browser() (cloud browsers run with stealth settings).',
 }
 _STOP = 'await browser.stop() (Agent.run() stops it unless keep_alive=True).'
 _IN_PYTHON = 'the agent drives pages in Python (browser-harness helpers and raw CDP).'
 REMOVED_METHODS = {  # 0.x BrowserSession methods and attributes -> the 1.0 alternative
-	**dict.fromkeys(('kill', 'close', 'stop_session'), _STOP),
+	'stop_session': _STOP,
 	**dict.fromkeys(
 		(
 			'get_current_page',
@@ -455,6 +496,10 @@ class Browser:
 	def __getattr__(self, name: str):
 		if name in REMOVED_METHODS:
 			raise AttributeError(removed(f'Browser.{name}', REMOVED_METHODS[name]))
+		from browser_use.legacy import BROWSER_MEMBERS
+
+		if name in BROWSER_MEMBERS:
+			raise AttributeError(removed(f'Browser.{name}', _IN_PYTHON))
 		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
 
 	def __init__(
@@ -950,6 +995,13 @@ class Browser:
 		async with self._lock:
 			await self._stopped()
 			return await self._stop(downloads_dir or self._downloads_dir)
+
+	async def kill(self) -> list[Path]:
+		"""0.x: the last line of a keep_alive script, after the runs. It cannot fail before a browser starts, so it
+		stops the browser as stop() does (raising left a keep_alive cloud browser billed until the process exited)."""
+		return await self.stop()
+
+	close = kill  # 0.x BrowserSession.close()
 
 	async def _stop(self, downloads_dir: str | Path | None = None) -> list[Path]:
 		files: list[Path] = []

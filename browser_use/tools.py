@@ -11,9 +11,11 @@ Agent(task, tools=tools)
 
 from __future__ import annotations
 
+import ast
 import inspect
 import logging
 import re
+import textwrap
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -53,6 +55,8 @@ class RemovedField(TypeError):
 
 REMOVED_FIELDS = {  # 0.x ActionResult fields -> the 1.0 alternative
 	'is_done': 'the model ends the run with finish.',
+	# kept as an extra field it reached the model as JSON text: base64 image data in the conversation, never an image
+	'images': 'return text; the agent takes screenshots itself (screenshot()).',
 	'success': 'the model may give a verdict in finish(..., success=...); result.success holds it (None when omitted).',
 	'attachments': 'save files in the workspace; files the agent wrote there are delivered.',
 }
@@ -75,6 +79,8 @@ class ActionResult(BaseModel):
 	@model_validator(mode='before')
 	@classmethod
 	def _no_removed_fields(cls, data: Any) -> Any:
+		if isinstance(data, dict):
+			data = _without_0x_defaults(data)
 		if isinstance(data, dict) and (name := next((k for k in data if k in REMOVED_FIELDS), None)):
 			raise RemovedField(removed(f'ActionResult({name}=...)', REMOVED_FIELDS[name]))
 		if isinstance(data, dict) and (name := next((k for k in data if k in IGNORED_FIELDS), None)):
@@ -85,10 +91,56 @@ class ActionResult(BaseModel):
 		return data
 
 
+def _without_0x_defaults(data: dict) -> dict:
+	"""0.x actions often spelled out the defaults: ActionResult(extracted_content=..., is_done=False, success=True). Those
+	changed nothing in 0.x (success counted only with is_done=True), so they ended a billed run for no reason."""
+	if data.get('is_done'):
+		return data
+	return {k: v for k, v in data.items() if not (k in REMOVED_FIELDS and (k in ('is_done', 'success') or not v))}
+
+
+def _check_done_results(fn: Callable) -> None:
+	"""An action whose source returns ActionResult(is_done=True, ...) (the 0.x way to end the run) can only fail when
+	it runs, after the browser started: refuse it when it is registered instead (any is_done but a literal False or
+	None). An action without readable source still raises when it returns one."""
+	try:
+		tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+	except (OSError, TypeError, SyntaxError):  # no source (REPL, compiled), or a lambda's partial line
+		return
+	for node in ast.walk(tree):
+		if isinstance(node, ast.Call) and getattr(node.func, 'id', getattr(node.func, 'attr', None)) == 'ActionResult':
+			for kw in node.keywords:
+				if kw.arg is None:  # ActionResult(**fields)
+					continue
+				done = kw.arg == 'is_done' and not (isinstance(kw.value, ast.Constant) and not kw.value.value)
+				listed = kw.arg in ('attachments', 'images') and not (
+					isinstance(kw.value, ast.Constant) and kw.value.value is None
+				)
+				if done or listed:
+					raise TypeError(
+						removed(f'ActionResult({kw.arg}=...) in @tools.action {fn.__name__}()', REMOVED_FIELDS[kw.arg])
+					)
+
+
 TOOLS_REMOVED = {  # 0.x Tools(...) / Controller(...) arguments -> the 1.0 alternative
 	'exclude_actions': 'there are no built-in actions to exclude: the model acts in Python.',
 	'output_model': 'Agent(output_model_schema=...).',
 	'display_files_in_done_text': '',
+	# 0.1.x Controller took browser options
+	**dict.fromkeys(
+		('headless', 'keep_open', 'disable_security', 'cookies_path', 'browser_config'), 'pass options to Browser(...).'
+	),
+}
+TOOLS_METHODS_REMOVED = {  # 0.x Tools / Controller methods -> the 1.0 alternative
+	'act': 'the model calls the actions; there are no built-in ones to run.',
+	'exclude_action': 'there are no built-in actions to exclude: the model acts in Python.',
+	**dict.fromkeys(('get_output_model', 'use_structured_output_action'), 'Agent(output_model_schema=...).'),
+	'set_coordinate_clicking': 'the agent clicks with Python (click_at_xy, raw CDP).',
+}
+ACTION_REMOVED = {  # 0.x @registry.action(...) arguments -> the 1.0 alternative
+	'page_filter': 'Browser(allowed_domains=...) limits where the whole browser navigates.',
+	'requires_browser': 'actions get only the arguments the model passes; the model drives the browser itself in Python.',
+	'terminates_sequence': 'each step is one Python cell, so there is no action sequence to end: delete it.',
 }
 
 
@@ -104,6 +156,11 @@ class Tools:
 	@property
 	def registry(self) -> Tools:  # 0.x: @controller.registry.action(...)
 		return self
+
+	def __getattr__(self, name: str) -> Any:
+		if name in TOOLS_METHODS_REMOVED:
+			raise AttributeError(removed(f'Tools.{name}()', TOOLS_METHODS_REMOVED[name]))
+		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
 
 	def action(
 		self,
@@ -121,7 +178,10 @@ class Tools:
 				removed(f'@tools.action({name}=...)', 'Browser(allowed_domains=...) limits where the whole browser navigates.')
 			)
 		if kwargs:
-			raise TypeError(f'@tools.action({next(iter(kwargs))}=...) is not a browser-use 1.0 option; see MIGRATING.md.')
+			name = next(iter(kwargs))
+			if name in ACTION_REMOVED:
+				raise TypeError(removed(f'@tools.action({name}=...)', ACTION_REMOVED[name]))
+			raise TypeError(f'@tools.action({name}=...) is not a browser-use 1.0 option; see MIGRATING.md.')
 
 		def decorator(fn: Callable) -> Callable:
 			params = list(inspect.signature(fn).parameters)
@@ -140,6 +200,7 @@ class Tools:
 					f'@tools.action: {fn.__name__!r} is not a valid tool name (letters, digits, _ and -, at most 64); use a '
 					'named function'
 				)
+			_check_done_results(fn)
 			if param_model is not None and params:  # 0.x: def action(params, ...) with param_model=Model; it wins
 				fn.__annotations__[params[0]] = param_model
 			self.functions.append(

@@ -5,6 +5,7 @@ kept (browser_use.agent.views.AgentOutput, ...): the module's __getattr__ calls 
 
 from __future__ import annotations
 
+import re
 import sys
 from importlib.machinery import ModuleSpec, PathFinder
 
@@ -338,6 +339,166 @@ _NAMES: dict[str, dict[str, str]] = {
 _NAMES['browser_use.browser.browser'] = {**_NAMES['browser_use.browser'], 'IN_DOCKER': _UTILS}
 
 
+# Every public method and attribute of the 0.x BrowserSession, BrowserContext and Browser (0.1 to 0.13, from the tags)
+# that 1.0's Browser does not have: each raises the removed error (browser.py REMOVED_METHODS names the common ones)
+BROWSER_MEMBERS = frozenset(
+	(
+		'RECONNECT_WAIT_TIMEOUT',
+		'add_highlights',
+		'agent_current_page',
+		'agent_focus',
+		'agent_focus_target_id',
+		'apply_session_overrides_to_profile',
+		'attach_all_watchdogs',
+		'auto_download_pdfs',
+		'browser',
+		'browser_context',
+		'browser_pid',
+		'cached_state',
+		'cdp_client_for_frame',
+		'cdp_client_for_node',
+		'cdp_client_for_target',
+		'cleanup_httpx_clients',
+		'clear_cookies',
+		'close_current_tab',
+		'close_page',
+		'cloud_browser',
+		'connect',
+		'context',
+		'cookies',
+		'copy_old_config_names_to_new',
+		'create_new_tab',
+		'current_page',
+		'current_session_id',
+		'current_target_id',
+		'demo_mode',
+		'detect_display_configuration',
+		'downloaded_files',
+		'execute_javascript',
+		'find_file_input_near_element',
+		'find_file_upload_element_by_index',
+		'find_frame_target',
+		'get_agent_current_page',
+		'get_all_frames',
+		'get_args',
+		'get_browser_state_with_recovery',
+		'get_current_page_title',
+		'get_current_page_url',
+		'get_current_target_info',
+		'get_dom_element_at_coordinates',
+		'get_dom_element_by_index',
+		'get_element_by_index',
+		'get_element_coordinates',
+		'get_focused_target',
+		'get_index_by_class',
+		'get_index_by_id',
+		'get_locate_element',
+		'get_locate_element_by_css_selector',
+		'get_locate_element_by_text',
+		'get_locate_element_by_xpath',
+		'get_minimal_state_summary',
+		'get_most_recently_opened_target_id',
+		'get_or_create_cdp_session',
+		'get_page_info',
+		'get_page_structure',
+		'get_page_targets',
+		'get_pages',
+		'get_playwright_browser',
+		'get_scroll_info',
+		'get_selector_index',
+		'get_selector_map',
+		'get_session',
+		'get_state',
+		'get_state_as_text',
+		'get_state_summary',
+		'get_state_summary_with_fallback',
+		'get_tabs_info',
+		'get_target_id_from_session_id',
+		'get_target_id_from_tab_id',
+		'get_target_id_from_url',
+		'go_back',
+		'go_forward',
+		'highlight_coordinate_click',
+		'highlight_interaction_element',
+		'human_current_page',
+		'initialized',
+		'is_cdp_connected',
+		'is_connected',
+		'is_file_input',
+		'is_file_input_by_index',
+		'is_file_uploader',
+		'is_local',
+		'is_reconnecting',
+		'kwargs_for_connect',
+		'kwargs_for_launch',
+		'kwargs_for_launch_persistent_context',
+		'kwargs_for_new_context',
+		'llm_screenshot_size',
+		'load_cookies_from_file',
+		'load_storage_state',
+		'logger',
+		'must_get_current_page',
+		'new_context',
+		'new_tab',
+		'on_AgentFocusChangedEvent',
+		'on_BrowserStartEvent',
+		'on_BrowserStopEvent',
+		'on_CloseTabEvent',
+		'on_FileDownloadedEvent',
+		'on_NavigateToUrlEvent',
+		'on_SwitchTabEvent',
+		'on_TabClosedEvent',
+		'on_TabCreatedEvent',
+		'optimize_large_domain_lists',
+		'playwright',
+		'prepare_user_data_dir',
+		'reconnect',
+		'refresh',
+		'refresh_page',
+		'remove_highlights',
+		'reset',
+		'reset_context',
+		'save_cookies',
+		'save_storage_state',
+		'screenshot_element',
+		'send_demo_mode_log',
+		'session_manager',
+		'set_auto_download_pdfs',
+		'set_browser_ownership',
+		'set_extra_headers',
+		'set_viewport_size',
+		'setup_browser_via_browser_pid',
+		'setup_browser_via_cdp_url',
+		'setup_browser_via_passed_objects',
+		'setup_browser_via_wss_url',
+		'setup_new_browser_context',
+		'setup_playwright',
+		'switch_to_tab',
+		'tabs',
+		'update_cached_selector_map',
+		'validate_highlight_elements_conflict',
+		'validate_proxy_settings',
+		'wait_for_element',
+		'wait_if_captcha_solving',
+		'warn_deterministic_rendering_weirdness',
+		'warn_storage_state_user_data_dir_conflict',
+		'warn_user_data_dir_non_default_version',
+		'wss_url',
+	)
+)
+
+# 0.x browser_use.llm built model instances on attribute access: llm.openai_gpt_4o, llm.google_gemini_2_5_flash, ...
+_LLM_INSTANCE = re.compile(r'(openai|azure|google|anthropic|mistral|cerebras|bu)_\w+|codestral|pixtral_large|get_llm_by_name')
+_LLM_INSTANCE_ANSWER = {
+	'openai': "ChatOpenAI('<model>'), e.g. ChatOpenAI('gpt-4o') for openai_gpt_4o.",
+	'azure': "llm='azure:<deployment>' with AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY and OPENAI_API_VERSION set.",
+	'google': "ChatGoogle('<model>'), e.g. ChatGoogle('gemini-2.5-flash') for google_gemini_2_5_flash.",
+	'anthropic': "ChatAnthropic('<model>'), e.g. ChatAnthropic('claude-sonnet-4-0') for anthropic_claude_sonnet_4_0.",
+	'cerebras': "llm='cerebras:<model>' with CEREBRAS_API_KEY set.",
+	'bu': "ChatBrowserUse('bu-fast') (the 0.x bu-1-0 / bu-2-0 / bu-latest need browser-use<1.0).",
+}
+
+
 def removed_name(module: str, name: str) -> ImportError | AttributeError:
 	"""For a module's __getattr__: the removed error for a 0.x name (ImportError, so `from module import name` shows
 	it), else the plain AttributeError."""
@@ -345,6 +506,15 @@ def removed_name(module: str, name: str) -> ImportError | AttributeError:
 		from browser_use.exceptions import removed  # here: this module is imported from modules exceptions imports
 
 		return ImportError(removed(f'{module}.{name}', names[name]), name=module)
+	if module == 'browser_use.llm' and _LLM_INSTANCE.fullmatch(name):
+		from browser_use.exceptions import removed
+
+		answer = _LLM_INSTANCE_ANSWER.get(name.split('_')[0], "llm='mistral:<model>' (pip install 'pydantic-ai-slim[mistral]').")
+		if name == 'get_llm_by_name':
+			answer = (
+				"ChatOpenAI / ChatAnthropic / ChatGoogle / ChatBrowserUse, or a Pydantic AI model string: llm='openai:gpt-4o'."
+			)
+		return ImportError(removed(f'{module}.{name}', answer), name=module)
 	if not name.startswith('_') and (message := _removed_submodule(module, name)):
 		return ModuleNotFoundError(message, name=f'{module}.{name}')
 	return AttributeError(f'module {module!r} has no attribute {name!r}')
