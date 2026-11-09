@@ -1039,6 +1039,21 @@ def last_text(messages: list[ModelMessage]) -> str:
 	return ''
 
 
+def described(e: BaseException) -> str:
+	"""The run's error line. A connection failure names its transport cause: the OpenAI SDK says only 'Connection
+	error.' for a refused connect, a DNS failure and running out of file descriptors alike (gwscale F1: 100 Agents
+	on macOS's 256 open files read 'ModelConnectionError: Connection error.')."""
+	text = f'{type(e).__name__}: {e}'
+	if isinstance(e, ModelConnectionError):
+		root, seen = e, {id(e)}
+		while (cause := root.__cause__ or root.__context__) is not None and id(cause) not in seen:
+			root = cause
+			seen.add(id(root))
+		if root is not e and str(root) and str(root) not in text:
+			text += f' ({type(root).__name__}: {root})'
+	return text
+
+
 async def run(
 	agent: Agent[Session, Any],
 	task: str,
@@ -1069,11 +1084,11 @@ async def run(
 			status, messages = 'timeout', session.messages
 		else:
 			status, messages = 'error', session.messages
-			error = (explain_error and explain_error(e)) or f'{type(e).__name__}: {e}'
+			error = (explain_error and explain_error(e)) or described(e)
 	except Exception as e:
 		name = session.error_type = type(e).__name__
 		status = 'max_steps' if name == 'UsageLimitExceeded' else 'error'
-		error, messages = (explain_error and explain_error(e)) or f'{name}: {e}', session.messages
+		error, messages = (explain_error and explain_error(e)) or described(e), session.messages
 	partial = session.partial()
 	new = messages[len(message_history or []) :]  # an earlier task's text is never this run's fallback
 	if output is None:

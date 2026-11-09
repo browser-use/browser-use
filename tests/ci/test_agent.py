@@ -1043,3 +1043,21 @@ def test_agent_raises_a_low_open_file_limit(tmp_path):
 	)
 	assert r.returncode == 0, r.stderr[-3000:]
 	assert r.stdout.strip().splitlines()[-1] == '400', r.stdout[-500:]
+
+
+async def test_a_connection_error_names_its_cause(tmp_path):
+	"""gwscale F1: out of file descriptors, a model call failed with only 'ModelConnectionError: Connection error.' (the
+	OpenAI SDK's text for any transport failure). The run's error now names the transport cause."""
+	from pydantic_ai.exceptions import ModelConnectionError
+	from pydantic_ai.models.function import FunctionModel
+
+	from browser_use.agent.loop import Session, run
+
+	def provider(messages, info):
+		try:
+			raise OSError(24, 'Too many open files')
+		except OSError as e:
+			raise ModelConnectionError('m', 'Connection error.', phase='connect') from e
+
+	r = await run(build_agent(FunctionModel(provider)), 'task', Session(repl=Repl(tmp_path)), 'm')
+	assert (r.status, r.error) == ('error', 'ModelConnectionError: Connection error. (OSError: [Errno 24] Too many open files)')
