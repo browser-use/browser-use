@@ -108,9 +108,13 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			return str(Path(path).expanduser())
 	if snaps:
 		raise RuntimeError(_snap_error(snaps[0]))
-	kind = 'Google Chrome' if chrome_only else 'Chrome, Chromium or Edge'
+	if chrome_only:  # a copied Chrome profile needs real Chrome: Playwright's Chromium cannot decrypt its cookies
+		raise RuntimeError(
+			f'No Google Chrome found (tried {", ".join(tried)}). Install it, or pass executable_path=... or set BH_CHROME_PATH.'
+		)
 	raise RuntimeError(
-		f'No {kind} found (tried {", ".join(tried)}). Install one, or pass executable_path=... or set BH_CHROME_PATH.'
+		f'No Chrome, Chromium or Edge found (tried {", ".join(tried)}). Install one or run `browser-use install` '
+		"(Playwright's Chromium), or pass executable_path=... or set BH_CHROME_PATH."
 	)
 
 
@@ -363,9 +367,9 @@ class LocalBrowser:
 				return ws
 			if (code := proc.poll()) is not None:
 				tail = log.read_bytes()[-600:].decode(errors='replace').strip()
-				raise RuntimeError(
-					f'{Path(binary).name} exited at start (code {code}); is another Chrome using {self.user_data_dir}? {tail}'
-				)
+				# Only a kept user_data_dir can be held by another Chrome; a temp or copied profile is new to this run
+				lock = '' if self.user_data_dir.is_relative_to(self.tmp) else f' is another Chrome using {self.user_data_dir}?'
+				raise RuntimeError(f'{Path(binary).name} exited at start (code {code});{lock} {tail}')
 			time.sleep(0.05)
 		if self._stopped:
 			raise RuntimeError('the browser was stopped while it started')

@@ -92,10 +92,19 @@ def test_kept_user_data_dir_survives_stop_and_a_stale_port_file_is_ignored(fake_
 @posix_only
 def test_browser_that_exits_at_start_raises_with_its_stderr(fake_chrome):
 	lb = _local.LocalBrowser()
-	with pytest.raises(RuntimeError, match=r'exited at start \(code 3\).*boom: bad flag'):
+	with pytest.raises(RuntimeError, match=r'exited at start \(code 3\).*boom: bad flag') as raised:
 		lb.start(executable_path=fake_chrome('exit'), headless=True)
+	assert 'another Chrome' not in str(raised.value)  # rc5 local-3: a fresh temp profile is never locked by another Chrome
 	lb.stop()
 	assert not lb.tmp.exists()
+
+
+@posix_only
+def test_a_kept_user_data_dir_that_exits_at_start_names_the_profile_lock(fake_chrome, tmp_path):
+	lb = _local.LocalBrowser()
+	with pytest.raises(RuntimeError, match=r'exited at start \(code 3\); is another Chrome using .*kept\?.*boom'):
+		lb.start(executable_path=fake_chrome('exit'), headless=True, user_data_dir=tmp_path / 'kept')
+	lb.stop()
 
 
 @posix_only
@@ -411,8 +420,12 @@ def test_playwright_chromium_from_browser_use_install_is_found_last(tmp_path, mo
 		(tmp_path / 'pw' / build / 'chrome-linux64').mkdir(parents=True)
 		(tmp_path / 'pw' / build / 'chrome-linux64' / 'chrome').write_text('')
 	assert _local.find_binary() == str(tmp_path / 'pw/chromium-1248/chrome-linux64/chrome')
-	with pytest.raises(RuntimeError, match='No Google Chrome found'):
+	with pytest.raises(RuntimeError, match='No Google Chrome found') as raised:
 		_local.find_binary(chrome_only=True)  # a copied Chrome profile needs real Chrome
+	assert 'browser-use install' not in str(raised.value)  # Playwright's Chromium cannot open a copied Chrome profile
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', str(tmp_path / 'none'))
+	with pytest.raises(RuntimeError, match=r'No Chrome, Chromium or Edge found .*run `browser-use install`'):
+		_local.find_binary()  # rc5 local-2: the library error names the documented fix, not only `browser-use doctor`
 
 
 @pytest.fixture
