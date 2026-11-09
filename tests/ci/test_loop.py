@@ -959,7 +959,7 @@ async def test_a_model_request_deadline_is_logged_in_tenths_of_a_second(tmp_path
 	with caplog.at_level('WARNING', logger='browser_use.agent.loop'):
 		result = await run(build_agent(FunctionModel(fn)), 'task', session, 'function:x')
 	assert result.status == 'completed', result.error
-	(line,) = [r.getMessage() for r in caplog.records if 'no answer within' in r.getMessage()]
+	(line,) = (r.getMessage() for r in caplog.records if 'no answer within' in r.getMessage())
 	assert re.search(r'no answer within \d+\.\d s;', line), line
 	assert re.search(r'got no answer within \d+\.\d s\.', str(requests[1])), str(requests[1])[-400:]
 
