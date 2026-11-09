@@ -1,71 +1,31 @@
 <!-- mcp-name: com.browser-use/browser-use -->
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24">
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
-  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"  width="full">
-</picture>
+<img src="https://browser-use.com/lander/plates/browsers-8dd60aa0.jpg" alt="Browser Use" width="100%" />
 
-<div align="center">
-    <picture>
-    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125">
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a">
-    <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"  width="400">
-    </picture>
-</div>
+# Browser Use
 
-<div align="center">
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-downloads"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
-</div>
+The open-source browser agent. Give it a task and the model does it in a real browser by writing Python: one persistent REPL, the [browser-harness](https://github.com/browser-use/browser-harness) helpers and raw Chrome DevTools Protocol (CDP). Runs on any LLM, locally or on [Browser Use Cloud](https://cloud.browser-use.com). MIT licensed.
 
----
+```
+  ● task: "book the earliest driving test"
+  │
+  ● model writes a cell          new_tab(url); click(41); js(...)
+  │
+  ● REPL runs it on Chrome (CDP) → output back to the model
+  │
+  ✓ finish(result)
+```
 
-<div align="center">
-<a href="#navigate-the-web-like-a-human-does"><img src="https://media.browser-use.tools/badges/demos" alt="Demos"></a>
-<img width="16" height="1" alt="">
-<a href="https://docs.browser-use.com"><img src="https://media.browser-use.tools/badges/docs" alt="Docs"></a>
-<img width="16" height="1" alt="">
-<a href="https://browser-use.com/posts"><img src="https://media.browser-use.tools/badges/blog" alt="Blog"></a>
-<img width="16" height="1" alt="">
-<a href="https://browsermerch.com"><img src="https://media.browser-use.tools/badges/merch" alt="Merch"></a>
-<img width="100" height="1" alt="">
-<a href="https://github.com/browser-use/browser-use"><img src="https://media.browser-use.tools/badges/github" alt="Github Stars"></a>
-<img width="4" height="1" alt="">
-<a href="https://x.com/intent/user?screen_name=browser_use"><img src="https://media.browser-use.tools/badges/twitter" alt="Twitter"></a>
-<img width="4" height="1" alt="">
-<a href="https://link.browser-use.com/discord"><img src="https://media.browser-use.tools/badges/discord" alt="Discord"></a>
-<img width="4" height="1" alt="">
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
-</div>
+**The model, a REPL and CDP. That's the whole agent.**
 
-<br/>
+## See it work
 
-<div align="center">
-  <a href="https://browser-use.com">
-    <img src="https://browser-use.com/lander/plates/browsers-8dd60aa0.jpg" alt="A person crossing an orange canyon on a giant key-shaped bridge, from the Browser Use website." width="720">
-  </a>
-</div>
+**Task:** "Find an available slot, pick a date and time, handle the CAPTCHA, and book a driving test."
 
-<div align="center">
+![Browser Use (cloud V4 agent) booking a driving test](https://github.com/user-attachments/assets/135885e8-1141-4e10-b719-bf690ae7d260)
 
-The open-source browser agent. Run it locally with any LLM, or on [Browser Use Cloud](https://cloud.browser-use.com): stealth browsers from $0.02/hour, top score (90.5%) on [Stealth Bench V2](https://browser-use.com/benchmarks/browsers).
+[More demos and prompts ↗](https://browser-use.com/showcase)
 
-</div>
-
-<br/>
-
-# Navigate the web like a human does.
-
-Find an available slot, pick a date and time, handle the CAPTCHA, and book a driving test.
-
-![Browser Use V4 booking a driving test](https://github.com/user-attachments/assets/135885e8-1141-4e10-b719-bf690ae7d260)
-
-[Explore more demos and prompts ↗](https://browser-use.com/showcase)
-
-<br/>
-
-> **AI agents and crawlers:** read [browser-use.com/llms.txt](https://browser-use.com/llms.txt) for the product map (open source, Browser Harness, Cloud browsers, Agents API, pricing) and [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) for the documentation index. Browser Use is the open-source browser agent (Python and TypeScript), a $0.02 per browser-hour cloud browser with stealth, CAPTCHA solving and residential proxies, and a hosted agent API.
-
-# Which Browser Use do I need?
+## Which Browser Use do I need?
 
 <picture>
   <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/browser-use/browser-use/main/static/readme/which-product-dark-mobile.svg">
@@ -78,9 +38,9 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 - **[Path 2: CLI](#path-2-cli):** Automate your own browser tasks.
 - **[Path 3: Python Library](#path-3-python-library):** Run the open source Browser Use agent locally from your own code.
 
-# Quickstart
+## Quickstart
 
-## Path 1: Fully Hosted Cloud
+### Path 1: Fully Hosted Cloud
 
 Scale browser automation with our hosted agent, stealth browsers, and infrastructure for profiles, recordings, and data policies.
 
@@ -90,7 +50,7 @@ New Google, GitHub, or Microsoft signups get **$1 cloud credit**.
 
 <br/>
 
-## Path 2: CLI
+### Path 2: CLI
 
 Paste this prompt into Claude Code, Codex, Hermes, OpenClaw, or your favorite agent.
 
@@ -100,7 +60,7 @@ Install browser-use with `uv tool install browser-use`, run `browser-use skill i
 
 <br/>
 
-## Path 3: Python Library
+### Path 3: Python Library
 
 > **browser-use 1.0.** The agent writes Python against raw CDP in a persistent REPL, on [Pydantic AI](https://ai.pydantic.dev). Coming from 0.x? Read [MIGRATING.md](https://github.com/browser-use/browser-use/blob/main/MIGRATING.md).
 
@@ -162,7 +122,7 @@ Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI 
 
 <br/>
 
-# Browser Use Benchmark v2
+## Browser Use Benchmark v2
 
 <img alt="Browser Use Benchmark v2 - Mean rubric score by model and cost per task" src="https://raw.githubusercontent.com/browser-use/browser-use/main/static/hard_benchmark_v2.jpg" width="100%">
 
@@ -172,7 +132,7 @@ This [very hard benchmark](https://github.com/browser-use/benchmark) targets the
 
 <br/>
 
-# FAQ
+## FAQ
 
 <details>
 <summary><b>Should I use the fully hosted cloud, CLI, or Python library?</b></summary>
@@ -247,6 +207,10 @@ The library and the CLI send anonymized usage telemetry (counts, timings, model 
 of visited pages; never the task, results, code, typed text, secrets or page content). Turn it off with
 `ANONYMIZED_TELEMETRY=false`. [TELEMETRY.md](https://github.com/browser-use/browser-use/blob/main/TELEMETRY.md) lists
 every field.
+
+<br/>
+
+> **AI agents and crawlers:** read [browser-use.com/llms.txt](https://browser-use.com/llms.txt) for the product map (open source, Browser Harness, Cloud browsers, Agents API, pricing) and [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) for the documentation index. Browser Use is the open-source browser agent (Python and TypeScript), a $0.02 per browser-hour cloud browser with stealth, CAPTCHA solving and residential proxies, and a hosted agent API.
 
 <br/>
 
