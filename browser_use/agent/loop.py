@@ -35,6 +35,7 @@ from pydantic_ai.exceptions import (
 	ToolRetryError,
 )
 from pydantic_ai.messages import (
+	CompactionPart,
 	ModelMessage,
 	ModelRequest,
 	ModelResponse,
@@ -397,7 +398,23 @@ class StreamResponses(AbstractCapability[Session]):
 
 class StreamedRequest(WrapperModel):
 	async def request(self, messages: Any, model_settings: Any, model_request_parameters: Any) -> ModelResponse:
+		"""bub2-010 (gpt-6-luna, 1 of 5 streamed compactions): the next request got 400 invalid_encrypted_content on the
+		compaction item and the run ended. The messages still hold the history that item replaced, so the request goes
+		out again without it and the server compacts that history again; never more often than there are such items."""
+		while True:
+			try:
+				return await self._request(messages, model_settings, model_request_parameters)
+			except ModelAPIError as e:
+				if not (item := _unreadable_compaction(e, messages)):
+					raise
+				logger.warning(f'{self.model_name} could not read compaction item {item}; sending the history it replaced')
+				messages = [_without_part(m, item) if isinstance(m, ModelResponse) else m for m in messages]
+
+	async def _request(self, messages: Any, model_settings: Any, model_request_parameters: Any) -> ModelResponse:
+		terminal: list[Any] = []
 		async with self.wrapped.request_stream(messages, model_settings, model_request_parameters) as stream:
+			if handle := getattr(stream, '_handle_terminal_response', None):  # Responses: the Response a terminal event carries
+				setattr(stream, '_handle_terminal_response', lambda r: (terminal.append(r), handle(r))[1])
 			try:
 				async for _ in stream:
 					pass
@@ -409,7 +426,39 @@ class StreamedRequest(WrapperModel):
 		# that ended early: a half answer taken as the result, a half summary as the checkpoint, no usage or charge
 		if response.state != 'complete':
 			raise ModelConnectionError(self.model_name, 'The response stream ended before the response did.', in_stream=True)
+		return _sealed_as_completed(response, terminal[-1]) if terminal else response
+
+
+def _sealed_as_completed(response: ModelResponse, final: Any) -> ModelResponse:
+	"""Compaction items as response.completed carries them, as in a non-streamed body. A compaction item's own events
+	can carry another encrypted_content (output_item.added: a provisional 1016-character token, live gpt-6-luna), and
+	only the response's is the one to send back. One the events never finished goes first, where the server puts it."""
+	items = {o.id: o for o in getattr(final, 'output', None) or () if getattr(o, 'type', None) == 'compaction'}
+	if not items:
 		return response
+	parts = [
+		replace(p, provider_details=items.pop(p.id).model_dump()) if isinstance(p, CompactionPart) and p.id in items else p
+		for p in response.parts
+	]
+	missing = [
+		CompactionPart(None, id=i.id, provider_name=response.provider_name, provider_details=i.model_dump())
+		for i in items.values()
+	]
+	return replace(response, parts=[*missing, *parts])
+
+
+def _unreadable_compaction(error: ModelAPIError, messages: Sequence[ModelMessage]) -> str | None:
+	"""The id of the compaction item in `messages` that the provider's 400 invalid_encrypted_content names, if any."""
+	if error.provider_error_code != 'invalid_encrypted_content':
+		return None
+	ids = re.findall(r'\bcmp_\w+', error.body if isinstance(error.body, str) else json.dumps(error.body, default=str))
+	sent = {p.id for m in messages if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, CompactionPart)}
+	return next((i for i in ids if i in sent), None)
+
+
+def _without_part(message: ModelResponse, item: str) -> ModelResponse:
+	parts = [p for p in message.parts if not (isinstance(p, CompactionPart) and p.id == item)]
+	return message if len(parts) == len(message.parts) else replace(message, parts=parts)
 
 
 class LazyCompaction(OpenAICompaction):

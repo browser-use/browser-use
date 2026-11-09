@@ -124,6 +124,9 @@ def sse(response: dict) -> bytes:
 	def emit(kind: str, **data: Any) -> None:
 		events.append({'type': kind, 'sequence_number': len(events), **data})
 
+	# An item's 'streamed' encrypted_content is what its own added/done events carry where response.completed differs
+	streamed = {item['id']: item['streamed'] for item in response['output'] if 'streamed' in item}
+	response = {**response, 'output': [{k: v for k, v in item.items() if k != 'streamed'} for item in response['output']]}
 	emit('response.created', response={**response, 'status': 'in_progress', 'output': [], 'usage': None})
 	for i, item in enumerate(response['output']):
 		if item['type'] == 'message':
@@ -137,6 +140,11 @@ def sse(response: dict) -> bytes:
 			where = {'item_id': item['id'], 'output_index': i}
 			emit('response.function_call_arguments.delta', **where, delta=item['arguments'])
 			emit('response.function_call_arguments.done', **where, arguments=item['arguments'], name=item['name'])
+		elif seen := streamed.get(item['id']):  # gpt-6-luna live: added has a provisional token, then compacting
+			emit('response.output_item.added', output_index=i, item={**item, 'encrypted_content': seen['added']})
+			emit('response.compaction.compacting', item_id=item['id'], output_index=i)
+			emit('response.output_item.done', output_index=i, item={**item, 'encrypted_content': seen['done']})
+			continue
 		else:
 			emit('response.output_item.added', output_index=i, item=item)
 		emit('response.output_item.done', output_index=i, item=item)
@@ -150,16 +158,23 @@ def responses_server():
 	"""The gateway's POST /responses: 400 on what it rejects, else the queued `replies` (output item lists, a dict of
 	response fields such as a failure, or an (HTTP status, body) error), then a finish call; streamed when the request asks for it. The response
 	carries browser_use{resolved_model, service_tier, charge_usd} as the gateway's does. A non-streamed request gets
-	what the gateway answers one past its 300 s window: HTTP 200, status failed, request_timeout."""
-	requests, replies = [], []
+	what the gateway answers one past its 300 s window: HTTP 200, status failed, request_timeout. A compaction item sent
+	back must be one a response carried (encrypted_content included), its id without 'unreadable', else OpenAI's 400."""
+	requests, replies, issued = [], [], {}
 
 	class Handler(BaseHTTPRequestHandler):
 		def do_POST(self):
 			body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
 			requests.append((self.path, body))
 			bad = gateway_violations(body) if self.path == '/v1/responses' else ['path']
+			sealed = [i for i in body['input'] if isinstance(body['input'], list) and i.get('type') == 'compaction']
+			rejected = [i['id'] for i in sealed if issued.get(i['id']) != i['encrypted_content'] or 'unreadable' in i['id']]
 			if bad:
 				status, reply = 400, {'error': {'code': 'stateful_request', 'message': '; '.join(bad)}}
+			elif rejected:
+				status, reply = 400, {'error': {'code': 'invalid_encrypted_content', 'type': 'invalid_request_error', 'param': None,
+					'message': f'The encrypted content for item {rejected[0]} could not be verified. Reason: Encrypted '
+					'content could not be decrypted or parsed.'}}  # fmt: skip
 			elif replies and isinstance(replies[0], tuple):  # (HTTP status, error body)
 				status, reply = replies.pop(0)
 			else:
@@ -180,6 +195,7 @@ def responses_server():
 					'browser_use': {'resolved_model': 'gpt-6-luna', 'service_tier': 'priority', 'charge_usd': '0.00020000'},
 					**fields,
 				}  # fmt: skip
+				issued.update((i['id'], i['encrypted_content']) for i in reply['output'] if i['type'] == 'compaction')
 			streamed = status == 200 and body.get('stream')
 			data = sse(reply) if streamed else json.dumps(reply).encode()
 			self.send_response(status)
@@ -420,6 +436,64 @@ async def test_text_answer_reaches_the_repair_turn_when_a_compaction_item_ends_t
 	repair = requests[1][1]['input']
 	assert repair[0]['type'] == 'compaction' and 'TASK-TEXT' not in json.dumps(repair)  # compacted as before
 	assert answer in json.dumps(repair)  # but the answer to deliver is in the repair request itself
+
+
+def sealed(n: int | str, **fields: Any) -> dict:
+	return {'type': 'compaction', 'id': f'cmp_{n}', 'encrypted_content': f'sealed-compaction-{n}', **fields}
+
+
+async def test_a_streamed_compaction_item_goes_back_as_response_completed_carries_it(responses_server, tmp_path):
+	"""bub2-010 (eval run 42535262389, gpt-6-luna): a streamed response compacted with response.compaction.compacting,
+	the next request got 400 invalid_encrypted_content on that compaction item and the run ended. A compaction item's
+	own stream events can carry another token than the response (output_item.added a provisional one, live; done in the
+	compacting path, unobserved): the item sent back is the one response.completed carries, as in a non-streamed body."""
+	url, requests, replies = responses_server
+	stale = {'added': 'provisional-2', 'done': 'sampled-so-far-2'}
+	replies += [
+		[reasoning(1), call('python', {'code': 'print(6 * 7)'}, 1)],
+		[sealed(2, streamed=stale), reasoning(2), call('python', {'code': 'print(1)'}, 2)],
+	]
+	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None, compact_at_tokens=10)
+	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 3), result.error
+	third = requests[2][1]['input']
+	assert [i['encrypted_content'] for i in third if i.get('type') == 'compaction'] == ['sealed-compaction-2']
+	assert 'TASK-TEXT' not in json.dumps(third)  # still compacted
+
+
+async def test_a_compaction_item_the_provider_cannot_read_is_dropped_and_the_history_compacted_again(responses_server, tmp_path):
+	"""bub2-010: a compaction item the provider then could not read (400 invalid_encrypted_content naming it) ended the
+	run. The history it replaced is still there: the request goes out again without the item, the server compacts that
+	history again, and the run goes on from the new item; at most once per such item."""
+	url, requests, replies = responses_server
+	steps = [
+		[reasoning(1), call('python', {'code': 'print(6 * 7)'}, 1)],
+		[sealed('unreadable_2'), reasoning(2), call('python', {'code': 'print(1)'}, 2)],
+	]
+	replies += [*steps, [sealed(4), reasoning(4), call('python', {'code': 'print(2)'}, 4)]]
+	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None, compact_at_tokens=10)
+	result = await run(agent, 'TASK-TEXT', Session(repl=Repl(tmp_path)), model.model_name)
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 5), result.error
+	rejected, again, after = (json.dumps(requests[i][1]['input']) for i in (2, 3, 4))
+	assert 'cmp_unreadable_2' in rejected and 'cmp_unreadable_2' not in again
+	assert 'TASK-TEXT' in again and requests[3][1]['context_management']  # the replaced history, to compact again
+	assert 'cmp_4' in after and 'TASK-TEXT' not in after and 'cmp_unreadable_2' not in after
+	assert result.usage['requests'] == 4 and result.cost_usd == pytest.approx(4 * 0.0002)  # the 400 is not charged
+
+	requests.clear()
+	replies += [*steps, [sealed('unreadable_4'), reasoning(4), call('python', {'code': 'print(2)'}, 4)]]
+	result = await run(
+		build_agent(model, model_settings=settings, reasoning_effort=None, compact_at_tokens=10),
+		'TASK-TEXT',
+		Session(repl=Repl(tmp_path)),
+		model.model_name,
+	)
+	assert (result.status, result.output, len(requests)) == ('completed', 'ok', 7), result.error
+	retries = [json.dumps(body['input']) for _, body in requests[5:7]]  # each unreadable item dropped once, newest first
+	assert 'cmp_unreadable_4' not in retries[0] and 'cmp_unreadable_2' in retries[0]
+	assert 'cmp_unreadable' not in retries[1] and 'TASK-TEXT' in retries[1]
 
 
 @pytest.fixture
