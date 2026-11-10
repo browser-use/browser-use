@@ -80,13 +80,10 @@ def __getattr__(name: str):
 		from browser_use.utils import get_browser_use_version
 
 		return get_browser_use_version()
-	if name in _REMOVED:
-		from browser_use.exceptions import removed
-
-		raise ImportError(removed(f'browser_use.{name}', _REMOVED[name]))
 	from browser_use.legacy import removed_name
 
-	raise removed_name(__name__, name)  # from browser_use import dom (a 0.x module): the removed error naming the 1.0 answer
+	# BrowserSession, ChatGroq; from browser_use import dom (a 0.x module): the removed error naming the 1.0 answer
+	raise removed_name(__name__, name, _REMOVED)
 
 
 __all__ = [

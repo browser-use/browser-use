@@ -252,7 +252,9 @@ Domain-scoped `sensitive_data` still limits where each secret is typed, independ
 
 Every 0.x module path (0.1 to 0.13) 1.0 does not have, and every public name of a 0.x module 1.0 kept, raises the
 removed error naming its replacement (`ModuleNotFoundError` for a module, `ImportError` for a name; both are
-`ImportError`, so `except ImportError` fallbacks still work). Import from the top level: `from browser_use import Agent, Browser, Tools,
+`ImportError`, so `except ImportError` fallbacks still work). Read as an attribute (`browser_use.BrowserSession`), the
+same text is an `AttributeError`, so `hasattr()` and `getattr(module, name, default)` feature detection takes its
+fallback. Import from the top level: `from browser_use import Agent, Browser, Tools,
 ActionResult, ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle`.
 
 | 0.x | 1.0 |
