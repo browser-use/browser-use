@@ -251,6 +251,13 @@ def _end_worker(pid: int, job: int | None) -> None:
 	_kill_tree(pid, job)
 
 
+def _finalize_worker(proc: subprocess.Popen[bytes], job: int | None) -> None:
+	"""A dropped Repl may outlive its event loop: kill its tree and reap it without an asyncio child watcher."""
+	_end_worker(proc.pid, job)
+	with contextlib.suppress(subprocess.TimeoutExpired):
+		proc.wait(timeout=5)
+
+
 def kill_workers() -> None:
 	"""Kill every live REPL worker and the processes its cells started (atexit, SIGTERM): a cell left running after
 	this process exits could keep driving the browser, its timeout gone with us."""
@@ -409,7 +416,7 @@ class Repl:
 			_WORKERS[self.proc.pid] = self.job
 			# An Agent on a keep_alive Browser keeps its REPL until close(): one dropped without it (a service running
 			# many Agents on one Browser) left a ~35 MB worker each until exit
-			self._reaper = weakref.finalize(self, _end_worker, self.proc.pid, self.job)
+			self._reaper = weakref.finalize(self, _finalize_worker, self.proc, self.job)
 			self._reaper.atexit = False  # exit: kill_workers, before browsers stop
 			from browser_use.browser.browser import _install_cleanup
 

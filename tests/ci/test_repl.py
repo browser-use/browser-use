@@ -733,6 +733,25 @@ def test_a_worker_whose_event_loop_closed_is_reaped_without_asyncio_warnings(tmp
 	assert not [r for r in caplog.records if r.name == 'asyncio' and 'that handles pid' in r.getMessage()]
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='checks child reaping with waitpid')
+def test_a_dropped_repl_reaps_its_worker_after_the_event_loop_closed(tmp_path):
+	"""A long-lived service can drop an Agent on a keep_alive Browser without calling close(). Its finalizer killed
+	the worker but never waited for it, leaving a zombie until another subprocess happened to start."""
+	import weakref
+
+	repl = Repl(tmp_path)
+	assert asyncio.run(repl.call('exec', 'print("ready")', 30))['error'] is None
+	assert repl.proc is not None
+	pid, ref = repl.proc.pid, weakref.ref(repl)
+	del repl
+	gc.collect()
+	assert ref() is None
+	time.sleep(0.1)
+	# Do not use subprocess.run('ps'): starting it reaps Popen's abandoned children and hides the bug.
+	with pytest.raises(ChildProcessError):
+		os.waitpid(pid, os.WNOHANG)
+
+
 def _tab(capture_hangs: bool):
 	"""A stub browser-harness cdp for one hidden attached tab; records (method, response timeout) per call."""
 	from browser_harness.helpers import _IPCResponseTimeout
