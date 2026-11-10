@@ -1,6 +1,6 @@
 ---
 name: x402
-description: Set up Browser Use Cloud payments with x402 — pay per request from a crypto wallet (USDC on Base mainnet), no signup or API key. Two setups it works out up front — "just use it" (set up a wallet so you or Claude Code can run cloud browser tasks paid from the wallet — Claude writes and runs throwaway scripts, nothing touches your codebase) or "build it in" (install the SDK and write the key + code into your project). Walks through wallet setup, funding, .env, and a ~$1 test run. Use when the user asks about x402, pay-per-use, USDC payments, or wants Browser Use Cloud without an API key. For the free-tier signup (reverse-CAPTCHA → API key), use `browser-use cloud signup` or the `cloud` skill instead.
+description: Set up Browser Use Cloud payments with x402 — pay per request from a crypto wallet (USDC on Base mainnet), no signup or API key. Two setups it works out up front — "just use it" (set up a wallet so you or Claude Code can run cloud browser tasks paid from the wallet — Claude writes and runs throwaway scripts, nothing touches your codebase) or "build it in" (install the SDK and write the key + code into your project). Walks through wallet setup, funding, .env, and a ~$1 test run. Use when the user asks about x402, pay-per-use, USDC payments, or wants Browser Use Cloud without an API key. For an API key instead, run `browser-use login` or use the `cloud` skill.
 allowed-tools: Bash, Read, Write, Edit
 ---
 
@@ -39,7 +39,7 @@ This is a scripted flow. Follow the steps in order. x402 only works through the 
 **Do:** Look for an existing Browser Use API key, in this order. Don't say anything yet.
 1. `BROWSER_USE_API_KEY` in the environment
 2. a `BROWSER_USE_API_KEY=` line in `./.env`
-3. `~/.browser-use/config.json` (saved by `browser-use cloud login` / `signup`)
+3. the key `browser-use login` stored (`browser-use auth status` says whether there is one)
 4. `browser-use doctor` output, if the CLI is installed
 
 **If no key is found anywhere:**

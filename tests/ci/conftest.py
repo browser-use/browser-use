@@ -1,238 +1,129 @@
-"""
-Pytest configuration for browser-use CI tests.
+"""Shared fixtures. Nothing here calls a model provider or Browser Use Cloud."""
 
-Sets up environment variables to ensure tests never connect to production services.
-"""
-
+import json
 import os
-import socketserver
+import shutil
+import socket
+import subprocess
+import sys
 import tempfile
-from unittest.mock import AsyncMock
+import time
+import urllib.request
+import warnings
+from pathlib import Path
 
 import pytest
-from dotenv import load_dotenv
-from pytest_httpserver import HTTPServer
+from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-# Fix for httpserver hanging on shutdown - prevent blocking on socket close
-# This prevents tests from hanging when shutting down HTTP servers
-socketserver.ThreadingMixIn.block_on_close = False
-# Also set daemon threads to prevent hanging
-socketserver.ThreadingMixIn.daemon_threads = True
+os.environ['ANONYMIZED_TELEMETRY'] = 'false'
+os.environ['BH_TAB_MARKER'] = '0'
+# REPL workers without an explicit daemon must fail, never drive the developer's own Chrome (the default daemon).
+os.environ['BU_NAME'] = 'browser-use-tests-no-daemon'
+# The Browser Use key store (`browser-use login`) points at a file that never exists: no test reads the developer's key.
+os.environ['BH_AUTH_PATH'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-auth' / 'auth.json')
+# The 0.x config.json `browser-use --mcp` reads: never the developer's own.
+os.environ['BROWSER_USE_CONFIG_DIR'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-config')
+os.environ['BROWSER_USE_TELEMETRY_INTERNAL'] = '1'
 
-from browser_use.agent.views import AgentOutput
-from browser_use.llm import BaseChatModel
-from browser_use.llm.views import ChatInvokeCompletion
-from browser_use.tools.service import Tools
+# No test reaches the real PostHog: a test that points telemetry at a dead host left a send in flight, and its retry went
+# to the module's host once the fixture had restored it (an event from bu-test-device in production per suite run).
+import browser_use.telemetry.service as _telemetry_service  # noqa: E402
 
-# Load environment variables before any imports
-load_dotenv()
-
-
-# Skip LLM API key verification for tests
-os.environ['SKIP_LLM_API_KEY_VERIFICATION'] = 'true'
-
-from bubus import BaseEvent
-
-from browser_use import Agent
-from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.sync.service import CloudSync
+_telemetry_service.POSTHOG_HOST = 'http://127.0.0.1:9'  # nothing listens on port 9
 
 
-@pytest.fixture(autouse=True)
-def setup_test_environment():
-	"""
-	Automatically set up test environment for all tests.
-	"""
-
-	# Create a temporary directory for test config (but not for extensions)
-	config_dir = tempfile.mkdtemp(prefix='browseruse_tests_')
-
-	original_env = {}
-	test_env_vars = {
-		'SKIP_LLM_API_KEY_VERIFICATION': 'true',
-		'ANONYMIZED_TELEMETRY': 'false',
-		'BROWSER_USE_CLOUD_SYNC': 'true',
-		'BROWSER_USE_CLOUD_API_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
-		'BROWSER_USE_CLOUD_UI_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
-		# Don't set BROWSER_USE_CONFIG_DIR anymore - let it use the default ~/.config/browseruse
-		# This way extensions will be cached in ~/.config/browseruse/extensions
-	}
-
-	for key, value in test_env_vars.items():
-		original_env[key] = os.environ.get(key)
-		os.environ[key] = value
-
-	yield
-
-	# Restore original environment
-	for key, value in original_env.items():
-		if value is None:
-			os.environ.pop(key, None)
-		else:
-			os.environ[key] = value
+def find_chrome() -> str | None:
+	candidates = [
+		os.environ.get('CHROME'),
+		'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+		*(shutil.which(n) for n in ('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome')),
+	]
+	return next((c for c in candidates if c and Path(c).exists()), None)
 
 
-# not a fixture, mock_llm() provides this in a fixture below, this is a helper so that it can accept args
-def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
-	"""Create a mock LLM that returns specified actions or a default done action.
-
-	Args:
-		actions: Optional list of JSON strings representing actions to return in sequence.
-			If not provided, returns a single done action.
-			After all actions are exhausted, returns a done action.
-
-	Returns:
-		Mock LLM that will return the actions in order, or just a done action if no actions provided.
-	"""
-	tools = Tools()
-	ActionModel = tools.registry.create_action_model()
-	AgentOutputWithActions = AgentOutput.type_with_custom_actions(ActionModel)
-
-	llm = AsyncMock(spec=BaseChatModel)
-	llm.model = 'mock-llm'
-	llm._verified_api_keys = True
-
-	# Add missing properties from BaseChatModel protocol
-	llm.provider = 'mock'
-	llm.name = 'mock-llm'
-	llm.model_name = 'mock-llm'  # Ensure this returns a string, not a mock
-
-	# Default done action
-	default_done_action = """
-	{
-		"thinking": "null",
-		"evaluation_previous_goal": "Successfully completed the task",
-		"memory": "Task completed",
-		"next_goal": "Task completed",
-		"action": [
-			{
-				"done": {
-					"text": "Task completed successfully",
-					"success": true
-				}
-			}
-		]
-	}
-	"""
-
-	# Unified logic for both cases
-	action_index = 0
-
-	def get_next_action() -> str:
-		nonlocal action_index
-		if actions is not None and action_index < len(actions):
-			action = actions[action_index]
-			action_index += 1
-			return action
-		else:
-			return default_done_action
-
-	async def mock_ainvoke(*args, **kwargs):
-		# Check if output_format is provided (2nd argument or in kwargs)
-		output_format = None
-		if len(args) >= 2:
-			output_format = args[1]
-		elif 'output_format' in kwargs:
-			output_format = kwargs['output_format']
-
-		action_json = get_next_action()
-
-		if output_format is None:
-			# Return string completion
-			return ChatInvokeCompletion(completion=action_json, usage=None)
-		else:
-			# Parse with provided output_format (could be AgentOutputWithActions or another model)
-			if output_format == AgentOutputWithActions:
-				parsed = AgentOutputWithActions.model_validate_json(action_json)
-			else:
-				# For other output formats, try to parse the JSON with that model
-				parsed = output_format.model_validate_json(action_json)
-			return ChatInvokeCompletion(completion=parsed, usage=None)
-
-	llm.ainvoke.side_effect = mock_ainvoke
-
-	return llm
+@pytest.fixture
+def chrome_binary() -> str:
+	"""The Chrome binary, for tests where Browser launches its own (Browser('chromium'), Browser('chrome', profile=))."""
+	return find_chrome() or pytest.skip('Chrome not installed')
 
 
 @pytest.fixture(scope='module')
-async def browser_session():
-	"""Create a real browser session for testing"""
-	session = BrowserSession(
-		browser_profile=BrowserProfile(
-			headless=True,
-			user_data_dir=None,  # Use temporary directory
-			keep_alive=True,
-			enable_default_extensions=True,  # Enable extensions during tests
-		)
-	)
-	await session.start()
-	yield session
-	await session.kill()
-	# Ensure event bus is properly stopped
-	await session.event_bus.stop(clear=True, timeout=5)
+def chrome():
+	"""An isolated headless Chrome: {'http': devtools http url, 'ws': browser websocket url}."""
+	binary = find_chrome()
+	if not binary:
+		pytest.skip('Chrome not installed')
+	with socket.socket() as s:
+		s.bind(('127.0.0.1', 0))
+		port = s.getsockname()[1]
+	profile = tempfile.mkdtemp()
+	args = [binary, '--headless=new', f'--remote-debugging-port={port}', f'--user-data-dir={profile}', '--no-first-run']
+	if sys.platform.startswith('linux'):
+		args.append('--no-sandbox')
+	proc = subprocess.Popen([*args, 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+	ws = None
+	for _ in range(150):
+		try:
+			ws = json.load(urllib.request.urlopen(f'http://127.0.0.1:{port}/json/version'))['webSocketDebuggerUrl']
+			break
+		except OSError:
+			time.sleep(0.1)
+	if ws is None:
+		proc.kill()
+		proc.wait()
+		pytest.skip('Chrome did not start')
+	yield {'http': f'http://127.0.0.1:{port}', 'ws': ws}
+	proc.kill()
+	proc.wait()  # reaped before its profile is removed
+	shutil.rmtree(profile, ignore_errors=True)
 
 
-@pytest.fixture(scope='function')
-def cloud_sync(httpserver: HTTPServer):
-	"""
-	Create a CloudSync instance configured for testing.
+@pytest.fixture(scope='module')
+def daemon(chrome):
+	"""A named browser-harness daemon on the isolated Chrome; the REPL env that drives it."""
+	from browser_harness import admin
 
-	This fixture creates a real CloudSync instance and sets up the test environment
-	to use the httpserver URLs.
-	"""
-
-	# Set up test environment
-	test_http_server_url = httpserver.url_for('')
-	os.environ['BROWSER_USE_CLOUD_API_URL'] = test_http_server_url
-	os.environ['BROWSER_USE_CLOUD_UI_URL'] = test_http_server_url
-	os.environ['BROWSER_USE_CLOUD_SYNC'] = 'true'
-
-	# Create CloudSync with test server URL
-	cloud_sync = CloudSync(
-		base_url=test_http_server_url,
-	)
-
-	return cloud_sync
+	name = f'butest{os.getpid()}{chrome["http"].rsplit(":", 1)[1]}'
+	admin.ensure_daemon(name=name, env={'BU_CDP_WS': chrome['ws']})
+	yield {'BU_NAME': name}
+	try:
+		admin.restart_daemon(name)
+	except Exception as e:  # a daemon left running shows in the test output
+		warnings.warn(f'browser-harness daemon {name} did not stop: {e!r}', stacklevel=1)
 
 
-@pytest.fixture(scope='function')
-def mock_llm():
-	"""Create a mock LLM that just returns the done action if queried"""
-	return create_mock_llm(actions=None)
+@pytest.fixture
+def shared_runtime_dir(monkeypatch):
+	"""browser-harness's runtime dir as another user's pre-created /tmp/bh looks (0777; short: AF_UNIX paths are)."""
+	from browser_harness import _ipc as ipc
+
+	if sys.platform == 'win32':
+		pytest.skip('Windows uses token-gated TCP loopback')
+	path = Path(tempfile.mkdtemp(prefix='bh', dir='/tmp'))
+	path.chmod(0o777)
+	monkeypatch.setattr(ipc, '_RUNTIME', path)
+	yield path
+	shutil.rmtree(path, ignore_errors=True)
 
 
-@pytest.fixture(scope='function')
-def agent_with_cloud(browser_session, mock_llm, cloud_sync):
-	"""Create agent (cloud_sync parameter removed)."""
-	agent = Agent(
-		task='Test task',
-		llm=mock_llm,
-		browser_session=browser_session,
-	)
-	return agent
+def script(*turns):
+	"""FunctionModel playing tool calls in order. Each turn: (tool, args) or a list of them. Records requests."""
+	seen = []
+
+	def fn(messages, info: AgentInfo):
+		seen.append(messages)
+		if len(seen) > len(turns):
+			raise AssertionError(f'unexpected model call {len(seen)}; last {messages[-1]!r}'[:4000])
+		turn = turns[len(seen) - 1]
+		calls = turn if isinstance(turn, list) else [turn]
+		return ModelResponse(parts=[ToolCallPart(name, args) for name, args in calls])
+
+	return FunctionModel(fn), seen
 
 
-@pytest.fixture(scope='function')
-def event_collector():
-	"""Helper to collect all events emitted during tests"""
-	events = []
-	event_order = []
-
-	class EventCollector:
-		def __init__(self):
-			self.events = events
-			self.event_order = event_order
-
-		async def collect_event(self, event: BaseEvent):
-			self.events.append(event)
-			self.event_order.append(event.event_type)
-			return 'collected'
-
-		def get_events_by_type(self, event_type: str) -> list[BaseEvent]:
-			return [e for e in self.events if e.event_type == event_type]
-
-		def clear(self):
-			self.events.clear()
-			self.event_order.clear()
-
-	return EventCollector()
+def pytest_collection_modifyitems(items):
+	for item in items:  # `-m "not chrome"` runs everything that needs no browser (the Windows/macOS/Linux matrix)
+		if {'chrome', 'daemon', 'chrome_binary'} & set(getattr(item, 'fixturenames', ())):
+			item.add_marker(pytest.mark.chrome)
