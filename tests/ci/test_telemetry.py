@@ -45,6 +45,11 @@ def rand(rng: random.Random, n: int = 16) -> str:
 	return 'q' + ''.join(rng.choices(string.ascii_letters + string.digits, k=n))
 
 
+def slug(rng: random.Random, n: int = 10) -> str:
+	"""An ordinary URL path segment: letters and digits mixed, 12 or more, are a token (sent as <token>)."""
+	return 'q' + ''.join(rng.choices(string.ascii_lowercase, k=n))
+
+
 class Page(BaseHTTPRequestHandler):
 	def do_GET(self):
 		title = parse_qs(urlsplit(self.path).query).get('t', ['form'])[0]  # a page title the agent reads
@@ -181,7 +186,8 @@ async def test_agent_event_sends_urls_errors_and_result_never_task_secrets_typed
 ):
 	rng = random.Random(seed)
 	task, secret, typed, result, error = (rand(rng) for _ in range(5))
-	path, query, value, fragment, other_host = (rand(rng, 10).lower() for _ in range(5))
+	query, value, fragment, other_host = (rand(rng, 10).lower() for _ in range(4))
+	path = slug(rng)
 	url = f'{site}/{path}/{path}2?{query}={value}#{fragment}'
 	unresolvable = f'http://{other_host}.invalid/{path}3?{query}=1'
 	code = (
@@ -865,6 +871,7 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 			for k in 'task secret typed result error error2 path query frag title var js cdp cls mod tool'.split()
 		}
 	)
+	c.path = slug(rng, 12)
 	url = f'{site}/{c.path}?{c.query}=1&t={c.title}#{c.frag}'
 	code = (
 		f'{c.var} = 1\n'
@@ -1113,7 +1120,7 @@ async def test_planted_secrets_and_credentials_never_reach_posthog(chrome, site,
 	assert not leaked, f'leaked {leaked}: {raw}'
 	props = event['properties']
 	cred = '<credential> <credential> <credential> <credential> Authorization: Bearer <credential> password=<credential>'
-	assert props['urls_visited'] == ['http://127.0.0.1/<email>/<secret:pw>/<credential>']
+	assert props['urls_visited'] == ['http://127.0.0.1/<email>/<secret:pw>/<token>']  # a key in a path is a path token
 	assert props['error_messages'] == [f'ValueError: auth failed: {cred} <email> <credential> <secret:pw>']
 	assert props['final_result'] == f'<task>: {cred} <email> <secret:pw>'
 
