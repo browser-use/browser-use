@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Browser agent on Pydantic AI: one persistent Python REPL on raw CDP, cloud or local Chrome"
 authors = [{ name = "Gregor Zunic" }]
-version = "1.0.0"
+version = "1.0.1"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11,<4.0"

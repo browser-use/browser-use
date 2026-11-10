@@ -3,6 +3,7 @@
 import os
 import re
 import urllib.parse
+from pathlib import Path
 
 from browser_use.exceptions import MissingAPIKeyError
 
@@ -22,6 +23,25 @@ def clean_api_key(key: str, source: str, what: str = 'Browser Use Cloud') -> str
 	return key
 
 
+def harness_dir_setting(path: object) -> str:
+	"""The setting that chose browser-harness dir path: BH_CONFIG_DIR, BH_RUNTIME_DIR, BH_TMP_DIR or BH_AGENT_WORKSPACE
+	when set to it or a dir around it (each overrides BH_HOME for its dir), else BH_HOME."""
+	try:
+		failed = Path(str(path)).expanduser().resolve() if path else None
+	except (OSError, RuntimeError, ValueError):  # it only picks the hint: an unresolvable path keeps the BH_HOME one
+		failed = None
+	for name in ('BH_CONFIG_DIR', 'BH_RUNTIME_DIR', 'BH_TMP_DIR', 'BH_AGENT_WORKSPACE'):
+		if failed is None or not (raw := os.environ.get(name)):
+			continue
+		try:
+			base = Path(raw).expanduser().resolve()
+		except (OSError, RuntimeError, ValueError):  # a malformed override ('~nouser/x', a NUL): skip it
+			continue
+		if failed.is_relative_to(base) or base.is_relative_to(failed):
+			return name
+	return 'BH_HOME'
+
+
 def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 	key = os.environ.get('BROWSER_USE_API_KEY')
 	if key and key.strip():
@@ -32,6 +52,12 @@ def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 		record = stored_auth_record() or {}
 	except (AuthError, AttributeError):  # not valid JSON, or JSON that is not an object (a list): say the store is bad
 		raise MissingAPIKeyError(what, corrupt_store_message()) from None
+	except OSError as e:  # an unwritable HOME: browser-harness creates its config dir to look for the stored key
+		raise MissingAPIKeyError(
+			what,
+			f'Set BROWSER_USE_API_KEY, or set {harness_dir_setting(e.filename)} to a writable dir only this user can write '
+			f'to: the dir of the key `browser-use login` stores, {e.filename or ""}, cannot be created ({e.strerror or e}).',
+		) from None
 	if not record.get('api_key'):
 		raise MissingAPIKeyError(what)
 	# Scopes are the server's to judge: a key it rejects (an older login's v3 browser-only key) gets a 403 that the

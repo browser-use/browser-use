@@ -55,7 +55,7 @@ from browser_use.repl.session import (
 	redact_forms,
 	secret_forms,
 )
-from browser_use.telemetry.stats import error_class, host
+from browser_use.telemetry.stats import MAX_TYPED, MAX_URLS, error_class, host, page_url, raised_by_cell
 from browser_use.utils import TLSHandler, install_tls_opener, name_download
 
 MAX_IMAGES_PER_CELL = 4
@@ -125,16 +125,47 @@ class CellStats:
 		self.lock = threading.Lock()  # ultrafast reads CDP events on a background thread
 		# Browser('chrome') attaches to a tab the user had open: a page read is only counted once this worker navigated
 		self.navigated = False
+		self.tabs: set[str] = set()  # targets this worker navigated: a page read there is the agent's page, not the user's
 		self.downloads: set[str | None] = set()  # guids seen: one download_started per download, whichever events announce it
 		self.started: list[str] = []  # names of downloads that started since the last cell output
 		self.names: dict[str, str | None] = {}  # guid -> suggested file name: a finished download is renamed to it
 		self.seen: set[int] = set()  # hashes of URLs this worker saw (loop detection); never leave this process
+		self.listed: set[str] = set()  # URLs (page_url: no query) this worker reported, MAX_URLS at most
 		self.json_pages: set[str] = set()  # top-frame JSON pages, without query: a cloud browser saves each as a download
+		self.keys = ''  # characters typed one key event at a time since the last other key (record_key)
 		self.take()
 
 	def count(self, kind: str, name: str) -> None:
 		with self.lock:
 			getattr(self, kind)[name] += 1
+
+	def record_typed(self, text: object) -> None:
+		"""Text the agent typed (type_text, fill_input, bu.type, cdp Input.insertText): never sent, only replaced with
+		<typed> wherever telemetry's error messages or final result quote it (stats.scrub)."""
+		self.end_keys()
+		self._typed(text)
+
+	def _typed(self, text: object) -> None:
+		if isinstance(text, str) and (text := text.strip()[:MAX_TYPED]):  # 'q\n' submits q: q is what a page or URL quotes
+			with self.lock:
+				if len(self.typed) < MAX_URLS and text not in self.typed:
+					self.typed.append(text)
+
+	def record_key(self, text: object, modifiers: object = 0) -> None:
+		"""A character typed with a key event (press_key('a'), cdp('Input.dispatchKeyEvent', type='char', text='a')): a
+		run of them is one typed text, ended by a key that types no character (Enter, Tab, a shortcut), a click, other
+		typing or the cell's end. Each character alone is too short for scrub to replace."""
+		if isinstance(text, str) and text.isprintable() and text and not (isinstance(modifiers, int) and modifiers & 7):
+			with self.lock:
+				if len(self.keys) < MAX_TYPED:
+					self.keys += text
+		else:
+			self.end_keys()
+
+	def end_keys(self) -> None:
+		with self.lock:
+			keys, self.keys = self.keys, ''
+		self._typed(keys)
 
 	def timed(self, kind: str, name: str, ns: int, failed: bool) -> None:
 		"""One helper ('helper_t') or CDP ('cdp_t') call: [calls, errors, ns total, ns max] per name."""
@@ -150,18 +181,26 @@ class CellStats:
 				s[2] += ns
 				s[3] = max(s[3], ns)
 
-	def url(self, url, navigation: bool = False) -> None:
-		"""A navigation's hostname, or (navigation=False) the hostname of a page the agent read. A URL never seen before
-		counts as a new page, a navigation to one already seen as a revisit (by hash; the URL is not kept). Chrome's own
-		error page (chrome-error://chromewebdata/) is not a host: the page stays on the host that failed to load."""
+	def url(self, url, navigation: bool = False, tab: str | None = None) -> None:
+		"""A navigation's hostname and URL without query or fragment (page_url), or (navigation=False) those of a page the
+		agent read in tab. A read URL is listed only in a tab this worker navigated (a link it clicked there); in a tab of
+		the user's it switched to (their mail, Browser('chrome')) only its hostname counts. A URL never seen before
+		counts as a new page, a navigation to one already seen as a revisit (by hash). Chrome's own error page
+		(chrome-error://chromewebdata/) is not a host: the page stays on the host that failed to load."""
 		if str(url).startswith('chrome-error:'):
 			return
 		if h := host(url):
 			with self.lock:
 				self.navigated = self.navigated or navigation
+				if navigation and tab:
+					self.tabs.add(tab)
 				if self.navigated:
 					self.hosts.add(h)
 					self.host = h
+					listed = navigation or (tab is not None and tab in self.tabs)
+					if listed and len(self.listed) < MAX_URLS and (u := page_url(url)) and u not in self.listed:
+						self.listed.add(u)
+						self.urls.append(u)
 					key = hash(str(url).split('#', 1)[0])
 					if key in self.seen:
 						self.revisits += navigation
@@ -236,12 +275,15 @@ class CellStats:
 			name_download(path, name)
 
 	def take(self) -> dict:
+		self.end_keys()
 		with self.lock:
 			out = {
 				'helpers': dict(getattr(self, 'helpers', {})),
 				'cdp': dict(getattr(self, 'cdp', {})),
 				'events': dict(getattr(self, 'events', {})),
 				'hosts': sorted(getattr(self, 'hosts', ())),
+				'urls': list(getattr(self, 'urls', ())),  # in the order visited, each once per worker
+				'typed': list(getattr(self, 'typed', ())),  # never sent: telemetry replaces it where quoted (scrub)
 				'navigations': getattr(self, 'navigations', 0),
 				'helper_t': getattr(self, 'helper_t', {}),
 				'cdp_t': getattr(self, 'cdp_t', {}),
@@ -252,7 +294,7 @@ class CellStats:
 			}
 			self.helpers, self.cdp, self.events, self.hosts, self.navigations = Counter(), Counter(), Counter(), set(), 0
 			self.helper_t, self.cdp_t, self.host, self.new_pages, self.revisits = {}, {}, None, 0, 0
-			self.nav_errors = Counter()
+			self.nav_errors, self.urls, self.typed = Counter(), [], []
 		return out
 
 
@@ -295,12 +337,35 @@ def _back_to_agent_tab() -> None:
 					time.sleep(0.05)
 
 
+TYPING = {'type_text': 0, 'fill_input': 1, 'bu.type': 1}  # helper -> position of the text it types
+
+
+def _attached_tab() -> str | None:
+	"""The tab the daemon is attached to now (it attaches another one itself when that tab closes), or None."""
+	from browser_harness import helpers
+
+	try:
+		return helpers._send({'meta': 'current_tab'})['targetId']
+	except Exception:  # - no daemon: no tab
+		return None
+
+
 def _counted(name: str, fn):
-	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname, once the
-	agent navigated."""
+	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname once the
+	agent navigated, and its URL in a tab the agent navigated (CellStats.url)."""
+
+	at = TYPING.get(name)
 
 	@functools.wraps(fn)
 	def counted(*args, **kwargs):
+		if at is not None:
+			stats.record_typed(kwargs.get('text', args[at] if len(args) > at else None))
+		elif name == 'press_key':  # press_key(key, modifiers=0): a named key (Enter) types no character of its own
+			key = kwargs.get('key', args[0] if args else None)
+			modifiers = kwargs.get('modifiers', args[1] if len(args) > 1 else 0)
+			stats.record_key(key if isinstance(key, str) and len(key) == 1 else None, modifiers)
+		elif 'click' in name:  # the next keys go to another field
+			stats.end_keys()
 		started, failed = time.perf_counter_ns(), True
 		try:
 			result = fn(*args, **kwargs)
@@ -308,7 +373,7 @@ def _counted(name: str, fn):
 		finally:  # an error counts even when the model's code catches it
 			stats.timed('helper_t', name, time.perf_counter_ns() - started, failed)
 		if name in ('page_info', 'current_tab') and isinstance(result, dict):
-			stats.url(result.get('url'))
+			stats.url(result.get('url'), tab=result.get('targetId') or (_attached_tab() if stats.navigated else None))
 		return result
 
 	return counted
@@ -587,7 +652,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			return {}
 		if method in NAVIGATING:
 			check_url(params.get('url', ''))
-			stats.url(params.get('url'), navigation=True)
+			attached = method == 'Page.navigate' and session_id is None  # else another tab's session, or a new tab
+			stats.url(params.get('url'), navigation=True, tab=_attached_tab() if attached else None)
 		# browser-harness sends its Windows key code as nativeVirtualKeyCode; macOS Chrome reads it as a Mac one, so a
 		# printable press_key() on a visible tab also opened chrome://settings/help. 0.x never sent it.
 		params.pop('nativeVirtualKeyCode', None)
@@ -648,6 +714,12 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	@functools.wraps(cdp)
 	def agent_cdp(method, session_id=None, **params):  # the agent's own cdp() calls, counted by method
 		stats.count('cdp', str(method))
+		if method == 'Input.insertText':
+			stats.record_typed(params.get('text'))
+		elif method == 'Input.dispatchKeyEvent' and params.get('text'):  # keyDown or char; keyUp and rawKeyDown type nothing
+			stats.record_key(params['text'], params.get('modifiers', 0))
+		elif method == 'Input.dispatchMouseEvent' and params.get('type') == 'mousePressed':
+			stats.end_keys()
 		return cdp(method, session_id, **params)
 
 	ns['cdp'] = agent_cdp
@@ -974,6 +1046,18 @@ def _run(code_obj, ns, loop):
 	return exec(code_obj, ns)
 
 
+def _message(e: BaseException, name: str) -> str:
+	"""'Class: message' for telemetry: the exception line only, never the traceback's frames or the cell's code; only
+	the class when the cell's own code raised it (stats.raised_by_cell)."""
+	if raised_by_cell(e):
+		return name
+	try:
+		text = str(e)
+	except Exception:  # - a __str__ that raises
+		text = ''
+	return f'{name}: {text}'[:4096] if text else name
+
+
 def _error(e: BaseException) -> str:
 	if isinstance(e, BrowserConnectionLost):  # one line: the frames that hit it say nothing more
 		return f'{type(e).__name__}: {e}'
@@ -1070,7 +1154,9 @@ def main() -> None:
 		msg = json.loads(line)
 		images.clear()
 		out_path = cells / f'{msg["n"]:04d}.txt'
-		error = value = error_type = None  # stats keeps events bu read between cells (a captcha solve while the model thinks)
+		error = value = error_type = error_message = (
+			None  # stats keeps events bu read between cells (a captcha solve while the model thinks)
+		)
 		rfd, wfd = os.pipe()
 		pump = threading.Thread(target=_pump, args=(rfd, out_path, secrets), daemon=True)
 		pump.start()
@@ -1090,9 +1176,10 @@ def main() -> None:
 		except BaseException as e:  # - the agent sees every failure
 			error_type = error_class(e)  # telemetry: a class the model's code defined is 'custom'
 			if isinstance(e, (SystemExit, KeyboardInterrupt)):
-				error = f'{type(e).__name__} ignored; the REPL keeps running.'
+				error = error_message = f'{type(e).__name__} ignored; the REPL keeps running.'
 			else:
 				error = _error(e)
+				error_message = _message(e, error_type)
 		finally:
 			# After a cell whose bu actions reached the page, show the resulting state without another model turn.
 			if bu is not None and bu.acted:
@@ -1130,6 +1217,7 @@ def main() -> None:
 				'images': list(images),
 				'output_file': str(out_path),
 				'error_type': error_type,
+				'error_message': error_message,
 				'stats': cell_stats,
 			}
 		)

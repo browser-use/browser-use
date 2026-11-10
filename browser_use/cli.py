@@ -6,7 +6,7 @@ import sys
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from importlib.metadata import PackageNotFoundError, version
-from io import StringIO
+from io import StringIO, TextIOWrapper
 from typing import TYPE_CHECKING, Any
 
 
@@ -35,7 +35,8 @@ def _set_harness_client_env() -> None:
 
 def _scrub_harness_telemetry() -> None:
 	"""browser-harness's cli_event carries the piped code, its output, helper arguments and error text. In the
-	browser-use CLI those never leave the machine: every event is scrubbed, then sent by the library's
+	browser-use CLI the code, output and arguments never leave the machine, the error message is sent as its exception
+	line with credentials scrubbed, or as its class when the piped code raised it (stats.scrub_cli_event): every event is scrubbed, then sent by the library's
 	sender to the library's PostHog project under its device id, next to the same machine's agent_events (browser-harness
 	would send it to its own project under its own install id, and create that id). ANONYMIZED_TELEMETRY turns it off as
 	in the library (browser-harness alone only knows 0, false, no and off): its is_enabled() says so too, else it built the
@@ -62,17 +63,36 @@ def _scrub_harness_telemetry() -> None:
 
 		install_id.__bu_scrubbed__ = True  # type: ignore[attr-defined]
 		telemetry._install_id = install_id
+	if not getattr(telemetry.status, '__bu_scrubbed__', False):
+		harness_status = telemetry.status
+
+		def status() -> dict:
+			"""`browser-use telemetry status|enable|disable`: whether browser-use sends, ANONYMIZED_TELEMETRY read as the
+			library reads it (browser-harness alone took n or disable for on)."""
+			from browser_use.telemetry import service
+
+			out = harness_status()
+			service._harness_config_disabled = bool(out.get('disabled_by_config'))  # enable/disable just changed it
+			out['disabled_by_env'] = bool(out.get('disabled_by_env')) or not CONFIG.ANONYMIZED_TELEMETRY
+			out['enabled'] = service.telemetry().enabled
+			if not out['enabled']:
+				out['install_id'] = None
+			return out
+
+		status.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry.status = status
 	if getattr(telemetry._send_detached, '__bu_scrubbed__', False):
 		return
 
 	def scrubbed(payload: dict) -> None:
-		if not CONFIG.ANONYMIZED_TELEMETRY:
-			return
 		from browser_use.telemetry.service import Job
 		from browser_use.telemetry.service import telemetry as product_telemetry
 		from browser_use.telemetry.stats import scrub_cli_event
 
-		event = scrub_cli_event(payload)
+		if not product_telemetry().enabled:
+			return
+
+		event = scrub_cli_event(payload, sys.exc_info()[1])  # browser-harness sends while it handles the piped code's error
 		props = event.get('properties') or {}
 		product_telemetry().notice = False  # no log line on the CLI's stderr each call (it never had one)
 		product_telemetry().capture_run(Job(str(event.get('event') or 'cli_event'), lambda steps, keys: props))
@@ -183,6 +203,39 @@ def _run_mcp_server(command: str = 'browser-use --mcp') -> int:
 
 def _run_cli_mcp_server() -> None:
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp')
+
+
+def _run_mcp_error_server(message: str) -> None:
+	"""--cli-mcp / --mcp where nothing can run (browser-harness cannot create its dirs): a server that starts and answers
+	every tool call with message. Exiting before initialize left message in the MCP host's log and showed the agent
+	only 'Connection closed'."""
+	import asyncio
+
+	import mcp.server.stdio
+	import mcp.types as types
+	from mcp.server import Server
+
+	server = Server('browser-use', version=_browser_use_version(), instructions=message)
+	tool = types.Tool(
+		name='browser_exec',
+		description='Execute Python in the browser-harness session.',
+		input_schema={'type': 'object', 'properties': {'code': {'type': 'string'}}, 'required': ['code']},
+	)
+
+	async def list_tools(_context: Any, _params: Any) -> types.ListToolsResult:
+		return types.ListToolsResult(tools=[tool])
+
+	async def call_tool(_context: Any, _params: Any) -> types.CallToolResult:
+		return types.CallToolResult(content=[types.TextContent(type='text', text=f'Error: {message}')], is_error=True)
+
+	server.add_request_handler('tools/list', types.PaginatedRequestParams, list_tools)
+	server.add_request_handler('tools/call', types.CallToolRequestParams, call_tool)
+
+	async def serve() -> None:
+		async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+			await server.run(read_stream, write_stream, server.create_initialization_options())
+
+	asyncio.run(serve())
 
 
 def _run_doctor() -> int:
@@ -480,6 +533,7 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	from browser_harness import helpers, run
 
 	from browser_use.browser.browser import _name_daemon_files
+	from browser_use.repl import worker
 	from browser_use.repl.capture import install as install_capture
 	from browser_use.repl.page_info import install as install_page_info
 
@@ -497,6 +551,9 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	run.page_info = helpers.page_info
 	install_capture()  # win-cli-5: a hidden tab's screenshot gets the Agent's activate fallback
 	run.cdp = helpers.cdp
+	# The Agent's http_get, plain HTTP from this machine: browser-harness's sends the URL and headers to the fetch-use
+	# proxy whenever BROWSER_USE_API_KEY is set (localhost and intranet URLs then fail, Authorization leaves the machine)
+	run.http_get = worker.http_get
 	args = sys.argv[1:]
 	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
 		from browser_use import harness_cloud
@@ -569,10 +626,12 @@ def _legacy_command(args: list[str]) -> str | None:
 	return None
 
 
-_CLI3_GUIDE = """Core helpers: new_tab(url), goto_url(url), page_info(), capture_screenshot(),
+CORE_HELPERS = """Core helpers: new_tab(url), goto_url(url), page_info(), capture_screenshot(),
   click_at_xy(x, y), type_text(text), fill_input(selector, text), press_key(key),
   scroll(x, y), js(code), cdp(method, ...), wait_for_load(), wait_for_element(selector),
-  list_tabs(), switch_tab(target), close_tab(target)
+  list_tabs(), switch_tab(target), close_tab(target)"""
+
+_CLI3_GUIDE = f"""{CORE_HELPERS}
 
 Read the full interface now:   browser-use skill show
 Install the skill (replaces any pre-existing browser-use skill):
@@ -744,19 +803,8 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	from browser_use.utils import install_tls_opener  # after --version: importing it costs ~12 ms on macOS (proxy lookup)
 
 	install_tls_opener()  # browser-harness's own requests here (cloud browsers, login) verify as the OS does
-	if '--cli-mcp' in args:
-		_run_cli_mcp_server()
-		return 0, 'cli-mcp'
-	if '--mcp' in args:
-		return _run_mcp_server(), 'mcp'
-	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
-		return _run_doctor(), 'doctor'
 	if args and args[0] == 'install':
 		return _run_install_command(args[1:]), 'install'
-	if args[:1] in (['login'], ['logout']) or args[:2] in (['auth', 'login'], ['auth', 'logout']):
-		# `auth login` is browser-harness's spelling (the skill teaches it): the same checks as `login`
-		command, rest = (args[1], args[2:]) if args[0] == 'auth' else (args[0], args[1:])
-		return (_run_login_command if command == 'login' else _run_logout_command)(rest), command
 	if args and args[0] == 'init':
 		return _run_init_command(args[1:]), 'init'
 	if '--template' in args or '-t' in args:
@@ -771,6 +819,32 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		print(_legacy_migration_message(legacy), file=sys.stderr)
 		return 2, f'legacy:{legacy}'
 
+	from browser_use.browser.browser import require_harness_dirs
+	from browser_use.exceptions import BrowserConfigError
+
+	try:  # every command below imports browser-harness
+		require_harness_dirs()
+	except BrowserConfigError as e:
+		print(e, file=sys.stderr)
+		if mcp := next((a for a in args if a in ('--cli-mcp', '--mcp')), None):
+			_run_mcp_error_server(str(e))  # the agent reads it as the tool's error
+			return 1, mcp.removeprefix('--')
+		return 1, _command_name(args)
+	if '--cli-mcp' in args:
+		_run_cli_mcp_server()
+		return 0, 'cli-mcp'
+	if '--mcp' in args:
+		return _run_mcp_server(), 'mcp'
+	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
+		return _run_doctor(), 'doctor'
+	if args[:1] in (['login'], ['logout']) or args[:2] in (['auth', 'login'], ['auth', 'logout']):
+		# `auth login` is browser-harness's spelling (the skill teaches it): the same checks as `login`
+		command, rest = (args[1], args[2:]) if args[0] == 'auth' else (args[0], args[1:])
+		return (_run_login_command if command == 'login' else _run_logout_command)(rest), command
+
+	if isinstance(sys.stdin, TextIOWrapper) and not sys.stdin.isatty():
+		# Windows decoded a pipe with the ANSI code page (cp1252, cp932): piped 'Zürich' ran as 'ZÃ¼rich', or raised
+		sys.stdin.reconfigure(encoding='utf-8-sig', errors='replace')  # -sig: PowerShell's UTF-8 starts with a BOM
 	code = None
 	if not args:
 		if _stdin_is_terminal():

@@ -7,6 +7,7 @@ import base64
 import contextvars
 import functools
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,14 +19,16 @@ from contextlib import contextmanager
 from io import StringIO
 from typing import Any
 
+import browser_harness
 import mcp.server.stdio
 import mcp.types as types
 from browser_harness import _ipc as ipc
 from browser_harness.auth import CloudAuthRequired
 from mcp.server import Server
 
+import browser_use
 from browser_use import Browser, harness_cloud
-from browser_use.auth import harden_login_callback, set_aside_corrupt_store
+from browser_use.auth import browser_use_api_key, harden_login_callback, set_aside_corrupt_store
 from browser_use.browser.browser import _name_daemon_files
 from browser_use.domains import DomainRules
 from browser_use.exceptions import removed
@@ -42,6 +45,8 @@ _NAMESPACE_IMPORTS = (
 )
 
 
+_INTERNAL = tuple(os.path.dirname(m.__file__ or '') + os.sep for m in (browser_harness, browser_use))
+
 LOGIN_HINT = 'Not signed in to Browser Use Cloud. Call the browser_login tool (it opens the browser to approve), then retry.'
 LOGIN_WAIT_SECONDS = 45.0
 LOGIN_NEXT = 'Start a cloud browser with start_remote_daemon() in browser_exec.'
@@ -53,6 +58,11 @@ OLD_TOOLS = {  # the 0.x browser-use --mcp server's tools (it ran the removed en
 }  # fmt: skip
 OLD_TOOL_HINT = 'browser_exec runs Python with the browser-harness helpers (goto_url, click_at_xy, js, list_tabs, ...).'
 CLOUD_TIMEOUT_MINUTES = 30  # default lifetime of a cloud browser this server starts; start_remote_daemon(timeout=) overrides
+INSTALL_TIMEOUT_S = 600  # Playwright's Chromium (~150 MB) and, as root on Linux, its system libraries
+NO_CLOUD_WITH_DOMAINS = (
+	"{name}() is off: this server's allowed_domains / prohibited_domains hold only on its own Chromium, and a cloud "
+	'browser would open any site'
+)
 
 MCP_GUIDE = f"""# This MCP server
 
@@ -123,20 +133,118 @@ def _spawn_outside_job(args: list[str], env: dict[str, str]) -> bool:
 
 
 _cell = threading.local()  # .buffer: where the cell running on this thread prints
-# The exception classes of the tool call in progress (telemetry): asyncio.to_thread runs _execute in a copy of the
-# call's context, which holds this same list
-_call_errors: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar('browser_use_mcp_errors', default=None)
+# The (exception class, message) of each failure in the tool call in progress (telemetry): asyncio.to_thread runs
+# _execute in a copy of the call's context, which holds this same list
+_call_errors: contextvars.ContextVar[list[tuple[str, str]] | None] = contextvars.ContextVar(
+	'browser_use_mcp_errors', default=None
+)
 TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login')
 
 
 def _error_class(e: BaseException) -> str:
-	from browser_use.telemetry.stats import error_class
+	"""The exception's class for telemetry, and its message unless the cell's own code raised it: Claude's code raises
+	with what it typed or read from the page (`assert name in text, f'{name} missing'`), which no scrub can know."""
+	from browser_use.telemetry.stats import error_class, raised_by_cell
 
 	errors = _call_errors.get()
 	name = error_class(e)
 	if errors is not None:
-		errors.append(name)
+		try:
+			message = '' if raised_by_cell(e) else str(e)[:4096]
+		except Exception:  # - a __str__ that raises
+			message = ''
+		errors.append((name, message))
 	return name
+
+
+def _print_cell_traceback(e: BaseException, file: StringIO) -> None:
+	"""The traceback from the cell's first frame (this server's exec() frame is noise to the model) to the last frame
+	outside browser-harness and browser-use: their internals (js() -> _js_evaluate -> _runtime_value) say nothing the
+	exception line does not."""
+	tb = e.__traceback__.tb_next if e.__traceback__ else None
+	files, t = [], tb
+	while t is not None:
+		files.append(t.tb_frame.f_code.co_filename)
+		t = t.tb_next
+	limit = len(files)
+	while limit > 1 and files[limit - 1].startswith(_INTERNAL):
+		limit -= 1
+	traceback.print_exception(type(e), e, tb, limit=limit or None, file=file)
+
+
+class NoBrowserError(RuntimeError):
+	"""Nothing to drive: no Chrome to attach and the server's own Chromium could not start. One line, with the fix."""
+
+
+def _no_chrome_here() -> str | None:
+	"""Why --cli-mcp cannot use the user's Chrome on this machine, or None when it can (maybe after the chrome://inspect
+	setup): no Chrome is attachable, and that setup needs a display and an installed Chrome, Chromium or Edge (Playwright's
+	Chromium is not one a user sets up). A BU_CDP_URL / BU_CDP_WS is always used as given."""
+	from browser_harness import admin, daemon
+
+	from browser_use.browser import local
+
+	if not admin._is_local_chrome_mode() or local.live_debug_dirs():
+		return None
+	if not local.has_display():
+		why = 'no display here to turn on remote debugging in a Chrome'
+	elif any((base / 'Local State').is_file() for base in daemon.PROFILES):
+		return None  # a browser browser-harness attaches once set up, find_binary or not: Brave, Arc, a Flatpak Chrome
+	else:
+		try:
+			if local.find_binary() not in local.playwright_chromium():
+				return None
+			why = 'no Chrome, Chromium or Edge is installed'
+		except RuntimeError as e:  # none installed, or only Snap Chromium
+			why = 'no Chrome, Chromium or Edge is installed'
+			if 'Snap Chromium' in str(e):
+				why = 'only Snap Chromium is installed, which cannot be attached'
+	try:
+		admin.require_existing_daemon()  # a daemon already attached (an orchestrator's BU_CDP_WS): browser-harness reuses it
+		return None
+	except Exception:
+		return why
+
+
+def _install_chromium() -> float:
+	"""`browser-use install` for a machine with no browser at all (a fresh server or container): Playwright's Chromium, and
+	as root on Linux its system libraries. Its output never reaches stdout (the MCP channel). Returns the seconds it took;
+	raises why it could not."""
+	uvx = shutil.which('uvx')
+	if not uvx:
+		raise RuntimeError('no Chrome or Chromium is installed, and uvx (to install Chromium) is not on PATH')
+	steps = [[uvx, 'playwright', 'install', 'chromium', '--no-shell']]
+	if sys.platform.startswith('linux') and os.geteuid() == 0:
+		steps[0].append('--with-deps')
+		if apt := shutil.which('apt-get'):  # Playwright's own node needs libatomic1, which slim images (python:*-slim) lack
+			steps[:0] = [[apt, 'update', '-qq'], [apt, 'install', '-y', '-qq', '--no-install-recommends', 'libatomic1']]
+	started, env = time.monotonic(), {**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'}
+	for cmd in steps:
+		try:
+			r = subprocess.run(
+				cmd,
+				stdin=subprocess.DEVNULL,
+				capture_output=True,
+				text=True,
+				errors='replace',
+				env=env,
+				timeout=INSTALL_TIMEOUT_S,
+			)
+		except (OSError, subprocess.TimeoutExpired) as e:
+			raise RuntimeError(f'installing Chromium failed: {e}') from None
+		if r.returncode:
+			last = next((line.strip() for line in reversed((r.stdout + r.stderr).splitlines()) if line.strip()), '')
+			raise RuntimeError(f'`{" ".join([os.path.basename(cmd[0]), *cmd[1:]])}` failed (exit {r.returncode}): {last[-300:]}')
+	return time.monotonic() - started
+
+
+def _cloud_hint() -> str:
+	"""The way to a cloud browser: start_remote_daemon() only when a key is there for it to use."""
+	try:
+		browser_use_api_key()
+		return 'start a cloud browser: start_remote_daemon()'
+	except RuntimeError:  # MissingAPIKeyError, or a corrupt key store
+		return "set BROWSER_USE_API_KEY in this MCP server's env (or call browser_login) for a Browser Use Cloud browser"
 
 
 class _CellStream:
@@ -217,14 +325,15 @@ def _refusing(fn: Any, rules: DomainRules) -> Any:
 	return checked
 
 
-def _checked_http_get(rules: DomainRules) -> Any:
-	"""The agent's http_get (repl/worker.py) with every redirect hop checked against rules. browser-harness's followed a
-	redirect from an allowed host to any host, and with BROWSER_USE_API_KEY set sent the URL and headers to the fetch-use
-	proxy. Its own opener, not install_opener: this process's cloud, login and telemetry calls use urllib too."""
+def _local_http_get(rules: DomainRules | None) -> Any:
+	"""The agent's http_get (repl/worker.py): plain HTTP from this machine, every redirect hop checked against rules.
+	browser-harness's sent the URL and headers (Authorization, cookies) to the fetch-use proxy whenever
+	BROWSER_USE_API_KEY was set, and followed a redirect from an allowed host to any host. Its own opener, not
+	install_opener: this process's cloud, login and telemetry calls use urllib too."""
 	from browser_use.repl import worker
 
 	def check(url: str) -> None:
-		if why := rules.blocked(str(url)):
+		if rules and (why := rules.blocked(str(url))):
 			raise PermissionError(why)
 
 	opener = worker.redirect_checking_opener(check)
@@ -233,7 +342,11 @@ def _checked_http_get(rules: DomainRules) -> Any:
 		return worker._http_get(url, headers, timeout, opener.open)
 
 	http_get.__doc__ = worker.http_get.__doc__
-	return _refusing(http_get, rules)
+	return _refusing(http_get, rules) if rules else http_get
+
+
+def _refuse_cloud(name: str, *args: Any, **kwargs: Any) -> Any:
+	raise PermissionError(NO_CLOUD_WITH_DOMAINS.format(name=name))
 
 
 def _harness_skill_text() -> str:
@@ -248,8 +361,16 @@ class CLIMCPServer:
 	def __init__(self, own_browser: bool = False, **browser_options: Any):
 		_name_daemon_files()  # with BH_RUNTIME_DIR set, its cloud daemon and the local one would share one bu.sock
 		# --mcp (0.x configs): a Chromium of its own on a temp profile, as the 0.x server ran, with its config's
-		# allowed_domains / prohibited_domains (cli._mcp_browser_options); --cli-mcp: the user's Chrome
+		# allowed_domains / prohibited_domains (cli._mcp_browser_options); --cli-mcp: the user's Chrome, or a Chromium
+		# of its own where none can be used (_no_chrome_here)
+		self._own_browser = own_browser
 		self._browser = Browser('chromium', **browser_options) if own_browser else None
+		self._fallback: str | None = None  # why --cli-mcp runs its own Chromium instead of the user's Chrome
+		self._own_started = False  # the own Chromium started once: later failures are its own, not "no browser"
+		self._install_tried = False
+		self._installed: float | None = None  # seconds _install_chromium took, until announced
+		self._announced: str | None = None  # the browser the last browser_exec result named
+		self._note: str | None = None  # the browser now in use, for the next browser_exec result's second block
 		self.server: Server = Server(
 			'browser-use',
 			version=get_browser_use_version(),
@@ -279,8 +400,9 @@ class CLIMCPServer:
 					'cdp(method, ...), wait_for_load(), list_tabs() are pre-imported. The namespace '
 					'persists across calls. Returns whatever the code prints (prints from threads it starts are not '
 					'returned: collect their results and print them in the code itself). First navigation '
-					'should be new_tab(url). Drives the local Chrome until start_remote_daemon() starts a '
-					'cloud browser; then every call drives that one until it ends (stopped when this server exits). '
+					'should be new_tab(url). Drives the local Chrome (the first result names it) until '
+					'start_remote_daemon() starts a cloud browser; then every call drives that one until it ends '
+					'(stopped when this server exits). '
 					"A cloud browser's downloads stay on the remote host, never in ~/Downloads (a file there is not its "
 					'download): GET https://api.browser-use.com/api/v4/browsers/{id}/downloads lists them.'
 				),
@@ -332,7 +454,7 @@ class CLIMCPServer:
 			return types.ListToolsResult(tools=self._tool_definitions())
 
 		async def handle_call_tool(_context: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
-			errors: list[str] = []
+			errors: list[tuple[str, str]] = []
 			token = _call_errors.set(errors)
 			started, result = time.monotonic(), None
 			try:
@@ -354,13 +476,19 @@ class CLIMCPServer:
 						is_error=True,
 					)
 				output, failed = await self._locked(self._execute, code)
+				note, self._note = self._note, None
 				if len(output) > MAX_OUTPUT_CHARS:  # same cap as the agent's cells; the full text stays readable on disk
-					with tempfile.NamedTemporaryFile('w', prefix='browser_exec_', suffix='.txt', delete=False) as f:
+					# utf-8: Windows' locale encoding (cp1252) failed the whole call on an emoji, after the cell ran; newline='':
+					# the file holds the output as captured (Windows wrote each \n as \r\n)
+					with tempfile.NamedTemporaryFile(
+						'w', encoding='utf-8', errors='replace', newline='', prefix='browser_exec_', suffix='.txt', delete=False
+					) as f:
 						f.write(output)
 					output = clip(output, f.name)
-				return types.CallToolResult(
-					content=[types.TextContent(type='text', text=output or '(no output)')], is_error=failed
-				)
+				content = [types.TextContent(type='text', text=output or '(no output)')]
+				if note:  # its own block: a client that parses the code's output (JSON) gets only that in the first
+					content.append(types.TextContent(type='text', text=note))
+				return types.CallToolResult(content=content, is_error=failed)
 			if name == 'browser_screenshot':
 				max_dim = arguments.get('max_dim')
 				if max_dim is not None and (isinstance(max_dim, bool) or not isinstance(max_dim, int) or max_dim < 1):
@@ -387,30 +515,34 @@ class CLIMCPServer:
 		self.server.add_request_handler('tools/list', types.PaginatedRequestParams, handle_list_tools)
 		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
 
-	def _record_call(self, name: str, result: types.CallToolResult | None, errors: list[str], seconds: float) -> None:
+	def _record_call(self, name: str, result: types.CallToolResult | None, errors: list[tuple[str, str]], seconds: float) -> None:
 		"""One mcp_server_event per tool call: queued, sent by the telemetry thread; never fails a call."""
 		self._calls += 1
 		try:
 			from browser_harness import telemetry as harness_telemetry
 
 			from browser_use.telemetry.service import telemetry
-			from browser_use.telemetry.stats import is_internal
+			from browser_use.telemetry.stats import MAX_ERROR, is_internal, scrub
 			from browser_use.telemetry.views import MCPToolCallEvent
 
 			if not telemetry().enabled:
 				return
+			if not errors and result is not None and result.is_error:  # no exception: rejected arguments, an unknown tool
+				text = next((c.text for c in result.content if isinstance(c, types.TextContent)), '') if name in TOOLS else ''
+				errors = [('invalid_arguments' if name in TOOLS else 'unknown_tool', text.removeprefix('Error: '))]
 			detect = getattr(harness_telemetry, '_detect_agent_client', None)
 			event = MCPToolCallEvent(
 				version=get_browser_use_version(),
 				tool_name=name if name in TOOLS or name in OLD_TOOLS else 'invalid',
 				duration_seconds=round(seconds, 3),
 				ok=result is not None and not result.is_error,
-				error_type=errors[0] if errors else None,
-				server='mcp' if self._browser is not None else 'cli-mcp',
+				error_type=errors[0][0] if errors else None,
+				server='mcp' if self._own_browser else 'cli-mcp',
 				browser='cloud' if self._cloud_started else 'chromium' if self._browser is not None else 'chrome',
 				agent_client=detect() if detect else None,
 				call_n=self._calls,
 				is_internal=is_internal(),
+				error_message=scrub(errors[0][1], [], MAX_ERROR) or None if errors else None,
 			)
 			telemetry().capture(event)
 		except Exception:  # - telemetry never breaks a tool call
@@ -432,10 +564,13 @@ class CLIMCPServer:
 			harness_cloud.install(ns)
 			ns['start_remote_daemon'] = self._start_remote
 			ns['stop_remote_daemon'] = lambda name=None: harness_cloud.stop(self._remote)
-			if self._browser is not None and self._browser.domains:  # --mcp with a 0.x config's allowed_domains
+			rules = self._browser.domains if self._browser is not None else None  # --mcp with a 0.x config's domains
+			if rules:
 				for name in ('new_tab', 'goto_url'):
-					ns[name] = _refusing(ns[name], self._browser.domains)
-				ns['http_get'] = _checked_http_get(self._browser.domains)
+					ns[name] = _refusing(ns[name], rules)
+				for name in harness_cloud.CLOUD_ADMIN:  # a cloud browser has no Guard: it would go anywhere
+					ns[name] = functools.partial(_refuse_cloud, name)
+			ns['http_get'] = _local_http_get(rules)
 			self._namespace = ns
 		return self._namespace
 
@@ -445,14 +580,77 @@ class CLIMCPServer:
 		self._ensure_namespace()
 		if not harness_cloud.calls_cloud_admin(code):
 			self._attach()
+			self._note = self._browser_note() or self._note
 
 	def _attach(self) -> None:
-		"""Attach what helpers drive: the cloud browser this server started, else its own Chromium (--mcp), else the
-		user's Chrome. Browser.start() launches the Chromium on first use and starts its daemon again if that died."""
-		if self._browser is None or self._cloud_started:
+		"""Attach what helpers drive: the cloud browser this server started, else its own Chromium (--mcp, or --cli-mcp
+		where the user's Chrome cannot be used), else the user's Chrome. Browser.start() launches the Chromium on first
+		use and starts its daemon again if that died."""
+		if self._cloud_started:
+			return harness_cloud.ensure_daemon()
+		if self._browser is None:
+			with self._attach_lock:
+				if self._browser is None and (why := _no_chrome_here()):
+					self._browser, self._fallback = Browser('chromium'), why
+		if self._browser is None:
 			return harness_cloud.ensure_daemon()
 		with self._attach_lock:
-			harness_cloud.route(asyncio.run(self._browser.start())['BU_NAME'], self._namespace)
+			try:
+				harness_cloud.route(asyncio.run(self._start_own(self._browser))['BU_NAME'], self._namespace)
+			except Exception as e:
+				if self._own_started:  # it ran before: its own error (crashed, reattach failed)
+					raise
+				raise self._no_browser(e) from None
+			self._own_started = True
+
+	async def _start_own(self, browser: Browser) -> dict[str, str]:
+		"""browser.start(); on a machine with no browser and no display (a server, a container), installs Playwright's
+		Chromium first (once). Never on a desktop: 150 MB inside one tool call the user did not ask for."""
+		from browser_use.browser import local
+
+		try:
+			return await browser.start()
+		except RuntimeError as e:  # local.find_binary
+			if self._install_tried or not str(e).startswith('No Chrome, Chromium or Edge found') or local.has_display():
+				raise
+		self._install_tried = True
+		self._installed = await asyncio.to_thread(_install_chromium)
+		return await browser.start()
+
+	def _no_browser(self, e: Exception) -> NoBrowserError:
+		reason = ' '.join((str(e) or type(e).__name__).split()).rstrip('.')  # one line: a Chrome log tail has several
+		chrome = f'no Chrome to attach ({self._fallback}), and ' if self._fallback else ''
+		rules = self._browser is not None and self._browser.domains
+		cloud = '' if rules else f', or {_cloud_hint()}'
+		how = (
+			'sudo apt-get install -y libatomic1 && browser-use install'
+			if sys.platform.startswith('linux')
+			else 'browser-use install'
+		)
+		return NoBrowserError(
+			f"No browser to drive: {chrome}this server's own Chromium could not start: {reason}. Install Google Chrome or "
+			f'Chromium on this machine (or run `{how}`){cloud}.'
+		)
+
+	def _browser_note(self) -> str | None:
+		"""The browser now in use, once per change, for the browser_exec result: None for a cloud browser (its start said)."""
+		if self._cloud_started:
+			return None
+		if self._browser is None:
+			from browser_harness import admin
+
+			note = 'Browser: your own Chrome (its tabs and logins).'
+			note = note if admin._is_local_chrome_mode() else 'Browser: the Chrome at BU_CDP_URL / BU_CDP_WS.'
+		else:
+			note = "Browser: this server's own Chromium on a temp profile, not your Chrome"
+			note += f' ({self._fallback}).' if self._fallback else '.'
+		if note == self._announced:
+			return None
+		self._announced = note
+		if self._installed is not None:
+			note += f" Installed Playwright's Chromium first ({self._installed:.0f} s)."
+			self._installed = None
+		return note
 
 	def _start_remote(self, name: str = 'remote', profileName: str | None = None, **create_kwargs: Any) -> dict:
 		name = self._remote  # a caller's name could be another server's browser: stopping or driving it hijacks it
@@ -503,7 +701,16 @@ class CLIMCPServer:
 				if isinstance(e, CloudAuthRequired | CloudBrowserError):
 					print(self._error(e), file=buffer)
 				else:
-					traceback.print_exc(file=buffer)
+					from browser_use.telemetry.stats import raised_by_cell
+
+					_print_cell_traceback(e, buffer)
+					if isinstance(e, NameError) and e.name and raised_by_cell(e):
+						from browser_use.cli import CORE_HELPERS
+
+						print(
+							f"'{e.name}' is not defined here (0.x actions like click_element were removed).\n{CORE_HELPERS}",
+							file=buffer,
+						)
 		return buffer.getvalue(), failed
 
 	def _error(self, e: Exception) -> str:
@@ -511,7 +718,7 @@ class CLIMCPServer:
 		named only a log file the model cannot read: its last line is the reason (browser-harness reads it the same way)."""
 		if isinstance(e, CloudAuthRequired):  # its own message names `browser-harness auth login`, not this server's tool
 			return LOGIN_HINT
-		if isinstance(e, CloudBrowserError):
+		if isinstance(e, CloudBrowserError | NoBrowserError):
 			return f'Error: {e}'
 		from browser_harness import admin
 
@@ -519,7 +726,8 @@ class CLIMCPServer:
 		if " didn't come up -- check " in text and (reason := admin._log_tail(admin.NAME)):
 			text = f'{text.partition(" -- check ")[0]}: {reason.removeprefix("fatal: ")}'
 		if self._browser is None and not self._cloud_started:
-			text += '. No local Chrome to use? Start a cloud browser: start_remote_daemon()'
+			hint = _cloud_hint()
+			text += f'. No local Chrome to use? {hint[0].upper()}{hint[1:]}'
 		return f'Error: {text}'
 
 	def _sign_in(self, force: bool, wait: float = LOGIN_WAIT_SECONDS) -> str:
@@ -570,8 +778,17 @@ class CLIMCPServer:
 			return base64.b64encode(f.read()).decode()
 
 	def _instructions(self) -> str:
-		local = "its own Chromium (a temp profile, not the user's Chrome)" if self._browser else "the user's own Chrome"
-		return MCP_GUIDE.format(local=local) + _harness_skill_text()
+		if self._own_browser:
+			local = "its own Chromium (a temp profile, not the user's Chrome)"
+		else:
+			local = (
+				"the user's own Chrome; where none can be attached or set up (no Chrome installed, or Linux with no "
+				'display) its own Chromium on a temp profile instead. The first browser_exec result says which'
+			)
+		guide = MCP_GUIDE.format(local=local)
+		if self._browser is not None and self._browser.domains:
+			guide += f'- {NO_CLOUD_WITH_DOMAINS.format(name="start_remote_daemon")}: ignore the Cloud rules above.\n\n'
+		return guide + _harness_skill_text()
 
 	async def run(self):
 		if sys.stdin is None:

@@ -147,6 +147,10 @@ class Session:
 		so the delivery request has up to 30 s (timeout=25 left it 2.5 s: the run ended empty)."""
 		return self.timeout_s - max(0.1 * self.timeout_s, min(30.0, 0.5 * self.timeout_s))
 
+	def time_left(self) -> float:
+		"""Seconds until the delivery-only turn starts, or on that turn until the run's end."""
+		return (self.timeout_s if self.finalizing else self.delivery_at()) - (time.monotonic() - self.started)
+
 	def partial(self) -> Any:
 		"""The last checkpoint(..., partial=True), secret values redacted. None when missing or unreadable."""
 		try:
@@ -169,7 +173,10 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 		return [NO_TIME]
 	ctx.deps.rec.cell_start()
 	starts = getattr(repl, 'start_ns', 0)  # test doubles have none
-	r = await repl.call('exec', code, min(ctx.deps.cell_timeout_s, max(left, 1.0)))
+	# Ultrafast prints the page state after the cell's code, so its cells get 10 s more (Pi src/runtime.ts:257), out of
+	# the time left: added to it, a short run(timeout=...) lost the delivery turn (status timeout, no answer)
+	grace = 10 if getattr(repl, 'mode', 'default') == 'ultrafast' else 0
+	r = await repl.call('exec', code, min(ctx.deps.cell_timeout_s + grace, max(left, 1.0)))
 	ctx.deps.stats.add_cell(r, code, time.monotonic() - started)
 	ctx.deps.rec.phase('repl_start', getattr(repl, 'start_ns', 0) - starts)
 	ctx.deps.rec.cell(r, code, now() - t0, ctx.deps.vision)
@@ -231,37 +238,42 @@ def check_split_delivery(ctx: RunContext[Session]) -> None:
 
 
 def check_delivery(ctx: RunContext[Session], value: Any) -> None:
-	"""One-shot repair: a placeholder or links to unwritten files."""
+	"""One-shot repair: a placeholder or links to unwritten files. Not on the run's last request (the repair after the
+	delivery-only turn): nothing can follow it, and the refused result was lost (status max_steps, ''). There the
+	result is delivered and the problem logged."""
 	s = ctx.deps
 	text = as_text(value)
-	if not s.checked_delivery:
-		problem = None
-		# '...', '' (a one-character answer like '7' is fine); a structured result with no value in it: Sonnet 5.5 sent
-		# finish({"authors": []}, success=False) with 34 authors in the REPL. Not on the run's last request (the repair
-		# after the delivery-only turn): nothing can follow it, and the refused result was lost (status max_steps, '')
-		empty = not isinstance(value, str) and ctx.run_step <= s.max_steps and _holds_nothing(json.loads(text))
-		if not re.search(r'[^\W_]', text) or empty:
-			problem = f'The result {text[:20]!r} is a placeholder, not the answer.'
-			s.rec.retry('delivery_placeholder')
-		else:
-			missing = sorted(
-				{
-					t
-					for t in LINK.findall(text) + FILE.findall(text)
-					if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
-					# downloads land in workspace/downloads; an answer names them by file name
-					and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
-				}
-			)
-			if missing:
-				problem = f'These linked files do not exist in the workspace: {", ".join(missing[:10])}.'
-				s.rec.retry('delivery_missing_files')
-		if problem:
-			s.checked_delivery = True
-			raise ModelRetry(
-				f'{problem} Deliver the actual result: finish_from_repl with the existing records, or '
-				'finish with the full answer inline. Do not repeat browser actions.'
-			)
+	if s.checked_delivery:
+		return
+	problem = None  # (what is wrong, the retry's stats cause)
+	# '...', '' (a one-character answer like '7' is fine); a structured result with no value in it: Sonnet 5.5 sent
+	# finish({"authors": []}, success=False) with 34 authors in the REPL
+	if not re.search(r'[^\W_]', text) or (not isinstance(value, str) and _holds_nothing(json.loads(text))):
+		problem = (f'The result {text[:20]!r} is a placeholder, not the answer.', 'delivery_placeholder')
+	else:
+		missing = sorted(
+			{
+				t
+				for t in LINK.findall(text) + FILE.findall(text)
+				if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
+				# downloads land in workspace/downloads; an answer names them by file name
+				and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
+			}
+		)
+		if missing:
+			problem = (f'These linked files do not exist in the workspace: {", ".join(missing[:10])}.', 'delivery_missing_files')
+	if problem is None:
+		return
+	what, cause = problem
+	if ctx.run_step > s.max_steps:
+		logger.warning(printable(f'Delivered as it is on the last request: {redact(what, s.repl.secrets)}'))
+		return
+	s.checked_delivery = True
+	s.rec.retry(cause)
+	raise ModelRetry(
+		f'{what} Deliver the actual result: finish_from_repl with the existing records, or '
+		'finish with the full answer inline. Do not repeat browser actions.'
+	)
 
 
 def _unquoted(value: str, expression: str) -> str:
@@ -419,10 +431,17 @@ class BrowserLoop(AbstractCapability[Session]):
 				s.finalizing = True
 				s.rec.delivery()
 				ctx.enqueue(DELIVER_NOW)
-		settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
-		_deadlines(s, settings, request_context.model, MODEL_TIMEOUT_S)
 		if s.finalizing:  # restrict this very request
+			settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
+			request_context.model_settings = cast(Any, settings)
+		return request_context
+
+	async def prepare_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
+		"""The request's deadline, per attempt: a retry after the provider's Retry-After kept the deadline computed
+		before the sleep and ran past the delivery turn's start (status timeout, no answer)."""
+		settings: dict[str, Any] = dict(request_context.model_settings or {})
+		_deadlines(ctx.deps, settings, request_context.model, MODEL_TIMEOUT_S)
 		request_context.model_settings = cast(Any, settings)
 		return request_context
 
@@ -453,8 +472,8 @@ class BrowserLoop(AbstractCapability[Session]):
 			raise error
 		s.provider_retried = True
 		s.rec.retry('provider_transient')
-		delay = min(error.retry_after or 0, 60)
-		logger.warning(f'{type(error).__name__} from {error.model_name}: retrying once in {delay:g} s')
+		delay = min(error.retry_after or 0, 60, max(s.time_left(), 0))  # a wait never runs into the delivery turn
+		logger.warning(f'{type(error).__name__} from {error.model_name}: retrying once in {round(delay, 1):g} s')
 		slept = now()
 		await asyncio.sleep(delay)
 		s.rec.phase('retry_sleep', now() - slept)
@@ -668,7 +687,7 @@ def _deadlines(s: Session, settings: dict[str, Any], model: Model, wait_s: float
 	"""request_timeout of one model request, and first_event_timeout of a streamed one (OpenAI Responses, streamed by
 	StreamResponses). A non-streamed request gets wait_s in all; a streamed one gets wait_s until its first event, then
 	STREAM_TIMEOUT_S in all. bu-pi deadlineStream: neither holds the run past the delivery turn's start."""
-	left = max(1.0, (s.timeout_s if s.finalizing else s.delivery_at()) - (time.monotonic() - s.started))
+	left = max(1.0, s.time_left())
 	if isinstance(model, OpenAIResponsesModel):
 		settings['first_event_timeout'] = min(settings.get('first_event_timeout') or wait_s, left)
 		wait_s = STREAM_TIMEOUT_S

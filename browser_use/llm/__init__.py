@@ -585,15 +585,11 @@ def _bare_name_hint(name: Any) -> str | None:
 
 def __getattr__(name: str):
 	"""from browser_use.llm import ChatGroq (a 0.x import path): the removal message, not a bare ImportError."""
-	from browser_use import _REMOVED
-
-	if name.startswith('Chat') and name in _REMOVED:
-		from browser_use.exceptions import removed
-
-		raise ImportError(removed(f'browser_use.llm.{name}', _REMOVED[name]))
+	from browser_use import _LLM_REMOVED
 	from browser_use.legacy import removed_name
 
-	raise removed_name(__name__, name)  # BaseChatModel, UserMessage, ...: the removed error naming the 1.0 answer
+	# ChatGroq, BaseChatModel, UserMessage, ...: the removed error naming the 1.0 answer
+	raise removed_name(__name__, name, _LLM_REMOVED)
 
 
 __all__ = ['ChatAnthropic', 'ChatBrowserUse', 'ChatGoogle', 'ChatOpenAI', 'GATEWAY_URL', 'model_ref', 'resolve_model']

@@ -104,6 +104,12 @@ def require_debug_port() -> None:
 			)
 	if live_debug_dirs():
 		return
+	if not has_display():  # a server or container: no Chrome window to turn remote debugging on in
+		raise RuntimeError(
+			'remote-debugging-setup: no browser here has remote debugging on, and there is no display to turn it on in '
+			'Chrome. Set BU_CDP_URL to http://127.0.0.1:PORT of a Chrome started with --remote-debugging-port=PORT, or '
+			'use a cloud browser (start_remote_daemon() in the CLI, Browser() in the library).'
+		)
 	if not daemon.supported_browser_running() and admin._launch_browser():
 		deadline = time.monotonic() + (daemon.TOGGLE_BOOT_GRACE if daemon.remote_debugging_toggle_profiles() else 3)
 		while time.monotonic() < deadline:

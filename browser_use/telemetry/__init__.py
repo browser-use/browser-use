@@ -1,4 +1,6 @@
-"""Anonymized telemetry for Browser Use: counts and names only; ANONYMIZED_TELEMETRY=false turns it off."""
+"""Anonymized usage telemetry for Browser Use: model, steps, cost, timing, helper names, the URLs visited (without query
+strings), error messages and the final result. Never the task text, typed text, code or secrets.
+ANONYMIZED_TELEMETRY=false turns it off."""
 
 from typing import TYPE_CHECKING
 
