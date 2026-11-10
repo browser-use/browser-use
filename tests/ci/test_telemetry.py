@@ -187,7 +187,7 @@ async def test_agent_event_sends_urls_errors_and_result_never_task_secrets_typed
 	rng = random.Random(seed)
 	task, secret, typed, result, error = (rand(rng) for _ in range(5))
 	query, value, fragment, other_host = (rand(rng, 10).lower() for _ in range(4))
-	path = slug(rng)
+	path = slug(rng, 8)  # {path}2 stays under 12 letters and digits
 	url = f'{site}/{path}/{path}2?{query}={value}#{fragment}'
 	unresolvable = f'http://{other_host}.invalid/{path}3?{query}=1'
 	code = (
