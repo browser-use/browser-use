@@ -742,14 +742,14 @@ def test_a_dropped_repl_reaps_its_worker_after_the_event_loop_closed(tmp_path):
 	repl = Repl(tmp_path)
 	assert asyncio.run(repl.call('exec', 'print("ready")', 30))['error'] is None
 	assert repl.proc is not None
-	pid, ref = repl.proc.pid, weakref.ref(repl)
+	proc, ref = repl.proc, weakref.ref(repl)  # keep Popen.__del__ from reaping it and hiding the bug
 	del repl
 	gc.collect()
 	assert ref() is None
 	time.sleep(0.1)
 	# Do not use subprocess.run('ps'): starting it reaps Popen's abandoned children and hides the bug.
 	with pytest.raises(ChildProcessError):
-		os.waitpid(pid, os.WNOHANG)
+		os.waitpid(proc.pid, os.WNOHANG)
 
 
 def _tab(capture_hangs: bool):
