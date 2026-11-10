@@ -1,8 +1,9 @@
 """What one Agent.run() did, step by step, for telemetry (schema 3).
 
 Every hook runs on the agent path and is an O(1) in-memory update (perf_counter_ns, an append, an add). build() turns
-the record into the event's fields once, in the telemetry thread after the run. Never text: no task, code, output,
-page content, URLs or error messages; names only where browser-use, Python or an installed package chose them.
+the record into the event's fields once, in the telemetry thread after the run. No text: names only where browser-use,
+Python or an installed package chose them (the URLs, error messages and final result are agent_event's, from RunStats
+and the result, scrubbed: stats.scrub).
 """
 
 from __future__ import annotations

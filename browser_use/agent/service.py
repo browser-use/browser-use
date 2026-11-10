@@ -37,7 +37,7 @@ from browser_use.llm import (
 	resolve_model,
 )
 from browser_use.repl import Repl, check_mode, redact
-from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
+from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets, secret_forms
 from browser_use.search import WebSearch, search_url
 from browser_use.telemetry.recorder import RunRecorder, now
 from browser_use.tools import Tools
@@ -732,12 +732,23 @@ class Agent:
 		duration: float,
 		meta: dict[str, Any],
 	) -> None:
-		"""One agent_event per run. Counts, names, hostnames and classes only: never the task, the result, code, typed
-		text, secrets, page content, URLs or error messages. Here, on the run's path, only what can change
-		after the run is copied; the event is built in the telemetry thread (build())."""
+		"""One agent_event per run: counts, names, hostnames and classes, the URLs visited without query strings, error
+		messages and the final result, scrubbed of secrets and credentials (stats.scrub). Never the task text, typed
+		text, code or secrets. Here, on the run's path, only what can change after the run is copied; the event is built
+		in the telemetry thread (build())."""
 		try:
 			from browser_use.telemetry.service import Job, telemetry
-			from browser_use.telemetry.stats import RunStats, download_ext, top
+			from browser_use.telemetry.stats import (
+				MAX_ERROR,
+				MAX_ERRORS,
+				MAX_RESULT,
+				MAX_URL,
+				MAX_URLS,
+				RunStats,
+				download_ext,
+				scrub,
+				top,
+			)
 			from browser_use.telemetry.views import AgentTelemetryEvent
 			from browser_use.utils import get_browser_use_version, get_install_source
 
@@ -800,6 +811,9 @@ class Agent:
 				'error_phase': phase,
 				'budget_hit': budget_hit,
 			}
+			secrets, task = self.sensitive_data, self.task
+			run_error = result.error if result else None
+			final = result.text if result else None
 			known = rec.known
 			function_tools = known - {'finish', 'finish_from_repl'}
 			total_ms = int(duration * 1000)
@@ -813,6 +827,9 @@ class Agent:
 				v3 = rec.build(stats, total_ms, steps, keys)
 				if tool_args := sum(name in function_tools for name in retried):
 					v3['retries']['tool_args'] = tool_args
+				forms = secret_forms(secrets) if secrets else []
+				urls = dict.fromkeys(scrub(u, forms, MAX_URL, task) for u in stats.urls[: min(keys, MAX_URLS)])
+				errors = [scrub(e, forms, MAX_ERROR, task) for e in ([run_error] if run_error else []) + stats.error_messages]
 				repairs = ('delivery_placeholder', 'delivery_missing_files', 'delivery_split', 'text_repair', 'text_tool_markup')
 				event = AgentTelemetryEvent(
 					get_browser_use_version(),
@@ -841,6 +858,9 @@ class Agent:
 					domain_blocks=stats.events['domain_blocked'],
 					downloads=len(downloads),
 					download_exts=top(Counter(download_ext(p) for p in downloads), keys),
+					urls_visited=[u for u in urls if u],
+					error_messages=[e for e in dict.fromkeys(errors) if e][:MAX_ERRORS],
+					final_result=scrub(final, forms, MAX_RESULT, task) or None,
 				)
 				return event.properties
 

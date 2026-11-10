@@ -208,8 +208,9 @@ class ProductTelemetry:
 				if not getattr(self, '_atexit', False):
 					if self.notice:
 						logger.info(
-							'Using anonymized telemetry (no task text, results or page content; ANONYMIZED_TELEMETRY=false '
-							'turns it off)'
+							'Using anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited (without '
+							'query strings), error messages and the final result. Never the task text, typed text, code or '
+							'secrets. ANONYMIZED_TELEMETRY=false turns it off.'
 						)
 					atexit.register(self._at_exit)
 					self._atexit = True

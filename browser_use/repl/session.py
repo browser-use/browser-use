@@ -482,7 +482,7 @@ class Repl:
 				if blocks:
 					events = r.setdefault('stats', {}).setdefault('events', {})
 					events['domain_blocked'] = events.get('domain_blocked', 0) + blocks
-		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value')}}
+		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value', 'error_message')}}
 
 	async def _search(self, args: Any) -> dict[str, Any]:
 		"""{'value': the search result} or {'error': the message search() raises in the cell}."""
@@ -543,6 +543,7 @@ class Repl:
 					'value': None,
 					'error': f'{RESTARTED.format(why=why)} Actions may already have happened; inspect before retrying.',
 					'error_type': 'CellTimeout' if isinstance(e, TimeoutError) else 'WorkerExited',
+					'error_message': f'{"CellTimeout" if isinstance(e, TimeoutError) else "WorkerExited"}: {why}',
 				}
 		except asyncio.CancelledError:  # the whole run was cancelled or timed out: the cell may still be running
 			await self.close()

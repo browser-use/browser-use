@@ -123,9 +123,11 @@ def _spawn_outside_job(args: list[str], env: dict[str, str]) -> bool:
 
 
 _cell = threading.local()  # .buffer: where the cell running on this thread prints
-# The exception classes of the tool call in progress (telemetry): asyncio.to_thread runs _execute in a copy of the
-# call's context, which holds this same list
-_call_errors: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar('browser_use_mcp_errors', default=None)
+# The (exception class, message) of each failure in the tool call in progress (telemetry): asyncio.to_thread runs
+# _execute in a copy of the call's context, which holds this same list
+_call_errors: contextvars.ContextVar[list[tuple[str, str]] | None] = contextvars.ContextVar(
+	'browser_use_mcp_errors', default=None
+)
 TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login')
 
 
@@ -135,7 +137,11 @@ def _error_class(e: BaseException) -> str:
 	errors = _call_errors.get()
 	name = error_class(e)
 	if errors is not None:
-		errors.append(name)
+		try:
+			message = str(e)[:4096]
+		except Exception:  # - a __str__ that raises
+			message = ''
+		errors.append((name, message))
 	return name
 
 
@@ -332,7 +338,7 @@ class CLIMCPServer:
 			return types.ListToolsResult(tools=self._tool_definitions())
 
 		async def handle_call_tool(_context: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
-			errors: list[str] = []
+			errors: list[tuple[str, str]] = []
 			token = _call_errors.set(errors)
 			started, result = time.monotonic(), None
 			try:
@@ -387,14 +393,14 @@ class CLIMCPServer:
 		self.server.add_request_handler('tools/list', types.PaginatedRequestParams, handle_list_tools)
 		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
 
-	def _record_call(self, name: str, result: types.CallToolResult | None, errors: list[str], seconds: float) -> None:
+	def _record_call(self, name: str, result: types.CallToolResult | None, errors: list[tuple[str, str]], seconds: float) -> None:
 		"""One mcp_server_event per tool call: queued, sent by the telemetry thread; never fails a call."""
 		self._calls += 1
 		try:
 			from browser_harness import telemetry as harness_telemetry
 
 			from browser_use.telemetry.service import telemetry
-			from browser_use.telemetry.stats import is_internal
+			from browser_use.telemetry.stats import MAX_ERROR, is_internal, scrub
 			from browser_use.telemetry.views import MCPToolCallEvent
 
 			if not telemetry().enabled:
@@ -405,12 +411,13 @@ class CLIMCPServer:
 				tool_name=name if name in TOOLS or name in OLD_TOOLS else 'invalid',
 				duration_seconds=round(seconds, 3),
 				ok=result is not None and not result.is_error,
-				error_type=errors[0] if errors else None,
+				error_type=errors[0][0] if errors else None,
 				server='mcp' if self._browser is not None else 'cli-mcp',
 				browser='cloud' if self._cloud_started else 'chromium' if self._browser is not None else 'chrome',
 				agent_client=detect() if detect else None,
 				call_n=self._calls,
 				is_internal=is_internal(),
+				error_message=scrub(errors[0][1], [], MAX_ERROR) or None if errors else None,
 			)
 			telemetry().capture(event)
 		except Exception:  # - telemetry never breaks a tool call
