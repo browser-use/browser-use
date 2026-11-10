@@ -186,6 +186,16 @@ def test_the_installed_opener_uses_a_proxy_set_after_it_was_installed(monkeypatc
 	assert any(s.startswith(b'CONNECT api.browser-use.com:443') for s in seen), seen
 
 
+def test_version_does_not_pay_for_the_tls_setup():
+	"""`browser-use --version` imported browser_use.utils to install the opener: its proxy lookup made the call ~14 ms
+	slower on macOS (39 -> 55 ms)."""
+	code = "import sys; sys.argv = ['browser-use', '--version']; from browser_use.cli import main; main()\n"
+	code += "print('browser_use.utils' in sys.modules)"
+	env = {**os.environ, 'ANONYMIZED_TELEMETRY': 'false'}
+	result = subprocess.run([sys.executable, '-c', code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+	assert result.stdout.strip().splitlines()[-1] == 'False', result.stdout + result.stderr
+
+
 def _login(base_url: str, store: Path) -> subprocess.CompletedProcess[str]:
 	env = {k: v for k, v in os.environ.items() if k not in ('BROWSER_USE_API_KEY', 'SSL_CERT_FILE', 'SSL_CERT_DIR')}
 	env |= {'BROWSER_USE_CLOUD_API_URL': base_url, 'BH_AUTH_PATH': str(store)}

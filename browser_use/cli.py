@@ -720,6 +720,9 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 
 		print(f'browser-use {_browser_use_version()} (browser-harness {package_version("browser-harness")})')
 		return 0, 'version'
+	from browser_use.utils import install_tls_opener  # after --version: importing it costs ~12 ms on macOS (proxy lookup)
+
+	install_tls_opener()  # browser-harness's own requests here (cloud browsers, login) verify as the OS does
 	if '--cli-mcp' in args:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
@@ -806,9 +809,6 @@ def main() -> int | None:
 
 	_delegated_to_harness = False
 	args = sys.argv[1:]
-	from browser_use.utils import install_tls_opener
-
-	install_tls_opener()  # browser-harness's own requests here (cloud browsers, login) verify as the OS does
 	start_time = time.monotonic()
 	command = _command_name(args)
 	stderr_tail = _StderrTail(sys.stderr)
