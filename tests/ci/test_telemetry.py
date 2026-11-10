@@ -892,8 +892,8 @@ async def test_a_browser_harness_cli_call_from_a_cell_sends_no_telemetry(tmp_pat
 
 async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, site, posthog, tmp_path):
 	"""Every text the task, the code, a typed value, a secret, a page title, a URL query or fragment, a class or cdp()
-	method name the model's code chose and a made-up tool name and its arguments carry is a canary; none may appear anywhere in what reaches PostHog (the gzip body as received). The URL path, the error
-	messages and the result are sent, scrubbed. The v3 fields say what happened."""
+	method name the model's code chose and a made-up tool name and its arguments carry is a canary; none may appear anywhere in what reaches PostHog (the gzip body as received). The URL path and the result
+	are sent, scrubbed; the errors the cells raised themselves as their class. The v3 fields say what happened."""
 	rng = random.Random(7)
 	c = SimpleNamespace(
 		**{
@@ -930,13 +930,14 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 	assert r.status == 'completed', r.error
 	(event,) = posthog.events()
 	raw = '\n'.join(posthog.bodies)
-	sent = ('path', 'result', 'mod')  # the URL path, a library's error message and the result are sent
+	sent = ('path', 'result')  # the URL path and the result are sent
 	leaked = [name for name, v in vars(c).items() if v in raw and name not in sent]
 	assert not leaked, f'leaked {leaked}'
 	assert 'type_text(' not in raw and 'Runtime.evaluate' in raw
 	p = event['properties']
 	assert p['urls_visited'] == [f'http://127.0.0.1/{c.path}']
-	assert p['error_messages'] == ['custom', f"ModuleNotFoundError: No module named '{c.mod}'"]  # the cell's own raise: class
+	# the cell's own raise and import (importlib drops its frames): the class only, never the text or module it named
+	assert p['error_messages'] == ['custom', 'ModuleNotFoundError']
 	assert p['final_result'] == f'{c.result} <task>'  # the task, quoted whole (and with its secret redacted)
 	assert (event['event'], event['distinct_id'], event['uuid']) == ('agent_event', 'bu-test-device', str(uuid.UUID(p['run_id'])))
 	assert (p['schema_version'], p['status'], p['steps'], p['is_internal'], p['$lib']) == (
