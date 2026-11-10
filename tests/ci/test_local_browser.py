@@ -802,6 +802,57 @@ async def test_a_download_that_finishes_after_the_run_is_named_at_the_stop(chrom
 	assert [(p.name, p.stat().st_size) for p in result.downloads] == [('slow.bin', 30000)]
 
 
+async def test_a_keep_alive_download_that_finishes_after_the_run_never_holds_the_stop(chrome_binary, tmp_path, monkeypatch):
+	"""rc5 local-download-keepalive-1: with Browser(keep_alive=True) the run's REPL worker keeps running and drains the
+	daemon's events, so it took the 'completed' event of a download still running as run() returned. browser.stop()
+	waited DOWNLOADS_TIMEOUT_S (300 s) and warned the finished slow.bin was lost."""
+	import http.server
+
+	class Slow(http.server.BaseHTTPRequestHandler):
+		def do_GET(self):
+			if self.path == '/f':
+				self.send_response(200)
+				self.send_header('Content-Disposition', 'attachment; filename="slow.bin"')
+				self.send_header('Content-Length', '30000')
+				self.end_headers()
+				for _ in range(15):
+					self.wfile.write(b'x' * 2000)
+					self.wfile.flush()
+					time.sleep(0.2)
+			else:
+				self.send_response(200)
+				self.send_header('Content-Type', 'text/html')
+				self.end_headers()
+				self.wfile.write(b'<a id=a href="/f">slow</a>')
+
+		def log_message(self, *args):
+			pass
+
+	monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 30)  # a failure waits 30 s, not 300 s
+	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Slow)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	code = (
+		f"new_tab('http://127.0.0.1:{server.server_address[1]}/'); wait_for_load(); js('document.getElementById(\"a\").click()'); "
+		"import glob, time; [time.sleep(0.1) for _ in range(50) if not glob.glob('downloads/*')]"  # begun, as by a next step
+	)
+	model, _ = script(('python', {'code': code}), ('finish', {'success': True, 'result': 'ok'}))
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary, keep_alive=True)
+	agent = Agent('t', model, browser=browser, workspace=tmp_path)
+	try:
+		result = await agent.run()
+		assert result.final_result() == 'ok', result.error
+		assert not (tmp_path / 'downloads' / 'slow.bin').exists()  # still running: it finishes during the stop
+		started = time.monotonic()
+		await browser.stop()
+		stop_s = time.monotonic() - started
+	finally:
+		server.shutdown()
+		await agent.close()
+		await browser.stop()
+	assert stop_s < 10, stop_s
+	assert [(p.name, p.stat().st_size) for p in (tmp_path / 'downloads').iterdir()] == [('slow.bin', 30000)]
+
+
 def test_name_download_never_overwrites_and_keeps_the_file_in_its_dir(tmp_path):
 	from browser_use.utils import name_download
 

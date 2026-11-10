@@ -174,7 +174,8 @@ def test_skill_install_reinstalls_the_cli_only_when_asked(tmp_path):
 		assert uv_args.exists() is installs
 	# Pinned: unpinned, uv installs the latest stable (0.x) over a 1.0 rc install
 	version = importlib.metadata.version('browser-use')
-	assert uv_args.read_text(encoding='utf-8') == f'tool install --python 3.12 --upgrade --force browser-use=={version}'
+	python = f'{sys.version_info[0]}.{sys.version_info[1]}'
+	assert uv_args.read_text(encoding='utf-8') == f'tool install --python {python} --upgrade --force browser-use=={version}'
 
 
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):
@@ -369,3 +370,24 @@ def test_skill_gate_refuses_a_harness_that_is_not_the_pinned_version(monkeypatch
 	monkeypatch.setattr(script.importlib.metadata, 'version', lambda name: '0.0.1')
 	assert script.main(['--check']) == 2
 	assert 'browser-harness 0.0.1 is installed' in capsys.readouterr().err
+
+
+def test_install_cli_keeps_the_python_the_cli_runs_on(monkeypatch, tmp_path):
+	"""rc5 cli-1: --install-cli ran `uv tool install --python 3.12 --force`. A tool env on 3.13 was rebuilt as 3.12,
+	deleting the lib/python3.13 files the running CLI then read the skill from: no SKILL.md written, exit 1, and the
+	user's tool silently moved to 3.12."""
+	from browser_use.skills import install
+
+	calls = []
+
+	def run(args, **kwargs):
+		calls.append(args[1:])
+		return subprocess.CompletedProcess(args, 0, stdout='')
+
+	monkeypatch.setattr(install.shutil, 'which', lambda name: 'uv')
+	monkeypatch.setattr(install.subprocess, 'run', run)
+	with monkeypatch.context() as m:
+		m.setattr(install.sys, 'version_info', (3, 13, 5, 'final', 0))
+		install._install_browser_use_tool()
+	installs = [c for c in calls if c[:2] == ['tool', 'install']]
+	assert len(installs) == 1 and installs[0][2:4] == ['--python', '3.13'], installs

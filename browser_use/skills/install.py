@@ -64,7 +64,9 @@ def _install_browser_use_tool() -> None:
 	if version == 'unknown':
 		raise RuntimeError('Cannot tell which browser-use version is running; rerun without --install-cli.')
 	# Pinned to the running version: unpinned, uv picks the latest stable, which replaces a 1.0 rc install with 0.x.
-	args = ['tool', 'install', '--python', '3.12', '--upgrade', '--force', f'browser-use=={version}']
+	# The running Python: a forced 3.12 rebuilt a 3.13 tool env as 3.12, deleting the files this process still reads
+	python = f'{sys.version_info[0]}.{sys.version_info[1]}'
+	args = ['tool', 'install', '--python', python, '--upgrade', '--force', f'browser-use=={version}']
 	result = subprocess.run([uv, *args])
 	if result.returncode != 0:
 		raise RuntimeError(f'Failed to install browser-use with `uv {" ".join(args)}`.')
