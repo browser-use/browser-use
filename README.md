@@ -174,6 +174,8 @@ This [very hard benchmark](https://github.com/browser-use/benchmark) targets the
 
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
 
+Something broken? `browser-use feedback 'what happened'` (or `browser_use.feedback(...)`) sends it straight to the Browser Use team.
+
 <br/>
 
 # FAQ

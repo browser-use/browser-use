@@ -36,6 +36,7 @@ from browser_use.harness_cloud import CloudBrowserError
 from browser_use.repl.capture import install as install_capture
 from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
+from browser_use.telemetry import feedback
 from browser_use.utils import get_browser_use_version
 
 _NAMESPACE_IMPORTS = (
@@ -138,7 +139,7 @@ _cell = threading.local()  # .buffer: where the cell running on this thread prin
 _call_errors: contextvars.ContextVar[list[tuple[str, str]] | None] = contextvars.ContextVar(
 	'browser_use_mcp_errors', default=None
 )
-TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login')
+TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login', 'browser_feedback')
 
 
 def _error_class(e: BaseException) -> str:
@@ -447,6 +448,7 @@ class CLIMCPServer:
 					},
 				},
 			),
+			types.Tool(**feedback.MCP_TOOL),
 		]
 
 	def _register_handlers(self):
@@ -506,6 +508,9 @@ class CLIMCPServer:
 			if name == 'browser_login':
 				text = await asyncio.to_thread(self._sign_in, bool(arguments.get('force', False)))
 				return types.CallToolResult(content=[types.TextContent(type='text', text=text)])
+			if name == 'browser_feedback':
+				text, failed = feedback.mcp_call(arguments)
+				return types.CallToolResult(content=[types.TextContent(type='text', text=text)], is_error=failed)
 			text = removed(f'The MCP tool {name} (the 0.x browser-use --mcp server)', OLD_TOOL_HINT) if name in OLD_TOOLS else ''
 			return types.CallToolResult(
 				content=[types.TextContent(type='text', text=text or f'Unknown tool: {name}')],
@@ -820,6 +825,7 @@ class CLIMCPServer:
 
 async def main(own_browser: bool = False, **browser_options: Any):
 	os.environ.setdefault('BH_CLIENT', 'browser-use-mcp')
+	os.environ['BU_MODEL_CODE'] = '1'  # browser_exec runs the client model's code: its browser_use.feedback() is not consent
 	server = CLIMCPServer(own_browser, **browser_options)
 	await server.run()
 

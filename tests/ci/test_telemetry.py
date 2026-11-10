@@ -2160,7 +2160,8 @@ def test_an_event_the_exit_handler_could_not_write_is_still_written_by_the_threa
 	job = Job('agent_event', lambda s, k: {'model': 'own'})
 	t._pending[job.run_id] = job
 	write = t._to_outbox
-	monkeypatch.setattr(t, '_to_outbox', lambda data, name: None)  # a failed write at exit
+	monkeypatch.setattr(t, '_to_outbox', lambda data, name: None)  # a failed write at exit, also to a temp file
+	monkeypatch.setattr(service, '_once_file', lambda data, name: None)
 	t._at_exit()
 	monkeypatch.setattr(t, '_to_outbox', write)
 	t._send(job)  # the thread, mid-send as the process exits
@@ -2206,3 +2207,261 @@ def test_long_typed_texts_are_matched_in_bounded_memory_and_time():
 	tracemalloc.stop()
 	assert '<typed>' in out and len(out) < 40 and time.perf_counter() - started < 10 and peak < 120_000_000  # cut words stay
 	assert scrub('İstanbul Kadıköy', [], 500, typed=('İstanbul Kadıköy',)) == '<typed>'
+
+
+# --- library_feedback: report_issue() mid-run, browser_use.feedback(), `browser-use feedback`, the browser_feedback tool
+
+
+def _feedback(events: list[dict]) -> list[dict]:
+	return [e for e in events if e['event'] == 'library_feedback']
+
+
+async def test_report_issue_sends_scrubbed_feedback_joined_to_its_run_at_most_three_times(posthog, tmp_path, monkeypatch):
+	"""The agent tells the Browser Use team what browser-use got wrong, mid-run: one library_feedback event per call,
+	under the device id and run_id of the run's agent_event, scrubbed like its error messages (task, typed text, secrets,
+	emails, keys, URL queries, home folders). Three per run; agent_event counts them."""
+	no_browser(monkeypatch)
+	user_key = 'bu_' + 'Zq9k' * 8
+	monkeypatch.setenv('BROWSER_USE_API_KEY', user_key)
+	task, secret, typed1, typed2 = 'Zq9 compare the prices of these shoes', 'Zq9-secret-pw', 'Zq9-earlier', 'Zq9-this-cell'
+	message = (
+		f'type_text lost {typed1} and {typed2} on {task}; pw {secret}; mail jane@zq9.test; see https://zq9.test/a?t=Zq9q '
+		f'key sk-ant-Zq9abcdefgh env {user_key} in /Users/Zq9jane/x'
+	)
+	record = "import sys\nsys.modules['__main__'].stats.record_typed({!r})"  # the worker's own record, as type_text makes it
+	model, seen = script(
+		('python', {'code': f'{record.format(typed1)}\nraise ValueError("boom")'}),
+		('python', {'code': f'{record.format(typed2)}\nprint(report_issue({message!r}))'}),
+		('python', {'code': "for i in range(3):\n    print(report_issue(f'again {i}', 'docs'))"}),
+		('finish', {'success': True, 'result': 'ok'}),
+	)
+	agent = Agent(task, model, browser=Browser(local=True), sensitive_data={'pw': secret}, workspace=tmp_path)
+	assert (await agent.run()).status == 'completed'
+	events = posthog.events(4)
+	(run,) = (e for e in events if e['event'] == 'agent_event')
+	reports = _feedback(events)
+	assert len(reports) == 3 and run['properties']['feedback_count'] == 3
+	assert run['properties']['helper_counts']['report_issue'] == 4
+	first = reports[0]['properties']
+	assert first['message'] == (
+		'type_text lost <typed> and <typed> on <task>; pw <secret:pw>; mail <email>; see https://zq9.test/a '
+		'key <credential> env <credential> in /Users/<user>/x'
+	)
+	assert (first['source'], first['category'], first['step'], first['last_error_type']) == ('agent', 'bug', 2, 'ValueError')
+	assert first['run_id'] == run['properties']['run_id'] and first['model'] == run['properties']['model']
+	assert first['version'] and first['python_version'] and first['os'] and 'browser_harness_version' in first
+	assert (first['is_internal'], first['is_ci'] in (True, False), first['schema_version']) == (True, True, 4)
+	assert [r['properties']['message'] for r in reports[1:]] == ['again 0', 'again 1']
+	assert {r['distinct_id'] for r in events} == {'bu-test-device'}
+	assert_absent({'events': events}, 'Zq9', user_key)
+	assert not [b for b in posthog.bodies if user_key in b or 'Zq9' in b]  # what went over the wire
+	out = str(seen[-1][-1])
+	assert out.count('Reported to the Browser Use team') == 2 and 'Already reported 3 issues this run' in out
+
+
+async def test_with_usage_stats_off_the_agent_and_mcp_report_nothing(posthog, tmp_path, monkeypatch):
+	"""The agent's model and an MCP client's model are not the user: ANONYMIZED_TELEMETRY=false means their reports are
+	not sent, and they are told so."""
+	from mcp import types
+
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	no_browser(monkeypatch)
+	model, seen = script(
+		('python', {'code': 'print(report_issue("goto_url hangs"))'}), ('finish', {'success': True, 'result': 'ok'})
+	)
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()).status == 'completed'
+	assert 'Feedback is off' in str(seen[-1][-1])
+	handler = cli_mcp.CLIMCPServer().server._request_handlers['tools/call'].handler
+	call = types.CallToolRequestParams(name='browser_feedback', arguments={'message': 'browser_exec hangs'})
+	result = await handler(None, call)  # pyright: ignore[reportArgumentType]
+	assert 'Feedback is off' in result.content[0].text and not result.is_error  # pyright: ignore[reportAttributeAccessIssue]
+	assert posthog.telemetry._thread is None and not posthog.state.attempts
+	assert not [p for p in posthog.config.rglob('*') if p.is_file()]
+
+
+async def test_the_mcp_feedback_tool_is_listed_and_sends_one_event(posthog):
+	from mcp import types
+
+	from browser_use.mcp import cli_mcp
+
+	server = cli_mcp.CLIMCPServer()
+	(tool,) = (t for t in server._tool_definitions() if t.name == 'browser_feedback')
+	assert tool.input_schema['required'] == ['message'] and 'never include secrets' in tool.description  # pyright: ignore[reportOptionalOperand]
+	handler = server.server._request_handlers['tools/call'].handler
+
+	async def call(arguments: dict):
+		return await handler(None, types.CallToolRequestParams(name='browser_feedback', arguments=arguments))  # pyright: ignore[reportArgumentType]
+
+	ok = await call({'message': 'js() drops an async return value, see jane@zq9.test', 'category': 'missing'})
+	assert not ok.is_error and 'Reported to the Browser Use team' in ok.content[0].text  # pyright: ignore[reportAttributeAccessIssue]
+	assert (await call({'message': ' '})).is_error
+	events = posthog.events(3)
+	(report,) = _feedback(events)
+	p = report['properties']
+	assert (p['source'], p['category'], p['message']) == ('mcp', 'missing', 'js() drops an async return value, see <email>')
+	assert p['run_id'] is None and p['model'] is None
+	assert [e['properties']['tool_name'] for e in events if e['event'] == 'mcp_server_event'] == ['browser_feedback'] * 2
+
+
+def test_python_feedback_is_the_users_consent_sent_with_usage_stats_off_and_nothing_else_with_it(posthog, monkeypatch):
+	"""browser_use.feedback() is the developer asking to send it: it goes even with usage stats off, scrubbed of
+	credentials but not of their own words, and the events an earlier process kept (outbox) stay unsent."""
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	outbox = posthog.config / 'telemetry' / 'outbox'
+	outbox.mkdir(parents=True)
+	(outbox / 'kept.gz').write_bytes(gzip.compress(b'{"batch": []}'))
+	assert browser_use.feedback('Agent(mode="ultrafast") ignores sensitive_data, token=Zq9tok in /home/jane/app', 'nope')
+	assert not browser_use.feedback('  ')
+	(event,) = posthog.events()
+	p = event['properties']
+	assert (event['event'], event['distinct_id']) == ('library_feedback', 'bu-test-device')
+	assert (p['source'], p['category']) == ('python', 'other')
+	assert p['message'] == 'Agent(mode="ultrafast") ignores sensitive_data, token=<credential> in /home/<user>/app'
+	assert posthog.telemetry.flush() and posthog.state.attempts == 1 and (outbox / 'kept.gz').exists()
+
+
+FEEDBACK_CLI = """
+import sys
+import browser_use.telemetry.service as service
+service.POSTHOG_HOST = sys.argv[1]
+from browser_use.cli import main
+sys.argv = ['browser-use', 'feedback', *sys.argv[2:]]
+sys.exit(main())
+"""
+
+
+@pytest.mark.parametrize('argv, stdin', [(['--category', 'docs', 'the skill path is wrong'], None), ([], 'piped: wrong path\n')])
+def test_cli_feedback_says_it_was_sent_to_the_browser_use_team(posthog, argv, stdin):
+	"""`browser-use feedback "..."` (or piped) is the user's own call: sent with usage stats off too, and it says so."""
+	import browser_use.telemetry.service as service
+
+	env = {**os.environ, 'ANONYMIZED_TELEMETRY': 'false', 'BROWSER_USE_CONFIG_DIR': str(posthog.config)}
+	cmd = [sys.executable, '-c', FEEDBACK_CLI, service.POSTHOG_HOST, *argv]
+	r = subprocess.run(cmd, env=env, input=stdin or '', capture_output=True, text=True, timeout=60)
+	assert r.returncode == 0, r.stderr[-3000:]
+	assert r.stdout == 'Sent your feedback to the Browser Use team. Thanks!\n'
+	(event,) = posthog.events()
+	p = event['properties']
+	assert (event['event'], p['source'], p['category']) == ('library_feedback', 'cli', 'docs' if argv else 'bug')
+	assert p['message'] == (stdin or argv[-1]).strip()
+
+
+MODEL_CELL = """
+import subprocess, sys
+import browser_use, browser_use.telemetry.service as service
+service.POSTHOG_HOST = 'http://127.0.0.1:9'  # nothing listens: a regression fails here, never reaches PostHog
+print('queued', browser_use.feedback('model wrote this'))
+cli = {cli!r}
+r = subprocess.run([sys.executable, '-c', cli], capture_output=True, text=True, timeout=60)
+print('cli', r.returncode, r.stdout.strip(), r.stderr.strip())
+print(report_issue('goto_url hangs'))
+"""
+
+
+async def test_the_models_code_is_pointed_at_report_issue_not_the_users_feedback_path(posthog, tmp_path, monkeypatch):
+	"""Review: a cell (model-written or prompt-injected) could call browser_use.feedback() or `browser-use feedback`,
+	the user's path: sent with usage stats off, as the user's report, uncapped and without the task scrub. Under
+	BU_MODEL_CODE (agent cells, --cli-mcp and what they start) those send nothing, also with usage stats on, and say to
+	use report_issue() or browser_feedback, never that the user turned feedback off. Best effort: the code can unset the
+	variable; it keeps the model off the user's path by mistake."""
+	import asyncio
+
+	no_browser(monkeypatch)
+	cli = (
+		"import sys, browser_use.telemetry.service as service\nservice.POSTHOG_HOST = 'http://127.0.0.1:9'\n"
+		"from browser_use.cli import main\nsys.argv = ['browser-use', 'feedback', 'cli from a cell']\nsys.exit(main())"
+	)
+	model, seen = script(('python', {'code': MODEL_CELL.format(cli=cli)}), ('finish', {'success': True, 'result': 'ok'}))
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()).status == 'completed'
+	out = str(seen[-1][-1])
+	assert 'queued False' in out and 'cli 1  From an agent cell use report_issue' in out, out
+	assert 'Feedback is off' not in out and 'Reported to the Browser Use team' in out, out
+	events = posthog.events(2)
+	assert [e['properties']['source'] for e in _feedback(events)] == ['agent']
+	# --cli-mcp's browser_exec with usage stats on: `browser-use feedback` from its code was sent as the user's (source cli)
+	env = {**os.environ, 'ANONYMIZED_TELEMETRY': 'true', 'BU_MODEL_CODE': '1', 'BROWSER_USE_CONFIG_DIR': str(posthog.config)}
+	r = await asyncio.to_thread(subprocess.run, [sys.executable, '-c', cli], env=env, capture_output=True, text=True, timeout=60)
+	assert (r.returncode, r.stdout) == (1, '') and 'the browser_feedback tool' in r.stderr, r.stderr[-3000:]
+
+
+@pytest.mark.parametrize('live', [True, False])
+def test_feedback_sent_with_usage_stats_off_leaves_no_file_and_no_device_id(posthog, monkeypatch, live):
+	"""Review: with usage stats off, browser_use.feedback() stored a device_id, and an exit send that failed left its
+	event in the outbox, sent later once stats were on, without asking again. Off, it goes under an id of this process,
+	once: the exit sender deletes it, sent or not."""
+	import browser_use.telemetry.service as service
+
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	monkeypatch.delenv('BROWSER_USE_DEVICE_ID')
+	spawned, popen = [], subprocess.Popen
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append(a[0]))
+	t = posthog.telemetry
+	monkeypatch.setattr(t, '_loop', lambda: None)  # still queued when the script exits
+	assert browser_use.feedback('Browser(local=True) ignores my profile')
+	t._at_exit()
+	monkeypatch.setattr(subprocess, 'Popen', popen)
+	(cmd,) = spawned
+	(arg,) = cmd[5:]
+	assert arg.startswith('!') and Path(arg[1:]).exists()
+	posthog.state.down = not live
+	subprocess.run(cmd, timeout=60, check=True)  # the detached exit sender, run to its end
+	assert not Path(arg[1:]).exists() and posthog.state.attempts == 1
+	assert not [p for p in posthog.config.rglob('*') if p.is_file()]
+	if live:
+		(event,) = posthog.events()
+		assert event['distinct_id'] == service._PROCESS_ID and event['properties']['source'] == 'python'
+
+
+def test_feedback_still_queued_at_exit_reaches_posthog_when_the_outbox_cannot_be_written(posthog, monkeypatch):
+	"""Daytona: --cli-mcp under a read-only HOME serves browser_feedback (the error server); a client that exits right
+	after the call got 'Reported' and the event was lost: still POSTing at exit, and the outbox could not take it, so no
+	exit sender started. It goes in a temp file the exit sender sends once."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry import feedback
+
+	posthog.config.write_text('')  # a file: the outbox cannot be made under it
+	spawned, popen = [], subprocess.Popen
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append(a[0]))
+	t = posthog.telemetry
+	monkeypatch.setattr(t, '_loop', lambda: None)  # still queued when the server exits
+	text, failed = feedback.mcp_call({'message': 'browser_exec cannot start under a read-only HOME'})
+	assert (text, failed) == (feedback.SENT, False)
+	t._at_exit()
+	t._at_exit()  # atexit after an explicit call: not handed twice
+	monkeypatch.setattr(subprocess, 'Popen', popen)
+	(cmd,) = spawned
+	(arg,) = cmd[5:]
+	assert arg.startswith('!')
+	subprocess.run(cmd, timeout=60, check=True)  # the detached exit sender, run to its end
+	(event,) = posthog.events()
+	assert (event['event'], event['properties']['source']) == ('library_feedback', 'mcp') and not Path(arg[1:]).exists()
+
+
+def test_an_exit_sender_that_cannot_start_leaves_no_feedback_file(posthog, monkeypatch):
+	"""Review: with usage stats off and no subprocess allowed, the temp file holding the user's feedback stayed in TMPDIR
+	forever; nothing would ever send or delete it."""
+	import tempfile
+
+	import browser_use.telemetry.service as service
+
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	before = set(Path(tempfile.gettempdir()).glob('browser-use-*'))
+
+	def no_subprocess(*args, **kwargs):
+		raise OSError('no subprocesses here')
+
+	monkeypatch.setattr(service.subprocess, 'Popen', no_subprocess)
+	monkeypatch.setattr(posthog.telemetry, '_loop', lambda: None)
+	assert browser_use.feedback('Browser(local=True) ignores my profile')
+	posthog.telemetry._at_exit()
+	posthog.telemetry._at_exit()
+	assert set(Path(tempfile.gettempdir()).glob('browser-use-*')) == before
+
+
+def test_a_home_outside_users_and_home_is_sent_as_tilde(monkeypatch):
+	"""Daytona: HOME=/tmp/h1 went out verbatim in a feedback message; /var/lib/jenkins or /data/users/jane would too."""
+	monkeypatch.setenv('HOME', '/data/users/jane')
+	text = 'no file /data/users/jane/app/a.pdf, /data/users/janet/x, file:///data/users/jane/y, /Users/bob/z'
+	assert scrub(text, [], 500) == 'no file ~/app/a.pdf, /data/users/janet/x, file://~/y, /Users/<user>/z'

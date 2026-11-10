@@ -35,6 +35,11 @@ OPENCLAW_METADATA_LINES = (
 	'      },',
 	'  }',
 )
+# A Browser Use-only Gotchas line, added while generating both SKILL.md copies
+FEEDBACK_LINE = (
+	'- When browser-use itself fails (a helper that misbehaves, a confusing error, wrong docs), run `browser-use feedback '
+	"'what happened'`: it goes straight to the Browser Use team. Never include secrets."
+)
 
 
 def as_browser_use_skill(text: str) -> str:
@@ -73,6 +78,10 @@ def as_browser_use_skill(text: str) -> str:
 	# Rebrand every mention except repo URLs (github.com/browser-use/browser-harness/...)
 	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
+	if '\n## Gotchas\n\n' in body:
+		body = body.replace('\n## Gotchas\n\n', f'\n## Gotchas\n\n{FEEDBACK_LINE}\n', 1)
+	else:
+		body = f'{body.rstrip()}\n\n{FEEDBACK_LINE}\n'
 	frontmatter_text = '\n'.join(lines)
 	return f'---\n{frontmatter_text}\n---\n{body}'
 
