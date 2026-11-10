@@ -3,6 +3,7 @@
 import os
 import re
 import urllib.parse
+from pathlib import Path
 
 from browser_use.exceptions import MissingAPIKeyError
 
@@ -22,6 +23,19 @@ def clean_api_key(key: str, source: str, what: str = 'Browser Use Cloud') -> str
 	return key
 
 
+def harness_dir_setting(path: object) -> str:
+	"""The setting that chose browser-harness dir path: BH_CONFIG_DIR, BH_RUNTIME_DIR, BH_TMP_DIR or BH_AGENT_WORKSPACE
+	when set to it or a dir around it (each overrides BH_HOME for its dir), else BH_HOME."""
+	if path:
+		failed = Path(str(path)).expanduser().resolve()
+		for name in ('BH_CONFIG_DIR', 'BH_RUNTIME_DIR', 'BH_TMP_DIR', 'BH_AGENT_WORKSPACE'):
+			if raw := os.environ.get(name):
+				base = Path(raw).expanduser().resolve()
+				if failed.is_relative_to(base) or base.is_relative_to(failed):
+					return name
+	return 'BH_HOME'
+
+
 def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 	key = os.environ.get('BROWSER_USE_API_KEY')
 	if key and key.strip():
@@ -35,8 +49,8 @@ def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 	except OSError as e:  # an unwritable HOME: browser-harness creates its config dir to look for the stored key
 		raise MissingAPIKeyError(
 			what,
-			f'Set BROWSER_USE_API_KEY, or set BH_HOME to a writable dir only this user can write to: the dir of the key '
-			f'`browser-use login` stores, {e.filename or ""}, cannot be created ({e.strerror or e}).',
+			f'Set BROWSER_USE_API_KEY, or set {harness_dir_setting(e.filename)} to a writable dir only this user can write '
+			f'to: the dir of the key `browser-use login` stores, {e.filename or ""}, cannot be created ({e.strerror or e}).',
 		) from None
 	if not record.get('api_key'):
 		raise MissingAPIKeyError(what)

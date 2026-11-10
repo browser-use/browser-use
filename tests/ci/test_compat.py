@@ -336,6 +336,11 @@ def test_feature_detection_of_removed_0x_names_takes_the_fallback():
 		with pytest.raises(ImportError, match=rf'^{re.escape(module.__name__)}\.{name} {REMOVED}'):
 			exec(f'from {module.__name__} import {name}')
 
+	def _handle_fromlist():  # a user's function named like importlib's is not a from-import
+		return getattr(browser_use, 'BrowserSession', 'fallback')
+
+	assert _handle_fromlist() == 'fallback'
+
 
 def test_0x_names_from_every_tag_name_their_replacement():
 	"""Live migration survey (ast over all 152 0.x tags, 20 popular GitHub files): 0.1-0.13 Agent arguments and

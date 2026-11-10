@@ -166,7 +166,7 @@ def test_publish_uploads_with_attestations_through_the_trusted_publisher():
 	job = yaml.safe_load((WORKFLOWS / 'publish.yml').read_text())['jobs']['publish_to_pypi']
 	assert job['environment'] == 'release' and job['permissions']['id-token'] == 'write'
 	upload = next(step for step in job['steps'] if 'pypi-publish' in step.get('uses', ''))
-	assert upload['uses'].startswith('pypa/gh-action-pypi-publish@') and upload.get('with', {}).get('attestations', True) is True
+	assert upload['uses'].startswith('pypa/gh-action-pypi-publish@') and upload.get('with', {}).get('attestations') is True
 	assert not any('uv publish' in step.get('run', '') for step in job['steps'])
 
 

@@ -127,6 +127,8 @@ KEYS = re.compile(
 )
 # a token has a digit or a capital after a small letter (base64); a word ('Basic information') has neither
 BEARER = re.compile(r'\b([Bb]earer|[Bb]asic|BEARER|BASIC)(\s+)(?=\S*(?:\d|[a-z]\S*[A-Z]))[A-Za-z0-9._~+/=-]{8,}')
+# in an Authorization header, any token: one BEARER does not know (lowercase, no digit) too
+AUTHORIZATION = re.compile(r'(?i)(?<![a-z])(authorization["\']?\s*[=:]\s*["\']?(?:bearer|basic)\s+)[^\s"\'<>,;]+')
 ASSIGNED = re.compile(
 	r'(?i)(?<![a-z<])(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|authorization)'
 	r'(["\']?\s*[=:]\s*)(?!(?:bearer|basic)\s)("[^"]*"|\'[^\']*\'|[^\s&,;]+(?:&(?![A-Za-z_][\w.-]*=)[^\s&,;]*)*)'
@@ -155,6 +157,7 @@ HOME = re.compile(r'(?i)((?:(?<=file://)|(?<![\w./-]))(?:/Users/|/home/)|(?<!\w)
 MIN_TASK = 8  # a task this long or longer, quoted whole, is sent as <task>
 TASK_WORDS = 5  # and so is each run of this many of its words in a row, quoted in a message or the result
 MIN_TYPED = 4  # typed text this long or longer is sent as <typed>
+MAX_TYPED = 65536  # characters of one typed text kept to scrub it (a long message the agent wrote, 4096 cut its end)
 ENV_SECRET = re.compile(r'(?i)(?:key|token|secret|password|passwd|credentials?)$')
 
 
@@ -194,6 +197,7 @@ def _scrub(text: str, forms: list[tuple[str, str]], tasks: tuple[str, ...], type
 	out = redact_forms(out, forms) if forms else out
 	for t in sorted({f for t in typed for f in _typed_forms(t)}, key=len, reverse=True):
 		out = re.sub(rf'(?i)(?<![^\W_]){re.escape(t)}(?![^\W_])', '<typed>', out)  # whole: typing 'Paris' keeps 'Parisian'
+	out = _task_runs(out, typed, [], '<typed>')  # a part of a long typed text: a message the agent wrote
 	for value in _env_secrets():
 		out = out.replace(value, '<credential>')
 	out = EXPRESSION.sub('; expression: <code>', out)
@@ -201,6 +205,7 @@ def _scrub(text: str, forms: list[tuple[str, str]], tasks: tuple[str, ...], type
 	out = QUERY.sub(r'\1', out)
 	out = HOME.sub(lambda m: m[1] + '<user>', out)
 	out = BEARER.sub(lambda m: m[1] + m[2] + '<credential>', out)  # first: 'Authorization: Bearer <token>'
+	out = AUTHORIZATION.sub(lambda m: m[1] + '<credential>', out)
 	out = COOKIE.sub(lambda m: m[1] + '<credential>', out)
 	out = ASSIGNED.sub(lambda m: m[1] + m[2] + '<credential>', out)
 	return NUMBER.sub('<number>', EMAIL.sub('<email>', KEYS.sub('<credential>', out)))
@@ -258,9 +263,10 @@ def _task_grams(tasks: tuple[str, ...], forms: tuple[tuple[str, str], ...]) -> f
 	return frozenset(grams)
 
 
-def _task_runs(text: str, tasks: tuple[str, ...], forms: list[tuple[str, str]]) -> str:
+def _task_runs(text: str, tasks: tuple[str, ...], forms: list[tuple[str, str]], placeholder: str = '<task>') -> str:
 	"""Each run of TASK_WORDS or more of a task's words in a row (case and edge punctuation aside) as one <task>: a
-	result that quotes most of the task, or the task without its last sentence, still never sends it."""
+	result that quotes most of the task, or the task without its last sentence, still never sends it. Typed texts the
+	same way, as <typed>."""
 	grams = _task_grams(tasks, tuple(forms))
 	if not grams:
 		return text
@@ -280,7 +286,7 @@ def _task_runs(text: str, tasks: tuple[str, ...], forms: list[tuple[str, str]]) 
 		j = i
 		while j + 1 < len(tokens) and covered[j + 1]:
 			j += 1
-		out += [text[end : tokens[i].start()], '<task>']
+		out += [text[end : tokens[i].start()], placeholder]
 		end, i = tokens[j].end(), j + 1
 	return ''.join(out) + text[end:]
 

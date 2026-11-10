@@ -55,7 +55,7 @@ from browser_use.repl.session import (
 	redact_forms,
 	secret_forms,
 )
-from browser_use.telemetry.stats import MAX_URLS, error_class, host, page_url, raised_by_cell
+from browser_use.telemetry.stats import MAX_TYPED, MAX_URLS, error_class, host, page_url, raised_by_cell
 from browser_use.utils import TLSHandler, install_tls_opener, name_download
 
 MAX_IMAGES_PER_CELL = 4
@@ -132,6 +132,7 @@ class CellStats:
 		self.seen: set[int] = set()  # hashes of URLs this worker saw (loop detection); never leave this process
 		self.listed: set[str] = set()  # URLs (page_url: no query) this worker reported, MAX_URLS at most
 		self.json_pages: set[str] = set()  # top-frame JSON pages, without query: a cloud browser saves each as a download
+		self.keys = ''  # characters typed one key event at a time since the last other key (record_key)
 		self.take()
 
 	def count(self, kind: str, name: str) -> None:
@@ -141,10 +142,30 @@ class CellStats:
 	def record_typed(self, text: object) -> None:
 		"""Text the agent typed (type_text, fill_input, bu.type, cdp Input.insertText): never sent, only replaced with
 		<typed> wherever telemetry's error messages or final result quote it (stats.scrub)."""
-		if isinstance(text, str) and (text := text.strip()):  # 'q\n' submits q: q is what a page or URL quotes
+		self.end_keys()
+		self._typed(text)
+
+	def _typed(self, text: object) -> None:
+		if isinstance(text, str) and (text := text.strip()[:MAX_TYPED]):  # 'q\n' submits q: q is what a page or URL quotes
 			with self.lock:
-				if len(self.typed) < MAX_URLS and text[:4096] not in self.typed:
-					self.typed.append(text[:4096])
+				if len(self.typed) < MAX_URLS and text not in self.typed:
+					self.typed.append(text)
+
+	def record_key(self, text: object, modifiers: object = 0) -> None:
+		"""A character typed with a key event (press_key('a'), cdp('Input.dispatchKeyEvent', type='char', text='a')): a
+		run of them is one typed text, ended by a key that types no character (Enter, Tab, a shortcut), a click, other
+		typing or the cell's end. Each character alone is too short for scrub to replace."""
+		if isinstance(text, str) and text.isprintable() and text and not (isinstance(modifiers, int) and modifiers & 7):
+			with self.lock:
+				if len(self.keys) < MAX_TYPED:
+					self.keys += text
+		else:
+			self.end_keys()
+
+	def end_keys(self) -> None:
+		with self.lock:
+			keys, self.keys = self.keys, ''
+		self._typed(keys)
 
 	def timed(self, kind: str, name: str, ns: int, failed: bool) -> None:
 		"""One helper ('helper_t') or CDP ('cdp_t') call: [calls, errors, ns total, ns max] per name."""
@@ -254,6 +275,7 @@ class CellStats:
 			name_download(path, name)
 
 	def take(self) -> dict:
+		self.end_keys()
 		with self.lock:
 			out = {
 				'helpers': dict(getattr(self, 'helpers', {})),
@@ -338,6 +360,12 @@ def _counted(name: str, fn):
 	def counted(*args, **kwargs):
 		if at is not None:
 			stats.record_typed(kwargs.get('text', args[at] if len(args) > at else None))
+		elif name == 'press_key':  # press_key(key, modifiers=0): a named key (Enter) types no character of its own
+			key = kwargs.get('key', args[0] if args else None)
+			modifiers = kwargs.get('modifiers', args[1] if len(args) > 1 else 0)
+			stats.record_key(key if isinstance(key, str) and len(key) == 1 else None, modifiers)
+		elif 'click' in name:  # the next keys go to another field
+			stats.end_keys()
 		started, failed = time.perf_counter_ns(), True
 		try:
 			result = fn(*args, **kwargs)
@@ -688,6 +716,10 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		stats.count('cdp', str(method))
 		if method == 'Input.insertText':
 			stats.record_typed(params.get('text'))
+		elif method == 'Input.dispatchKeyEvent' and params.get('text'):  # keyDown or char; keyUp and rawKeyDown type nothing
+			stats.record_key(params['text'], params.get('modifiers', 0))
+		elif method == 'Input.dispatchMouseEvent' and params.get('type') == 'mousePressed':
+			stats.end_keys()
 		return cdp(method, session_id, **params)
 
 	ns['cdp'] = agent_cdp

@@ -1221,6 +1221,7 @@ async def test_the_runs_error_comes_first_and_repeated_messages_are_sent_once(se
 	'text, out',
 	[
 		('Authorization: Bearer example-token-1', 'Authorization: Bearer <credential>'),
+		('authorization: bearer abcdefghijklmnopqrst', 'authorization: bearer <credential>'),  # lowercase, no digit
 		('curl -H "Authorization: Basic dXNlcjpwYXNzMTIz"', 'curl -H "Authorization: Basic <credential>"'),
 		('login?password=hunter2&user=x', 'login?password=<credential>&user=x'),
 		('password=Tr0ub4dor&3 next', 'password=<credential> next'),
@@ -1321,6 +1322,11 @@ def test_scrub_sends_five_task_words_in_a_row_and_typed_text_as_placeholders():
 	assert scrub('the Acme portal is up', [], 300, task=task) == 'the Acme portal is up'  # four words: ordinary text
 	assert scrub('searched Paris Hilton; Parisian', [], 300, typed=['Paris Hilton', 'Parisian x']) == 'searched <typed>; Parisian'
 	assert scrub('searched for cheap flights paris', [], 300, typed=['cheap flights paris\n']) == 'searched for <typed>'
+	# a long message the agent wrote: its end (past 4096 characters) or any five words of it in a row
+	message = ' '.join(f'zq{i}' for i in range(2000))
+	tail = ' '.join(message.split()[-15:])
+	assert len(message) > 4096 and scrub(f'sent: {tail}', [], 300, typed=[message]) == 'sent: <typed>'
+	assert scrub('sent: zq10 zq11 zq12 zq13 zq14 ok', [], 300, typed=[message]) == 'sent: <typed> ok'
 	# sites put the query in the path: Zillow, Maps, Wikipedia
 	for url, typed, out in (
 		('https://www.zillow.com/homes/123-Main-St-Springfield-IL_rb/', '123 Main St, Springfield, IL', '/homes/<typed>_rb/'),
@@ -1350,6 +1356,29 @@ def test_scrub_sends_five_task_words_in_a_row_and_typed_text_as_placeholders():
 )
 def test_page_url_keeps_scheme_host_and_path_only(url, out):
 	assert page_url(url) == out
+
+
+def test_text_typed_one_key_at_a_time_is_one_typed_text():
+	"""press_key('h'), press_key('i') or the agent's own cdp('Input.dispatchKeyEvent', type='char', text='h') typed
+	text that scrub never knew: each key alone is shorter than MIN_TYPED, so an error or result quoting it sent it."""
+	from browser_use.repl import worker
+
+	press = worker._counted('press_key', lambda key, modifiers=0: None)
+	click = worker._counted('click_at_xy', lambda x, y: None)
+	worker.stats.take()
+	for c in 'alice smith':
+		press(c)
+	press('Tab')
+	for c in 'Zq9pass':
+		press(c)
+	press('a', modifiers=2)  # Ctrl+A selects, types nothing
+	for c in 'acme':
+		press(c)
+	click(1, 2)
+	for c in 'Paris':  # key events the agent sent itself
+		worker.stats.record_key(c)
+	assert worker.stats.take()['typed'] == ['alice smith', 'Zq9pass', 'acme', 'Paris']
+	assert scrub('ValueError: no user alice smith', [], 300, typed=['alice smith']) == 'ValueError: no user <typed>'
 
 
 def test_cell_stats_list_each_url_once_in_order_after_the_agent_navigated():

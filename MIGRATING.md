@@ -304,7 +304,8 @@ profile, as 0.x did, while `--cli-mcp` drives your own Chrome (or Brave, Arc, Ed
 work (Linux with no display, or no Chromium-family browser installed) `--cli-mcp` 1.0.1 also runs its own Chromium for
 the rest of that server process. Both install Playwright's Chromium in the first `browser_exec` call when none is there
 and the machine has no display (as root on Linux also its system libraries, with `apt-get install libatomic1`). The first
-`browser_exec` result names the browser in a second text block, after the code's output. `http_get()` in the CLI and
+`browser_exec` result that attaches a local browser names it in a second text block, after the code's output (a
+cloud browser's `start_remote_daemon()` result names it itself). `http_get()` in the CLI and
 `--cli-mcp` is plain HTTP from this machine, as in the Agent: it no longer goes through the fetch-use proxy when
 `BROWSER_USE_API_KEY` is set (URLs and headers stay local; localhost and intranet URLs work). `--mcp` (and `python -m browser_use.mcp`)
 keeps the `allowed_domains` / `prohibited_domains` of the default `browser_profile` in the 0.x `config.json` and

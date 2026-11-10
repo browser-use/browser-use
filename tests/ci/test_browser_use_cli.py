@@ -262,7 +262,9 @@ def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path
 	PermissionError on ~/.config, naming neither browser-use nor BH_HOME. Commands that need no browser still work."""
 	(tmp_path / '.config').write_text('')  # no dir can be made under it: an unwritable HOME, for root and on Windows too
 	env = {
-		k: v for k, v in os.environ.items() if not k.startswith('BH_') and k not in ('XDG_CONFIG_HOME', 'BROWSER_HARNESS_HOME')
+		k: v
+		for k, v in os.environ.items()
+		if not k.startswith('BH_') and k not in ('XDG_CONFIG_HOME', 'BROWSER_HARNESS_HOME', 'BROWSER_USE_API_KEY')
 	}
 	env.update(HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONPATH=str(ROOT), BU_CDP_URL='http://127.0.0.1:1')
 
@@ -312,6 +314,20 @@ def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path
 		server.kill()
 		server.wait(10)
 	assert reply['result']['isError'] and 'BH_HOME' in reply['result']['content'][0]['text'], reply
+
+
+def test_an_unwritable_harness_dir_names_the_setting_that_chose_it(tmp_path, monkeypatch):
+	"""BH_CONFIG_DIR (and BH_RUNTIME_DIR, BH_TMP_DIR, BH_AGENT_WORKSPACE) override BH_HOME for their dir: an unwritable
+	one told the user to change BH_HOME, which could not fix it."""
+	from browser_use.auth import harness_dir_setting
+
+	for name in ('BH_CONFIG_DIR', 'BH_RUNTIME_DIR', 'BH_TMP_DIR', 'BH_AGENT_WORKSPACE'):
+		monkeypatch.delenv(name, raising=False)
+	assert harness_dir_setting(tmp_path / 'home' / 'runtime') == 'BH_HOME'
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'ro' / 'config'))
+	assert harness_dir_setting(tmp_path / 'ro') == 'BH_CONFIG_DIR'  # mkdir failed on a dir around it
+	assert harness_dir_setting(tmp_path / 'ro' / 'config') == 'BH_CONFIG_DIR'
+	assert harness_dir_setting(tmp_path / 'home' / 'runtime') == 'BH_HOME'
 
 
 def test_piped_code_is_read_as_utf8_whatever_the_locale_says(monkeypatch):

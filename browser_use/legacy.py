@@ -541,7 +541,7 @@ def _from_import() -> bool:
 		frame = frame.f_back
 	if frame is None:
 		return False
-	if frame.f_code.co_name == '_handle_fromlist':
+	if frame.f_code.co_name == '_handle_fromlist' and frame.f_globals.get('__name__') == 'importlib._bootstrap':
 		return True
 	return frame.f_lasti >= 0 and frame.f_code.co_code[frame.f_lasti] == _IMPORT_FROM
 

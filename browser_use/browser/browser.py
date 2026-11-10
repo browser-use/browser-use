@@ -34,7 +34,7 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from browser_use.auth import browser_use_api_key, cloud_error_text
+from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting
 from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
@@ -420,8 +420,8 @@ def require_harness_dirs() -> None:
 		from browser_harness import admin  # noqa: F401
 	except OSError as e:
 		raise BrowserConfigError(
-			f'browser-use cannot create its browser-harness dir {e.filename or ""} ({e.strerror or e}). Set BH_HOME to a '
-			'writable dir only this user can write to.'
+			f'browser-use cannot create its browser-harness dir {e.filename or ""} ({e.strerror or e}). Set '
+			f'{harness_dir_setting(e.filename)} to a writable dir only this user can write to.'
 		) from None
 
 
