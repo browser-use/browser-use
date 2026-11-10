@@ -2476,5 +2476,6 @@ def test_an_exit_sender_that_cannot_start_leaves_no_feedback_file(posthog, monke
 def test_a_home_outside_users_and_home_is_sent_as_tilde(monkeypatch):
 	"""Daytona: HOME=/tmp/h1 went out verbatim in a feedback message; /var/lib/jenkins or /data/users/jane would too."""
 	monkeypatch.setenv('HOME', '/data/users/jane')
+	monkeypatch.setenv('USERPROFILE', '/data/users/jane')  # Windows: expanduser reads USERPROFILE, not HOME
 	text = 'no file /data/users/jane/app/a.pdf, /data/users/janet/x, file:///data/users/jane/y, /Users/bob/z'
 	assert scrub(text, [], 500) == 'no file ~/app/a.pdf, /data/users/janet/x, file://~/y, /Users/<user>/z'

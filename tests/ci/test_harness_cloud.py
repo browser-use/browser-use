@@ -960,10 +960,10 @@ def test_browser_exec_code_writes_text_files_as_utf8_on_a_cp1252_locale(monkeypa
 	monkeypatch.setattr(locale, 'getpreferredencoding', lambda do_setlocale=True: 'cp1252')
 	monkeypatch.setattr(cli_mcp.CLIMCPServer, '_ensure_daemon', lambda self, code: None)
 	path = tmp_path / 'out.txt'
-	code = f"open({str(path)!r}, 'w').write('caf\u00e9 \U0001f600')\nprint(open({str(path)!r}).read())\nprint(open({str(path)!r}, 'rb').read()[:4])"
+	code = f"open({str(path)!r}, 'w').write('\u00e9t\u00e9 \U0001f600')\nprint(open({str(path)!r}).read())\nprint(open({str(path)!r}, 'rb').read()[:4])"
 	out, failed = cli_mcp.CLIMCPServer()._execute(code)
-	assert not failed and out == "caf\u00e9 \U0001f600\nb'caf\\xc3'\n", out
-	assert open(path, encoding='cp1252', errors='replace').read() != 'caf\u00e9 \U0001f600'  # it really is UTF-8 on disk
+	assert not failed and out == "\u00e9t\u00e9 \U0001f600\nb'\\xc3\\xa9t\\xc3'\n", out
+	assert open(path, encoding='cp1252', errors='replace').read() != '\u00e9t\u00e9 \U0001f600'  # it really is UTF-8 on disk
 
 
 def test_cli_and_mcp_cdp_calls_wait_20_s_unless_the_caller_says_otherwise(monkeypatch):
