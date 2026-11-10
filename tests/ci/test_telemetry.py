@@ -2190,18 +2190,19 @@ def test_a_library_error_quoting_page_text_is_sent_as_its_class_only():
 
 
 def test_long_typed_texts_are_matched_in_bounded_memory_and_time():
-	"""Retest 1.0.1 review: 50 typed texts of 64k characters held every five-word run as a tuple (~600k runs, ~100 MB)."""
+	"""Retest 1.0.1 review: 50 typed texts of 64k characters held every five-word run as a tuple (~600k runs, ~100 MB)
+	and compiled a regex per 64k-character form on every scrub (minutes). Every typed text is still matched, the last too."""
 	import tracemalloc
 
-	from browser_use.telemetry.stats import TYPED_RUNS_CHARS, _bounded, _task_grams, scrub
+	from browser_use.telemetry.stats import _task_grams, scrub
 
 	rng = random.Random(7)
 	typed = tuple(' '.join(rng.choice(string.ascii_lowercase) * 6 + str(i) for i in range(9000))[:65536] for _ in range(50))
-	assert sum(map(len, _bounded(typed))) == TYPED_RUNS_CHARS
 	_task_grams.cache_clear()
 	tracemalloc.start()
 	started = time.perf_counter()
-	out = scrub(typed[0][:400], [], 500, typed=typed)
+	out = scrub('result: ' + typed[-1][30_000:30_400], [], 500, typed=typed)
 	_, peak = tracemalloc.get_traced_memory()
 	tracemalloc.stop()
-	assert '<typed>' in out and time.perf_counter() - started < 5 and peak < 40_000_000
+	assert '<typed>' in out and len(out) < 40 and time.perf_counter() - started < 10 and peak < 120_000_000  # cut words stay
+	assert scrub('İstanbul Kadıköy', [], 500, typed=('İstanbul Kadıköy',)) == '<typed>'

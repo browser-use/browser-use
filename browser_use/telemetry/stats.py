@@ -195,9 +195,9 @@ def _scrub(text: str, forms: list[tuple[str, str]], tasks: tuple[str, ...], type
 		out = out.replace(form, '<task>')
 	out = _task_runs(out, tasks, forms)
 	out = redact_forms(out, forms) if forms else out
-	typed = _bounded(typed)
 	for t in sorted({f for t in typed for f in _typed_forms(t)}, key=len, reverse=True):
-		if t.lower() in out.lower():  # a regex only for a form the text holds: a 64k-character form compiles slowly
+		# a regex only for a form the text may hold (a 64k-character form compiles slowly); lower() matches (?i) for ASCII
+		if not (t.isascii() and out.isascii()) or t.lower() in out.lower():
 			out = re.sub(rf'(?i)(?<![^\W_]){re.escape(t)}(?![^\W_])', '<typed>', out)  # whole: 'Paris' keeps 'Parisian'
 	out = _task_runs(out, typed, [], '<typed>')  # a part of a long typed text: a message the agent wrote
 	for value in _env_secrets():
@@ -251,19 +251,6 @@ WORD = re.compile(r'\S+')
 
 def _word(w: str) -> str:
 	return w.strip('.,;:!?"\'()[]{}*`').lower()
-
-
-TYPED_RUNS_CHARS = 262_144  # typed characters whose word runs are matched: bounds the run set at ~50k
-
-
-def _bounded(texts: tuple[str, ...] | list[str], limit: int = TYPED_RUNS_CHARS) -> tuple[str, ...]:
-	out: list[str] = []
-	for t in texts:
-		if limit <= 0:
-			break
-		out.append(t[:limit])
-		limit -= len(t)
-	return tuple(out)
 
 
 @lru_cache(maxsize=4)  # one event scrubs up to 71 texts with the same tasks

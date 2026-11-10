@@ -560,10 +560,11 @@ async def test_page_info_waiting_for_the_document_still_reports_a_dialog(daemon,
 
 
 def test_a_malformed_bh_dir_override_keeps_the_bh_home_hint(monkeypatch, tmp_path):
-	"""Retest 1.0.1 review: picking the hint resolved every BH_* override, so '~nosuchuser_x/dir' (RuntimeError) or a NUL
-	(ValueError) raised inside the handler that reports the unwritable dir."""
+	"""Retest 1.0.1 review: picking the hint resolved every BH_* override, so '~nosuchuser_x/dir' (RuntimeError) raised inside the handler that reports the unwritable dir."""
 	from browser_use.auth import harness_dir_setting
 
+	for name in ('BH_CONFIG_DIR', 'BH_RUNTIME_DIR', 'BH_TMP_DIR', 'BH_AGENT_WORKSPACE'):
+		monkeypatch.delenv(name, raising=False)
 	monkeypatch.setenv('BH_CONFIG_DIR', '~nosuchuser_bu101/cfg')
 	assert harness_dir_setting(tmp_path / 'x') == 'BH_HOME'
 	assert harness_dir_setting('~nosuchuser_bu101/x') == 'BH_HOME'
