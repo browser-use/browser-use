@@ -1,7 +1,9 @@
 import http.client
 import logging
 import os
+import re
 import ssl
+import sys
 import threading
 import urllib.request
 from collections.abc import Iterator
@@ -155,9 +157,23 @@ def get_install_source() -> str:
 		return 'unknown'
 
 
+_WINDOWS_RESERVED = {'CON', 'PRN', 'AUX', 'NUL', *(f'{d}{i}' for d in ('COM', 'LPT') for i in range(1, 10))}
+
+
+def windows_safe_name(name: str) -> str:
+	"""name as Windows can store it. A cloud browser runs on Linux, where 'Report 10:30.csv' is legal: on Windows the ':'
+	wrote the bytes to an NTFS alternate data stream behind an empty 'Report 10', and " | < > * ? raised Errno 22."""
+	name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).rstrip(' .')  # Windows drops trailing dots and spaces itself
+	if name.split('.', 1)[0].strip().upper() in _WINDOWS_RESERVED:  # NUL.txt opens the NUL device
+		name = f'_{name}'
+	return name or 'download'
+
+
 def file_names(dest: Path, name: str) -> Iterator[Path]:
 	"""Paths in dest for a file called name: 'report.csv', then 'report (1).csv', 'report (2).csv', ... A long name is
-	shortened, never dropped."""
+	shortened, never dropped. On Windows, characters it cannot store in a name become '_'."""
+	if sys.platform == 'win32':
+		name = windows_safe_name(name)
 	stem, suffix = Path(name).stem, Path(name).suffix
 	if len(suffix.encode()) > 32:  # not an extension: part of a long name
 		stem, suffix = name, ''
