@@ -35,7 +35,8 @@ def _set_harness_client_env() -> None:
 
 def _scrub_harness_telemetry() -> None:
 	"""browser-harness's cli_event carries the piped code, its output, helper arguments and error text. In the
-	browser-use CLI those never leave the machine: every event is scrubbed, then sent by the library's
+	browser-use CLI the code, output and arguments never leave the machine, the error message is sent as its exception
+	line with credentials scrubbed (stats.scrub_cli_event): every event is scrubbed, then sent by the library's
 	sender to the library's PostHog project under its device id, next to the same machine's agent_events (browser-harness
 	would send it to its own project under its own install id, and create that id). ANONYMIZED_TELEMETRY turns it off as
 	in the library (browser-harness alone only knows 0, false, no and off): its is_enabled() says so too, else it built the
@@ -62,15 +63,34 @@ def _scrub_harness_telemetry() -> None:
 
 		install_id.__bu_scrubbed__ = True  # type: ignore[attr-defined]
 		telemetry._install_id = install_id
+	if not getattr(telemetry.status, '__bu_scrubbed__', False):
+		harness_status = telemetry.status
+
+		def status() -> dict:
+			"""`browser-use telemetry status|enable|disable`: whether browser-use sends, ANONYMIZED_TELEMETRY read as the
+			library reads it (browser-harness alone took n or disable for on)."""
+			from browser_use.telemetry import service
+
+			out = harness_status()
+			service._harness_config_disabled = bool(out.get('disabled_by_config'))  # enable/disable just changed it
+			out['disabled_by_env'] = bool(out.get('disabled_by_env')) or not CONFIG.ANONYMIZED_TELEMETRY
+			out['enabled'] = service.telemetry().enabled
+			if not out['enabled']:
+				out['install_id'] = None
+			return out
+
+		status.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry.status = status
 	if getattr(telemetry._send_detached, '__bu_scrubbed__', False):
 		return
 
 	def scrubbed(payload: dict) -> None:
-		if not CONFIG.ANONYMIZED_TELEMETRY:
-			return
 		from browser_use.telemetry.service import Job
 		from browser_use.telemetry.service import telemetry as product_telemetry
 		from browser_use.telemetry.stats import scrub_cli_event
+
+		if not product_telemetry().enabled:
+			return
 
 		event = scrub_cli_event(payload)
 		props = event.get('properties') or {}

@@ -2,7 +2,8 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
-SCHEMA_VERSION = 3  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays
+SCHEMA_VERSION = 4  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays;
+# 4: urls_visited, error_messages, final_result
 
 
 @dataclass
@@ -23,7 +24,9 @@ class BaseTelemetryEvent(ABC):
 @dataclass
 class AgentTelemetryEvent(BaseTelemetryEvent):
 	"""One per Agent.run(). Every field is a number, a bool, an enum, a name chosen by browser-use or the developer
-	(model, helper, tool, module, exception class) or a hostname, or a list or map of those."""
+	(model, helper, tool, module, exception class) or a hostname, or a list or map of those; and the URLs visited
+	without query strings, error messages and the final result, scrubbed of secrets and credentials (stats.scrub).
+	Never the task text, typed text, code or secrets."""
 
 	# install
 	version: str
@@ -62,7 +65,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	timed_out: bool = False
 	finish_via: str | None = None  # finish | finish_from_repl | text
 	partial_used: bool = False
-	error_type: str | None = None  # exception class only, never its message
+	error_type: str | None = None  # exception class; its message is in error_messages
 	output_chars: int = 0
 	total_duration_seconds: float = 0.0
 	# model
@@ -198,6 +201,10 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	tel_bytes: int = 0
 	tel_steps_dropped: int = 0
 	tel_prev_send_fail: int = 0
+	# --- schema 4 --- (scrubbed: stats.scrub)
+	urls_visited: list[str] = field(default_factory=list)  # scheme://host/path, in order, once; 50 at most, 200 chars each
+	error_messages: list[str] = field(default_factory=list)  # the run's error, then each failed cell's; 20, 300 chars each
+	final_result: str | None = None  # the result text (structured output as JSON), 500 chars
 
 	name: str = 'agent_event'
 
@@ -205,19 +212,22 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 @dataclass
 class MCPToolCallEvent(BaseTelemetryEvent):
 	"""One per tool call to the browser-use MCP server (--cli-mcp, --mcp), under 0.x's event name and its tool_name and
-	duration_seconds fields. Never the code, its output, arguments or error text."""
+	duration_seconds fields. Never the code, its output or arguments; the error message is scrubbed (stats.scrub)."""
 
 	version: str
 	tool_name: str  # browser_exec, browser_screenshot, browser_login, a 0.x tool name, or 'invalid'
 	duration_seconds: float
 	ok: bool  # the result was not an error
-	error_type: str | None  # exception class (as in agent_event's cell_error_types), CancelledError for a cancelled call
+	# exception class (as in agent_event's cell_error_types), CancelledError for a cancelled call; invalid_arguments or
+	# unknown_tool for an error result without an exception
+	error_type: str | None
 	server: str  # cli-mcp | mcp
 	browser: str  # chrome (the user's) | chromium (--mcp's own) | cloud
 	agent_client: str | None  # the coding agent the server runs under (claude-code, codex, cursor, ...), from its env
 	call_n: int  # this call's number in the server process
 	is_internal: bool
 	action: str = 'tool_call'
+	error_message: str | None = None  # the exception's message (or the rejected arguments' error), 300 chars
 
 	name: str = 'mcp_server_event'
 

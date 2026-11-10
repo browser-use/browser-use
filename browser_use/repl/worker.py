@@ -55,7 +55,7 @@ from browser_use.repl.session import (
 	redact_forms,
 	secret_forms,
 )
-from browser_use.telemetry.stats import error_class, host
+from browser_use.telemetry.stats import MAX_URLS, error_class, host, page_url
 from browser_use.utils import TLSHandler, install_tls_opener, name_download
 
 MAX_IMAGES_PER_CELL = 4
@@ -129,12 +129,21 @@ class CellStats:
 		self.started: list[str] = []  # names of downloads that started since the last cell output
 		self.names: dict[str, str | None] = {}  # guid -> suggested file name: a finished download is renamed to it
 		self.seen: set[int] = set()  # hashes of URLs this worker saw (loop detection); never leave this process
+		self.listed: set[str] = set()  # URLs (page_url: no query) this worker reported, MAX_URLS at most
 		self.json_pages: set[str] = set()  # top-frame JSON pages, without query: a cloud browser saves each as a download
 		self.take()
 
 	def count(self, kind: str, name: str) -> None:
 		with self.lock:
 			getattr(self, kind)[name] += 1
+
+	def record_typed(self, text: object) -> None:
+		"""Text the agent typed (type_text, fill_input, bu.type, cdp Input.insertText): never sent, only replaced with
+		<typed> wherever telemetry's error messages or final result quote it (stats.scrub)."""
+		if isinstance(text, str) and text.strip():
+			with self.lock:
+				if len(self.typed) < MAX_URLS and text[:4096] not in self.typed:
+					self.typed.append(text[:4096])
 
 	def timed(self, kind: str, name: str, ns: int, failed: bool) -> None:
 		"""One helper ('helper_t') or CDP ('cdp_t') call: [calls, errors, ns total, ns max] per name."""
@@ -151,9 +160,10 @@ class CellStats:
 				s[3] = max(s[3], ns)
 
 	def url(self, url, navigation: bool = False) -> None:
-		"""A navigation's hostname, or (navigation=False) the hostname of a page the agent read. A URL never seen before
-		counts as a new page, a navigation to one already seen as a revisit (by hash; the URL is not kept). Chrome's own
-		error page (chrome-error://chromewebdata/) is not a host: the page stays on the host that failed to load."""
+		"""A navigation's hostname and URL without query or fragment (page_url), or (navigation=False) those of a page the
+		agent read. A URL never seen before counts as a new page, a navigation to one already seen as a revisit (by
+		hash). Chrome's own error page (chrome-error://chromewebdata/) is not a host: the page stays on the host that
+		failed to load."""
 		if str(url).startswith('chrome-error:'):
 			return
 		if h := host(url):
@@ -162,6 +172,9 @@ class CellStats:
 				if self.navigated:
 					self.hosts.add(h)
 					self.host = h
+					if len(self.listed) < MAX_URLS and (u := page_url(url)) and u not in self.listed:
+						self.listed.add(u)
+						self.urls.append(u)
 					key = hash(str(url).split('#', 1)[0])
 					if key in self.seen:
 						self.revisits += navigation
@@ -242,6 +255,8 @@ class CellStats:
 				'cdp': dict(getattr(self, 'cdp', {})),
 				'events': dict(getattr(self, 'events', {})),
 				'hosts': sorted(getattr(self, 'hosts', ())),
+				'urls': list(getattr(self, 'urls', ())),  # in the order visited, each once per worker
+				'typed': list(getattr(self, 'typed', ())),  # never sent: telemetry replaces it where quoted (scrub)
 				'navigations': getattr(self, 'navigations', 0),
 				'helper_t': getattr(self, 'helper_t', {}),
 				'cdp_t': getattr(self, 'cdp_t', {}),
@@ -252,7 +267,7 @@ class CellStats:
 			}
 			self.helpers, self.cdp, self.events, self.hosts, self.navigations = Counter(), Counter(), Counter(), set(), 0
 			self.helper_t, self.cdp_t, self.host, self.new_pages, self.revisits = {}, {}, None, 0, 0
-			self.nav_errors = Counter()
+			self.nav_errors, self.urls, self.typed = Counter(), [], []
 		return out
 
 
@@ -295,12 +310,19 @@ def _back_to_agent_tab() -> None:
 					time.sleep(0.05)
 
 
+TYPING = {'type_text': 0, 'fill_input': 1, 'bu.type': 1}  # helper -> position of the text it types
+
+
 def _counted(name: str, fn):
 	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname, once the
 	agent navigated."""
 
+	at = TYPING.get(name)
+
 	@functools.wraps(fn)
 	def counted(*args, **kwargs):
+		if at is not None:
+			stats.record_typed(kwargs.get('text', args[at] if len(args) > at else None))
 		started, failed = time.perf_counter_ns(), True
 		try:
 			result = fn(*args, **kwargs)
@@ -648,6 +670,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	@functools.wraps(cdp)
 	def agent_cdp(method, session_id=None, **params):  # the agent's own cdp() calls, counted by method
 		stats.count('cdp', str(method))
+		if method == 'Input.insertText':
+			stats.record_typed(params.get('text'))
 		return cdp(method, session_id, **params)
 
 	ns['cdp'] = agent_cdp
@@ -974,6 +998,15 @@ def _run(code_obj, ns, loop):
 	return exec(code_obj, ns)
 
 
+def _message(e: BaseException, name: str) -> str:
+	"""'Class: message' for telemetry: the exception line only, never the traceback's frames or the cell's code."""
+	try:
+		text = str(e)
+	except Exception:  # - a __str__ that raises
+		text = ''
+	return f'{name}: {text}'[:4096] if text else name
+
+
 def _error(e: BaseException) -> str:
 	if isinstance(e, BrowserConnectionLost):  # one line: the frames that hit it say nothing more
 		return f'{type(e).__name__}: {e}'
@@ -1070,7 +1103,9 @@ def main() -> None:
 		msg = json.loads(line)
 		images.clear()
 		out_path = cells / f'{msg["n"]:04d}.txt'
-		error = value = error_type = None  # stats keeps events bu read between cells (a captcha solve while the model thinks)
+		error = value = error_type = error_message = (
+			None  # stats keeps events bu read between cells (a captcha solve while the model thinks)
+		)
 		rfd, wfd = os.pipe()
 		pump = threading.Thread(target=_pump, args=(rfd, out_path, secrets), daemon=True)
 		pump.start()
@@ -1090,9 +1125,10 @@ def main() -> None:
 		except BaseException as e:  # - the agent sees every failure
 			error_type = error_class(e)  # telemetry: a class the model's code defined is 'custom'
 			if isinstance(e, (SystemExit, KeyboardInterrupt)):
-				error = f'{type(e).__name__} ignored; the REPL keeps running.'
+				error = error_message = f'{type(e).__name__} ignored; the REPL keeps running.'
 			else:
 				error = _error(e)
+				error_message = _message(e, error_type)
 		finally:
 			# After a cell whose bu actions reached the page, show the resulting state without another model turn.
 			if bu is not None and bu.acted:
@@ -1130,6 +1166,7 @@ def main() -> None:
 				'images': list(images),
 				'output_file': str(out_path),
 				'error_type': error_type,
+				'error_message': error_message,
 				'stats': cell_stats,
 			}
 		)
