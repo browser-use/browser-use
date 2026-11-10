@@ -1,6 +1,7 @@
-"""What a run reports to telemetry: counts, names, hostnames and classes. Never text that the task, the model, a page or
-an exception wrote. Names the model's code can choose (imported modules, exception classes, cdp()
-methods) are kept only when Python, an installed package or the CDP protocol defines them."""
+"""What a run reports to telemetry: counts, names, hostnames and classes; the URLs visited without query strings, error
+messages and the final result, with secrets and credentials scrubbed (scrub()). Never the task text, typed text, code or
+secrets. Names the model's code can choose (imported modules, exception classes, cdp() methods) are kept only when
+Python, an installed package or the CDP protocol defines them."""
 
 from __future__ import annotations
 
@@ -25,7 +26,10 @@ from browser_use.domains import parse_url
 
 MAX_KEYS = 50  # per map or list: a run that visits 10k hosts sends the 50 most frequent
 MAX_NAME = 64  # characters per name
-CLI_CONTENT = ('task', 'output', 'steps', 'error_message')  # browser-harness cli_event fields that carry text
+MAX_URLS, MAX_URL = 50, 200  # per run, characters per URL
+MAX_ERRORS, MAX_ERROR = 20, 300  # per run, characters per error message
+MAX_RESULT = 500  # characters of the final result
+CLI_CONTENT = ('task', 'output', 'steps')  # browser-harness cli_event fields that carry the code or its output
 
 
 HOSTNAME = re.compile(r'(?:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?\.)*[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?')
@@ -94,6 +98,70 @@ def host(url: Any) -> str | None:
 		return u.host
 	except ValueError:
 		return capability_host(u.host) if len(u.host) <= 253 and HOSTNAME.fullmatch(u.host) else None
+
+
+def page_url(url: Any) -> str | None:
+	"""scheme://host/path of an http(s) or ws(s) URL: no user, password, port, query or fragment; the host as host()
+	sends it (a tunnel or preview deploy as its provider). None for any other URL. The path is cut to 4096 characters
+	here, to MAX_URL after scrub()."""
+	h = host(url)
+	if h is None:
+		return None
+	u = parse_url(str(url))
+	if u is None:
+		return None
+	return f'{u.scheme}://{f"[{h}]" if ":" in h else h}{u.path.split("?", 1)[0]}'[:4096]
+
+
+# Credentials scrub() replaces wherever they appear, besides the run's own secrets (sensitive_data)
+EMAIL = re.compile(r'[A-Za-z0-9._%+-]+(?:@|%40)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}')
+KEYS = re.compile(
+	r'(?<![A-Za-z0-9])(?:sk-ant-|sk-|sk_|bu_|gsk_|xai-|hf_|ghp_|gho_|github_pat_|nvapi-|pplx-|r8_|phc_)[A-Za-z0-9_-]{8,}'
+	r'|AIza[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?'
+	r'|(?<![A-Za-z0-9])(?=[A-Za-z]*[0-9])(?=[0-9]*[A-Za-z])[A-Za-z0-9]{32,}'  # a random run no word or slug has
+)
+# a token has a digit or a capital after a small letter (base64); a word ('Basic information') has neither
+BEARER = re.compile(r'\b([Bb]earer|[Bb]asic|BEARER|BASIC)(\s+)(?=\S*(?:\d|[a-z]\S*[A-Z]))[A-Za-z0-9._~+/=-]{8,}')
+ASSIGNED = re.compile(
+	r'(?i)(?<![a-z<])(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|authorization|cookie)'
+	r'(["\']?\s*[=:]\s*)(?!(?:bearer|basic)\s)("[^"]*"|\'[^\']*\'|[^\s&,;]+)'
+)
+MIN_TASK = 8  # a task this long or longer, quoted whole, is sent as <task>
+
+
+def scrub(text: Any, forms: list[tuple[str, str]], limit: int, task: str = '') -> str | None:
+	"""Text as sent: the task text quoted whole as <task>, the run's secrets as <secret:name> (redact_forms with its
+	secret_forms), emails as <email>, API keys, bearer tokens and password=... values as <credential>, then cut to
+	limit characters. Cut last: a secret cut in half would no longer match. A long text (a 1 MB result) is scrubbed in
+	a window of 64x limit, which ends far enough past what is sent that nothing cut at its end reaches it; else whole."""
+	if text is None:
+		return None
+	text = str(text)
+	window = 64 * limit + max([len(task), *(len(f) for f, _ in forms)]) + 64
+	if len(text) > window:
+		head = _scrub(text[:window], forms, task)
+		if len(head) >= 2 * limit + window // 2:  # what is sent ends well before what was cut
+			return head[:limit]
+	return _scrub(text, forms, task)[:limit]
+
+
+def _scrub(text: str, forms: list[tuple[str, str]], task: str) -> str:
+	from browser_use.repl.session import redact_forms
+
+	out = text
+	if len(task) >= MIN_TASK:  # as typed, and as the redacted result quotes it
+		for quoted in dict.fromkeys((task, redact_forms(task, forms) if forms else task)):
+			out = out.replace(quoted, '<task>')
+	out = redact_forms(out, forms) if forms else out
+	out = BEARER.sub(lambda m: m[1] + m[2] + '<credential>', out)  # first: 'Authorization: Bearer <token>'
+	out = ASSIGNED.sub(lambda m: m[1] + m[2] + '<credential>', out)
+	return EMAIL.sub('<email>', KEYS.sub('<credential>', out))
+
+
+def error_line(text: Any) -> str | None:
+	"""The exception line of an error text (a traceback's last line, 'ValueError: message'), never its frames or code."""
+	lines = [line.strip() for line in str(text or '').splitlines() if line.strip()]
+	return lines[-1] if lines else None
 
 
 def download_ext(path: Any) -> str:
@@ -293,6 +361,8 @@ class RunStats:
 	codes: list[str] = field(default_factory=list)  # cell code, parsed for imports when read; never sent
 	cdp_raw: Counter = field(default_factory=Counter)  # the agent's own cdp() calls by method, unchecked
 	nav_errors: Counter = field(default_factory=Counter)  # Chrome net error code of each failed navigation
+	urls: list[str] = field(default_factory=list)  # page_url of each page visited, in order, once, MAX_URLS at most
+	error_messages: list[str] = field(default_factory=list)  # 'Class: message' of failed cells, once, MAX_ERRORS at most
 
 	def add_cell(self, result: dict, code: str, seconds: float) -> None:
 		self.cells += 1
@@ -301,6 +371,9 @@ class RunStats:
 		if result.get('error'):
 			self.cell_errors += 1
 			self.error_types[str(result.get('error_type') or 'unknown')[:MAX_NAME]] += 1
+			message = result.get('error_message') or error_line(result['error'])  # Repl.call redacted both
+			if message and len(self.error_messages) < MAX_ERRORS and message not in self.error_messages:
+				self.error_messages.append(str(message)[:4096])
 		self.codes.append(code)
 		s = result.get('stats') or {}
 		self.helpers.update({str(k)[:MAX_NAME]: n for k, n in (s.get('helpers') or {}).items()})
@@ -308,6 +381,9 @@ class RunStats:
 		fold(self.helper_t, s.get('helper_t') or {})
 		fold(self.cdp_t, s.get('cdp_t') or {})
 		self.domains.update(s.get('hosts') or [])
+		for url in s.get('urls') or ():  # a restarted worker reports its URLs again
+			if len(self.urls) < MAX_URLS and url not in self.urls:
+				self.urls.append(str(url))
 		self.events.update(s.get('events') or {})
 		self.nav_errors.update(s.get('nav_errors') or {})
 		self.navigations += int(s.get('navigations') or 0)
@@ -343,13 +419,15 @@ def is_internal() -> bool:
 
 
 def scrub_cli_event(payload: dict) -> dict:
-	"""A browser-harness event as the browser-use CLI sends it: without the piped code, its output, the helper
-	arguments and error text; helper names are kept as counts."""
+	"""A browser-harness event as the browser-use CLI sends it: without the piped code, its output and the helper
+	arguments; helper names are kept as counts, the error message as its exception line, scrubbed (scrub)."""
 	props = payload.get('properties')
 	if not isinstance(props, dict):
 		return payload
 	steps = [s for s in props.get('steps') or [] if isinstance(s, dict)]
 	clean = {k: v for k, v in props.items() if k not in CLI_CONTENT}
+	if clean.get('error_message') is not None:  # a traceback's frames quote the code: its last line only
+		clean['error_message'] = scrub(error_line(clean['error_message']), [], MAX_ERROR) or None
 	clean['helper_counts'] = top(Counter(str(s['helper']) for s in steps if s.get('helper'))) or None
 	clean['helper_errors'] = sum(1 for s in steps if s.get('error')) if steps else None
 	if clean.get('model'):
@@ -357,5 +435,5 @@ def scrub_cli_event(payload: dict) -> dict:
 	if 'cdp_url' in clean:
 		clean['cdp_url'] = cdp_category(clean['cdp_url'])  # a cloud browser's CDP hostname drives it
 	clean['is_internal'] = is_internal()
-	clean['schema_version'] = 2
+	clean['schema_version'] = 3  # 3: error_message
 	return {**payload, 'properties': clean}

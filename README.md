@@ -239,9 +239,9 @@ You can also host the Python library and browsers on your own infrastructure.
 
 ## Telemetry
 
-The library and the CLI send anonymized usage telemetry (counts, timings, model and helper names, exception classes, hostnames
-of visited pages; never the task, results, code, typed text, secrets or page content). Turn it off with
-`ANONYMIZED_TELEMETRY=false`.
+The library and the CLI send anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited
+(without query strings), error messages and the final result. Never the task text, typed text, code or secrets.
+`ANONYMIZED_TELEMETRY=false` turns it off.
 
 <br/>
 
