@@ -376,6 +376,9 @@ class Repl:
 		# A naive call never reaches another browser (the user's own Chrome): a `browser-harness` CLI call reuses this run's
 		# daemon or fails, and any daemon a cell starts dials a dead port instead of discovering a local Chrome.
 		env.update(BH_REQUIRE_EXISTING_DAEMON='1', BU_CDP_WS='ws://127.0.0.1:9/browser-use-owns-the-browser')
+		# browser-harness runs <agent workspace>/agent_helpers.py on import and reads its domain-skills: never the user's
+		# global one (~/.config/browser-harness/agent-workspace), which a prompt-injected run could plant for later runs
+		env['BH_AGENT_WORKSPACE'] = str(self.state / 'agent-workspace')
 		env['BU_REPL_PARENT_PID'] = str(os.getpid())  # the worker exits when we die (worker._watch_parent)
 		# A browser-harness CLI call from a cell would send its piped code and output (page text) as cli_event, and the
 		# allowlisted env drops ANONYMIZED_TELEMETRY. The run is already counted (agent_event).
