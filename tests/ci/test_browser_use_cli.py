@@ -290,10 +290,28 @@ def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path
 		{'jsonrpc': '2.0', 'method': 'notifications/initialized'},
 		{'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'browser_exec', 'arguments': {'code': '1'}}},
 	]
-	r = run('-m', 'browser_use.cli', '--cli-mcp', stdin=''.join(json.dumps(m) + '\n' for m in messages))
-	replies = {m['id']: m for m in map(json.loads, r.stdout.splitlines())}
-	result = replies[2]['result']
-	assert result['isError'] and 'BH_HOME' in result['content'][0]['text'], r.stdout
+	server = subprocess.Popen(
+		[sys.executable, '-m', 'browser_use.cli', '--cli-mcp'],
+		stdin=subprocess.PIPE,
+		stdout=subprocess.PIPE,
+		stderr=subprocess.DEVNULL,
+		cwd=tmp_path,
+		env=env,
+		text=True,
+	)
+	assert server.stdin and server.stdout
+	try:  # stdin stays open until the call is answered: at EOF the server ends, cancelling a call in flight
+		server.stdin.write(''.join(json.dumps(m) + '\n' for m in messages))
+		server.stdin.flush()
+		reply: dict = {}
+		while reply.get('id') != 2:
+			line = server.stdout.readline()
+			assert line, 'the server ended before it answered the call'
+			reply = json.loads(line)
+	finally:
+		server.kill()
+		server.wait(10)
+	assert reply['result']['isError'] and 'BH_HOME' in reply['result']['content'][0]['text'], reply
 
 
 def test_piped_code_is_read_as_utf8_whatever_the_locale_says(monkeypatch):
