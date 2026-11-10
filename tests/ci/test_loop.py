@@ -1151,14 +1151,23 @@ async def test_failed_deliveries_spread_over_a_long_run_do_not_end_it(tmp_path, 
 	assert (result.status, result.output, result.error) == ('completed', 'the answer', None)
 
 
-async def test_an_empty_structured_result_on_the_last_request_is_delivered(tmp_path):
-	"""The empty-result repair needs a request after it. On the repair after the delivery-only turn (the model ran python
+@pytest.mark.parametrize(
+	'output_type, result',
+	[
+		(_Authors, {'authors': []}),
+		(str, 'Saved 34 authors: [authors](authors.csv)'),  # a link to a file it never wrote (review)
+		(str, '...'),
+	],
+)
+async def test_a_delivery_needing_repair_on_the_last_request_is_delivered(tmp_path, output_type, result):
+	"""The delivery repair needs a request after it. On the repair after the delivery-only turn (the model ran python
 	on the delivery turn) nothing can follow: refused there, the run ended max_steps with output '' and lost the
-	model's answer, which 54d87367b delivered."""
-	model, seen = script(('python', {'code': 'step1'}), ('python', {'code': 'step2'}), ('finish', {'result': {'authors': []}}))
+	model's answer, which 54d87367b delivered for an empty result only."""
+	model, seen = script(('python', {'code': 'step1'}), ('python', {'code': 'step2'}), ('finish', {'result': result}))
 	session = Session(repl=FakeRepl(tmp_path, pad=10), max_steps=2)
-	result = await run(build_agent(model, output_type=_Authors), 'task', session, 'function:x')
-	assert (len(seen), result.status, result.output) == (3, 'completed', _Authors(authors=[]))
+	got = await run(build_agent(model, output_type=output_type), 'task', session, 'function:x')
+	expected = _Authors(authors=[]) if output_type is _Authors else result
+	assert (len(seen), got.status, got.output) == (3, 'completed', expected), got.error
 
 
 class _EvalRepl(FakeRepl):

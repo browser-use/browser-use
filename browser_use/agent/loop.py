@@ -234,37 +234,42 @@ def check_split_delivery(ctx: RunContext[Session]) -> None:
 
 
 def check_delivery(ctx: RunContext[Session], value: Any) -> None:
-	"""One-shot repair: a placeholder or links to unwritten files."""
+	"""One-shot repair: a placeholder or links to unwritten files. Not on the run's last request (the repair after the
+	delivery-only turn): nothing can follow it, and the refused result was lost (status max_steps, ''). There the
+	result is delivered and the problem logged."""
 	s = ctx.deps
 	text = as_text(value)
-	if not s.checked_delivery:
-		problem = None
-		# '...', '' (a one-character answer like '7' is fine); a structured result with no value in it: Sonnet 5.5 sent
-		# finish({"authors": []}, success=False) with 34 authors in the REPL. Not on the run's last request (the repair
-		# after the delivery-only turn): nothing can follow it, and the refused result was lost (status max_steps, '')
-		empty = not isinstance(value, str) and ctx.run_step <= s.max_steps and _holds_nothing(json.loads(text))
-		if not re.search(r'[^\W_]', text) or empty:
-			problem = f'The result {text[:20]!r} is a placeholder, not the answer.'
-			s.rec.retry('delivery_placeholder')
-		else:
-			missing = sorted(
-				{
-					t
-					for t in LINK.findall(text) + FILE.findall(text)
-					if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
-					# downloads land in workspace/downloads; an answer names them by file name
-					and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
-				}
-			)
-			if missing:
-				problem = f'These linked files do not exist in the workspace: {", ".join(missing[:10])}.'
-				s.rec.retry('delivery_missing_files')
-		if problem:
-			s.checked_delivery = True
-			raise ModelRetry(
-				f'{problem} Deliver the actual result: finish_from_repl with the existing records, or '
-				'finish with the full answer inline. Do not repeat browser actions.'
-			)
+	if s.checked_delivery:
+		return
+	problem = None  # (what is wrong, the retry's stats cause)
+	# '...', '' (a one-character answer like '7' is fine); a structured result with no value in it: Sonnet 5.5 sent
+	# finish({"authors": []}, success=False) with 34 authors in the REPL
+	if not re.search(r'[^\W_]', text) or (not isinstance(value, str) and _holds_nothing(json.loads(text))):
+		problem = (f'The result {text[:20]!r} is a placeholder, not the answer.', 'delivery_placeholder')
+	else:
+		missing = sorted(
+			{
+				t
+				for t in LINK.findall(text) + FILE.findall(text)
+				if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
+				# downloads land in workspace/downloads; an answer names them by file name
+				and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
+			}
+		)
+		if missing:
+			problem = (f'These linked files do not exist in the workspace: {", ".join(missing[:10])}.', 'delivery_missing_files')
+	if problem is None:
+		return
+	what, cause = problem
+	if ctx.run_step > s.max_steps:
+		logger.warning(printable(f'Delivered as it is on the last request: {redact(what, s.repl.secrets)}'))
+		return
+	s.checked_delivery = True
+	s.rec.retry(cause)
+	raise ModelRetry(
+		f'{what} Deliver the actual result: finish_from_repl with the existing records, or '
+		'finish with the full answer inline. Do not repeat browser actions.'
+	)
 
 
 def _unquoted(value: str, expression: str) -> str:
