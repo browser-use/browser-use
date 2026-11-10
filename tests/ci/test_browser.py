@@ -935,6 +935,45 @@ async def test_a_download_that_sends_only_page_events_never_holds_the_stop(monke
 	assert await browser._finish_downloads() == 2
 
 
+@pytest.mark.parametrize('worker_saw_begin', [True, False])
+async def test_a_download_the_keep_alive_worker_saw_finish_never_holds_the_stop(monkeypatch, tmp_path, worker_saw_begin):
+	"""rc5 local-download-keepalive-1: with Browser(keep_alive=True) the run leaves its REPL worker running, and it drains
+	the daemon's events: it, not the stop, took the 'completed' event of a download still running as run() returned and
+	logged it. The stop read the worker's log once, before it waited (and never, when the log did not exist yet), so it
+	waited DOWNLOADS_TIMEOUT_S (300 s) and warned that the finished file was lost. When the stop's read took the
+	download's downloadWillBegin, the worker had no name for it, so the stop names it."""
+	import time
+
+	from browser_use.browser import local as _local
+	from browser_use.repl import worker
+
+	begin = {'method': 'Browser.downloadWillBegin', 'params': {'guid': 'a', 'url': 'https://h/a', 'suggestedFilename': 'a.bin'}}
+	monkeypatch.setattr(worker, 'STATE', tmp_path / '.browser-use')
+	(tmp_path / '.browser-use').mkdir()
+	(tmp_path / 'downloads').mkdir()
+	(tmp_path / 'downloads' / 'a').write_text('x')  # Chrome saves it as its guid
+	if worker_saw_begin:
+		worker.CellStats().observe([begin])
+	stats, drains = worker.CellStats(), []
+
+	def drain(name, req):  # the worker takes the 'completed' event, and logs it
+		drains.append(req)
+		if len(drains) == 2:
+			stats.observe([{'method': 'Browser.downloadProgress', 'params': {'guid': 'a', 'state': 'completed'}}])
+		return {'events': [begin] if len(drains) == 1 and not worker_saw_begin else []}
+
+	monkeypatch.setattr(browser_mod, '_daemon_request', drain)
+	monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 10)
+	browser = Browser('chromium')
+	browser._local = _local.LocalBrowser()  # a Chrome this Browser launched: its downloads are local files
+	browser._downloads_dir = tmp_path / 'downloads'
+	browser.note_downloads(tmp_path / '.browser-use' / 'downloads.jsonl')  # Agent.run's, as the run ends
+	started = time.monotonic()
+	assert await browser._finish_downloads() == 1
+	assert time.monotonic() - started < 5
+	assert [p.name for p in (tmp_path / 'downloads').iterdir()] == ['a.bin']
+
+
 async def test_a_cancelled_run_never_waits_for_a_running_download(cloud, monkeypatch, tmp_path):
 	"""Review: task.cancel() / Ctrl-C with a download still running held the stop (and cloud billing) for
 	DOWNLOADS_TIMEOUT_S, waiting for progress that would never be looked at."""
