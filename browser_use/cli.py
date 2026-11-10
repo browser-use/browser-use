@@ -744,19 +744,8 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	from browser_use.utils import install_tls_opener  # after --version: importing it costs ~12 ms on macOS (proxy lookup)
 
 	install_tls_opener()  # browser-harness's own requests here (cloud browsers, login) verify as the OS does
-	if '--cli-mcp' in args:
-		_run_cli_mcp_server()
-		return 0, 'cli-mcp'
-	if '--mcp' in args:
-		return _run_mcp_server(), 'mcp'
-	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
-		return _run_doctor(), 'doctor'
 	if args and args[0] == 'install':
 		return _run_install_command(args[1:]), 'install'
-	if args[:1] in (['login'], ['logout']) or args[:2] in (['auth', 'login'], ['auth', 'logout']):
-		# `auth login` is browser-harness's spelling (the skill teaches it): the same checks as `login`
-		command, rest = (args[1], args[2:]) if args[0] == 'auth' else (args[0], args[1:])
-		return (_run_login_command if command == 'login' else _run_logout_command)(rest), command
 	if args and args[0] == 'init':
 		return _run_init_command(args[1:]), 'init'
 	if '--template' in args or '-t' in args:
@@ -770,6 +759,26 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	if legacy is not None:
 		print(_legacy_migration_message(legacy), file=sys.stderr)
 		return 2, f'legacy:{legacy}'
+
+	from browser_use.browser.browser import require_harness_dirs
+	from browser_use.exceptions import BrowserConfigError
+
+	try:  # every command below imports browser-harness
+		require_harness_dirs()
+	except BrowserConfigError as e:
+		print(e, file=sys.stderr)
+		return 1, _command_name(args)
+	if '--cli-mcp' in args:
+		_run_cli_mcp_server()
+		return 0, 'cli-mcp'
+	if '--mcp' in args:
+		return _run_mcp_server(), 'mcp'
+	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
+		return _run_doctor(), 'doctor'
+	if args[:1] in (['login'], ['logout']) or args[:2] in (['auth', 'login'], ['auth', 'logout']):
+		# `auth login` is browser-harness's spelling (the skill teaches it): the same checks as `login`
+		command, rest = (args[1], args[2:]) if args[0] == 'auth' else (args[0], args[1:])
+		return (_run_login_command if command == 'login' else _run_logout_command)(rest), command
 
 	code = None
 	if not args:

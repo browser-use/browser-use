@@ -255,6 +255,31 @@ def test_stdin_from_the_null_device_is_empty_stdin_not_the_quickstart():
 	assert 'received empty stdin' in r.stderr and 'Welcome' not in r.stdout
 
 
+def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path):
+	"""Live (k8s read-only fs, `docker run -u` without a home, Lambda): browser-harness creates ~/.config/browser-harness
+	when imported, so Browser().start() and every browser-use command that drives a browser died with a bare
+	PermissionError on ~/.config, naming neither browser-use nor BH_HOME. Commands that need no browser still work."""
+	(tmp_path / '.config').write_text('')  # no dir can be made under it: an unwritable HOME, for root and on Windows too
+	env = {
+		k: v for k, v in os.environ.items() if not k.startswith('BH_') and k not in ('XDG_CONFIG_HOME', 'BROWSER_HARNESS_HOME')
+	}
+	env.update(HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONPATH=str(ROOT), BU_CDP_URL='http://127.0.0.1:1')
+
+	def run(*argv: str, stdin: str = '') -> subprocess.CompletedProcess[str]:
+		return subprocess.run(
+			[sys.executable, *argv], input=stdin, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
+		)
+
+	start = "import asyncio\nfrom browser_use import Browser\nasyncio.run(Browser(cdp_url='http://127.0.0.1:1').start())"
+	r = run('-c', start)
+	assert 'BrowserConfigError: browser-use cannot create its browser-harness dir' in r.stderr and 'BH_HOME' in r.stderr, r.stderr
+	for argv, stdin in ((['--doctor'], ''), ([], 'print(1)')):
+		r = run('-m', 'browser_use.cli', *argv, stdin=stdin)
+		assert (r.returncode, r.stdout) == (1, ''), r.stderr
+		assert 'BH_HOME' in r.stderr and 'Traceback' not in r.stderr, r.stderr
+	assert run('-m', 'browser_use.cli', 'skill', 'show').returncode == 0
+
+
 def test_every_install_line_pins_the_released_version_exactly():
 	"""Users and their agents copy these lines: each pins browser-use with == to this release, never >=."""
 	import tomllib
