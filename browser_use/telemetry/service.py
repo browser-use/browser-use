@@ -40,6 +40,8 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 	'import sys, os, ssl, urllib.request\n'
 	'try:\n'  # the OS verifier, as tls_context() in the sending process
 	'    import truststore; ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)\n'
+	'    extra = os.environ.get("SSL_CERT_FILE") or None, os.environ.get("SSL_CERT_DIR") or None\n'
+	'    if any(extra): ctx.load_verify_locations(*extra)\n'  # a proxy's CA, as tls_context() loads it
 	'except Exception:\n'
 	'    ctx = None\n'
 	'url = sys.argv[1]\n'

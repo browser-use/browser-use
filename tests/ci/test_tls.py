@@ -4,14 +4,17 @@ only for its own verifier: the README quickstart failed with CERTIFICATE_VERIFY_
 and `login --api-key-stdin` stored an unchecked key and said "Signed in" (win-cli-4). A local HTTPS server with a
 self-signed certificate stands in for the cloud. No browser, no network."""
 
+import contextlib
 import datetime
 import ipaddress
 import json
 import os
+import socket
 import ssl
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -41,6 +44,7 @@ def _self_signed(directory: Path) -> tuple[Path, Path]:
 		.not_valid_after(now + datetime.timedelta(days=2))
 		.add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address('127.0.0.1'))]), critical=False)
 		.add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+		.add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)  # macOS wants it
 		.sign(key, hashes.SHA256())
 	)
 	cert_path, key_path = directory / 'cert.pem', directory / 'key.pem'
@@ -59,7 +63,7 @@ def server(tmp_path, monkeypatch):
 
 	for var in ('SSL_CERT_FILE', 'SSL_CERT_DIR'):
 		monkeypatch.delenv(var, raising=False)
-	utils.tls_context.cache_clear()
+	monkeypatch.setattr(utils, '_thread_tls', threading.local())
 	cert, key = _self_signed(tmp_path)
 
 	class Handler(BaseHTTPRequestHandler):
@@ -85,7 +89,6 @@ def server(tmp_path, monkeypatch):
 	yield f'https://127.0.0.1:{httpd.server_address[1]}', cert
 	httpd.shutdown()
 	httpd.server_close()
-	utils.tls_context.cache_clear()
 
 
 @pytest.mark.skipif(sys.platform == 'linux', reason='on Linux the OS trust store is the one OpenSSL reads')
@@ -126,6 +129,61 @@ def test_without_truststore_the_certifi_roots_are_trusted(server, monkeypatch):
 	monkeypatch.setattr(certifi, 'where', lambda: str(cert))
 	with urlopen_keyed(urllib.request.Request(f'{url}/api/v4/browsers'), 10) as r:
 		assert r.status == 200
+
+
+def test_a_stalled_handshake_in_one_thread_does_not_hold_up_another(server, monkeypatch):
+	"""truststore holds a context's lock through each handshake: the telemetry thread's handshake to a PostHog that a
+	firewall stalls must not hold the gateway check in another thread until it times out. SSL_CERT_FILE is trusted too."""
+	from browser_use.utils import tls_context, urlopen_keyed
+
+	url, cert = server
+	monkeypatch.setenv('SSL_CERT_FILE', str(cert))
+	silent = socket.socket()  # accepts the connection, never answers the handshake
+	silent.bind(('127.0.0.1', 0))
+	silent.listen(1)
+	stalled_url = f'https://127.0.0.1:{silent.getsockname()[1]}/'
+
+	def stalled():
+		with contextlib.suppress(OSError):
+			urllib.request.urlopen(stalled_url, timeout=3, context=tls_context())
+
+	threading.Thread(target=stalled, daemon=True).start()
+	time.sleep(0.3)  # its handshake is waiting
+	started = time.monotonic()
+	with urlopen_keyed(urllib.request.Request(f'{url}/api/v4/browsers'), 10) as r:
+		assert r.status == 200
+	assert time.monotonic() - started < 1.5
+	silent.close()
+
+
+def test_the_installed_opener_uses_a_proxy_set_after_it_was_installed(monkeypatch):
+	"""cli.main installs the opener before browser-harness reads its .env: HTTPS_PROXY from there still applies."""
+	from browser_use.utils import install_tls_opener
+
+	proxy = socket.socket()
+	proxy.bind(('127.0.0.1', 0))
+	proxy.listen(1)
+	proxy.settimeout(10)
+	for var in ('https_proxy', 'HTTPS_PROXY', 'no_proxy', 'NO_PROXY'):
+		monkeypatch.delenv(var, raising=False)
+	monkeypatch.setattr(urllib.request, '_opener', None)
+	install_tls_opener()
+	monkeypatch.setenv('HTTPS_PROXY', f'http://127.0.0.1:{proxy.getsockname()[1]}')
+	seen: list[bytes] = []
+
+	def accept():  # until the CONNECT: another local process may probe the port first
+		while not any(s.startswith(b'CONNECT') for s in seen):
+			conn, _ = proxy.accept()
+			seen.append(conn.recv(100))
+			conn.close()
+
+	thread = threading.Thread(target=accept, daemon=True)
+	thread.start()
+	with contextlib.suppress(OSError):
+		urllib.request.urlopen('https://api.browser-use.com/', timeout=5)
+	thread.join(5)
+	proxy.close()
+	assert any(s.startswith(b'CONNECT api.browser-use.com:443') for s in seen), seen
 
 
 def _login(base_url: str, store: Path) -> subprocess.CompletedProcess[str]:
