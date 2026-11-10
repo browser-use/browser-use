@@ -44,7 +44,7 @@ The open-source browser agent. Give it a task and the model does it in a real br
 ```
   ● task: "book the earliest driving test"
   │
-  ● model writes a cell          new_tab(url); click(41); js(...)
+  ● model writes a cell          new_tab(url); bu.click(41); js(...)
   │
   ● REPL runs it on Chrome (CDP) → output back to the model
   │
