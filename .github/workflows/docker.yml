@@ -15,10 +15,60 @@ on:
       - '*'
   release:
     types: [published]
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'browser_use/**'
+      - 'docker/smoke.py'
+      - '.github/workflows/docker.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  smoke:
+    # Every image is built and run before anything is pushed: --version, then one Agent run on the image's Chromium
+    # with a scripted model (docker/smoke.py: no provider, no cloud). Native runners per arch, no QEMU. Never pushes.
+    name: smoke (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Build (no push)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          tags: browser-use-smoke:ci
+      - name: browser-use --version
+        run: docker run --rm browser-use-smoke:ci --version
+      - name: Scripted Agent run on the image's Chromium
+        run: |
+          docker run --rm -e ANONYMIZED_TELEMETRY=false \
+            -v "$PWD/docker/smoke.py:/tmp/smoke.py:ro" \
+            --entrypoint python browser-use-smoke:ci /tmp/smoke.py
+
   build_publish_image:
+    needs: smoke
+    # Release candidates (X.Y.ZrcN tags, GitHub pre-releases) get no image.
+    # Pull requests only run the smoke job.
+    if: ${{ github.event_name != 'pull_request' && !(startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, 'rc')) && !(github.event_name == 'release' && github.event.release.prerelease) }}
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -27,22 +77,22 @@ jobs:
       id-token: write
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -50,7 +100,7 @@ jobs:
 
       - name: Compute Docker tags based on tag/branch
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: |
             browseruse/browseruse
@@ -64,7 +114,7 @@ jobs:
 
       - name: Build and push Docker image
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           platforms: linux/amd64,linux/arm64
           context: .
