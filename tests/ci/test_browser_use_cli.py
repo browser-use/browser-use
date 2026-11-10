@@ -298,6 +298,50 @@ def test_piped_code_is_read_as_utf8_whatever_the_locale_says(monkeypatch):
 	assert ran == [code, code]
 
 
+def test_piped_http_get_fetches_from_this_machine_with_a_key_set(monkeypatch):
+	"""With BROWSER_USE_API_KEY set, piped code's http_get was browser-harness's: it POSTs the URL and its headers
+	(Authorization too) to the fetch-use proxy, so localhost and intranet URLs failed and the headers left the machine.
+	It is the Agent's http_get now: plain HTTP from here, as the docs say."""
+	import http.server
+	import threading
+
+	import fetch_use
+	from browser_harness import run
+
+	from browser_use import cli
+
+	class Echo(http.server.BaseHTTPRequestHandler):
+		def do_GET(self):
+			body = f'{self.path} {self.headers.get("Authorization")}'.encode()
+			self.send_response(200)
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.write(body)
+
+		def log_message(self, *args):
+			pass
+
+	def proxied(*args, **kwargs):
+		raise AssertionError('http_get went to the fetch-use proxy')
+
+	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Echo)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	url = f'http://127.0.0.1:{server.server_address[1]}/internal'
+	got = []
+	monkeypatch.setattr(fetch_use, 'fetch_sync', proxied)
+	monkeypatch.setattr(run, 'http_get', run.http_get)  # put back after the test
+	# the piped code runs in browser-harness's run module: its names are the module's
+	monkeypatch.setattr(run, 'main', lambda: got.append(vars(run)['http_get'](url, headers={'Authorization': 'Bearer t'})))
+	monkeypatch.setattr(sys, 'argv', ['browser-use'])
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'bu_test')
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	try:
+		cli._run_browser_harness('print(http_get(url))')
+	finally:
+		server.shutdown()
+	assert got == ['/internal Bearer t']
+
+
 def test_every_install_line_pins_the_released_version_exactly():
 	"""Users and their agents copy these lines: each pins browser-use with == to this release, never >=."""
 	import tomllib

@@ -480,6 +480,7 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	from browser_harness import helpers, run
 
 	from browser_use.browser.browser import _name_daemon_files
+	from browser_use.repl import worker
 	from browser_use.repl.capture import install as install_capture
 	from browser_use.repl.page_info import install as install_page_info
 
@@ -497,6 +498,9 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	run.page_info = helpers.page_info
 	install_capture()  # win-cli-5: a hidden tab's screenshot gets the Agent's activate fallback
 	run.cdp = helpers.cdp
+	# The Agent's http_get, plain HTTP from this machine: browser-harness's sends the URL and headers to the fetch-use
+	# proxy whenever BROWSER_USE_API_KEY is set (localhost and intranet URLs then fail, Authorization leaves the machine)
+	run.http_get = worker.http_get
 	args = sys.argv[1:]
 	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
 		from browser_use import harness_cloud
