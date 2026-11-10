@@ -1192,7 +1192,7 @@ async def test_browser_exec_output_is_capped_like_agent_cells():
 	from browser_use.repl.session import MAX_OUTPUT_CHARS
 
 	mcp = cli_mcp.CLIMCPServer()
-	big = 'A' * 2_000_000
+	big = 'A' * 2_000_000 + '\U0001f600 \u4e2d'  # not in Windows' cp1252: the overflow file failed the whole call there
 	mcp._execute = lambda code: (big, False)  # what print("A"*2_000_000) captures, without a browser
 	handler = mcp.server._request_handlers['tools/call'].handler
 	r = await handler(None, types.CallToolRequestParams(name='browser_exec', arguments={'code': 'print(1)'}))
@@ -1200,5 +1200,5 @@ async def test_browser_exec_output_is_capped_like_agent_cells():
 	head, _, path = text.rpartition('\n[Truncated. Full captured output: ')
 	assert not r.is_error and head == big[:MAX_OUTPUT_CHARS]
 	full = Path(path.removesuffix(']'))
-	assert full.read_text() == big
+	assert full.read_text(encoding='utf-8') == big
 	full.unlink()
