@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 BROWSER_USE_REPO_SKILL_URL = 'https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md'
 EXPECTED_SKILL_INSTALL_PATHS = (
@@ -38,6 +40,7 @@ def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 		bin_dir,
 		'uv',
 		'import os, pathlib, sys\n'
+		f'if sys.argv[1:] == ["tool", "dir"]: sys.exit(print({str(tmp_path / "uv-tools")!r}))\n'
 		'pathlib.Path(os.environ["UV_TOOL_INSTALL_ARGS_FILE"]).write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n',
 	)
 	_fake_command(  # another program called browser-harness on PATH: never run, never the skill's source
@@ -203,6 +206,25 @@ def test_install_cli_never_replaces_the_uv_tool_it_runs_from(monkeypatch, tmp_pa
 	monkeypatch.setattr(install.sys, 'prefix', str(tmp_path / 'venv'))
 	assert install.handle(['install', '--install-cli', '--path', str(tmp_path / 'skill')]) == 0
 	assert [c[:2] for c in calls] == [['tool', 'dir'], ['tool', 'install']]
+
+
+@pytest.mark.parametrize('probe', [(2, ''), (0, '')])
+def test_install_cli_never_reinstalls_when_uv_cannot_say_where_its_tools_are(monkeypatch, tmp_path, probe):
+	"""cubic: a failed `uv tool dir` fell through to `uv tool install --force`, so the uv tool this CLI runs from could
+	still replace its own env (win-cli-2). Without the tool dir it cannot tell, so it installs nothing."""
+	from browser_use.skills import install
+
+	calls = []
+
+	def run(args, **kwargs):
+		calls.append(args[1:])
+		return subprocess.CompletedProcess(args, probe[0], stdout=probe[1])
+
+	monkeypatch.setattr(install.shutil, 'which', lambda name: 'uv')
+	monkeypatch.setattr(install.subprocess, 'run', run)
+	with pytest.raises(RuntimeError, match='uv tool dir'):
+		install._install_browser_use_tool()
+	assert calls == [['tool', 'dir']]
 
 
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):
@@ -409,7 +431,7 @@ def test_install_cli_keeps_the_python_the_cli_runs_on(monkeypatch, tmp_path):
 
 	def run(args, **kwargs):
 		calls.append(args[1:])
-		return subprocess.CompletedProcess(args, 0, stdout='')
+		return subprocess.CompletedProcess(args, 0, stdout=f'{tmp_path / "uv-tools"}\n' if args[1:] == ['tool', 'dir'] else '')
 
 	monkeypatch.setattr(install.shutil, 'which', lambda name: 'uv')
 	monkeypatch.setattr(install.subprocess, 'run', run)
