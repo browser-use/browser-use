@@ -420,7 +420,7 @@ class CLIMCPServer:
 			types.Tool(
 				name='browser_exec',
 				description=(
-					'Execute Python in the browser-harness session. Helpers like new_tab(url), '
+					'Execute Python in the browser-use session. Helpers like new_tab(url), '
 					'goto_url(url), page_info(), click_at_xy(x, y), type_text(text), js(code), '
 					'cdp(method, ...), wait_for_load(), list_tabs() are pre-imported. The namespace '
 					'persists across calls. Returns whatever the code prints (prints from threads it starts are not '
@@ -458,7 +458,7 @@ class CLIMCPServer:
 				name='browser_login',
 				description=(
 					"Sign in to Browser Use Cloud for cloud browsers (start_remote_daemon). Opens the user's browser "
-					'to approve; the key is stored for browser-use, browser-harness and this server, never shown. '
+					'to approve; the key is stored for browser-use and this server, never shown. '
 					'Returns once signed in, or with the URL to approve: call it again to finish.'
 				),
 				input_schema={
