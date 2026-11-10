@@ -634,6 +634,20 @@ async def test_mcp_exec_reports_failures_and_a_cancelled_call_never_bleeds_into_
 	assert (text, failed) == ('MINE\n', False)
 
 
+def test_a_failing_cell_shows_its_own_frames_and_names_the_helpers_for_an_unknown_name(monkeypatch):
+	"""Daytona 1.0.1: every failing cell's traceback began with this server's exec() frame, and click_element(3) (a 0.x
+	action) said only NameError, where the piped CLI names the 1.0 helpers."""
+	from browser_use.mcp.cli_mcp import CLIMCPServer
+
+	server = CLIMCPServer()
+	monkeypatch.setattr(server, '_ensure_daemon', lambda code: None)
+	text, failed = server._execute('click_element(3)')
+	assert failed and 'cli_mcp.py' not in text and 'File "<string>", line 1' in text, text
+	assert "'click_element' is not defined here" in text and 'new_tab(url)' in text and 'page_info()' in text, text
+	text, failed = server._execute('import json\njson.loads("{")')
+	assert failed and 'cli_mcp.py' not in text and 'JSONDecodeError' in text and 'not defined here' not in text, text
+
+
 async def test_mcp_a_cancelled_call_lets_go_of_the_lock_and_a_queued_one_never_runs():
 	"""C23: a hung cell (find /, a wait that never returns) kept the lock after the client cancelled it, so every later
 	call timed out and a cloud browser could not even be stopped. The MCP SDK cancels through an AnyIO cancel scope.
@@ -737,21 +751,31 @@ def headless_box(monkeypatch):
 	return box
 
 
-def test_cli_mcp_on_a_headless_box_drives_its_own_chromium_and_says_so(headless_box):
+async def _exec(mcp, code: str) -> tuple[list[str], bool]:
+	"""A browser_exec call as the client sees it: the text of each content block, and is_error."""
+	from mcp import types
+
+	handler = mcp.server._request_handlers['tools/call'].handler
+	r = await handler(None, types.CallToolRequestParams(name='browser_exec', arguments={'code': code}))
+	return [c.text for c in r.content], r.is_error
+
+
+async def test_cli_mcp_on_a_headless_box_drives_its_own_chromium_and_says_so(headless_box):
 	"""1.0.1: 144 headless Linux devices got only "remote-debugging-setup: none of your browsers has remote debugging on
 	... start_remote_daemon()" from every browser_exec, with no Chrome to set up and no key for a cloud browser."""
 	from browser_use.mcp import cli_mcp
 
 	mcp = cli_mcp.CLIMCPServer()
-	out, failed = mcp._execute('print(NAME)')
-	first, name = out.splitlines()
-	assert not failed and name == 'own-chromium' and headless_box['kinds'] == ['chromium'], out
-	assert 'own Chromium on a temp profile, not your Chrome (no display here' in first, out
-	assert mcp._execute('print(NAME)') == ('own-chromium\n', False)  # said once
+	(out, note), failed = await _exec(mcp, 'print(NAME)')
+	assert not failed and out == 'own-chromium\n' and headless_box['kinds'] == ['chromium'], (out, note)
+	assert 'own Chromium on a temp profile, not your Chrome (no display here' in note, note
+	assert await _exec(mcp, 'print(NAME)') == (['own-chromium\n'], False)  # said once
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='the fake uvx is a POSIX script')
-def test_cli_mcp_with_no_browser_installed_installs_chromium_without_touching_stdout(headless_box, tmp_path, monkeypatch, capfd):
+async def test_cli_mcp_with_no_browser_installed_installs_chromium_without_touching_stdout(
+	headless_box, tmp_path, monkeypatch, capfd
+):
 	"""A fresh server or container (python:3.12-slim) has no browser at all: the first call installs Playwright's
 	Chromium as `browser-use install` does, and its output never reaches stdout, the MCP channel."""
 	from browser_use.mcp import cli_mcp
@@ -771,8 +795,8 @@ def test_cli_mcp_with_no_browser_installed_installs_chromium_without_touching_st
 		return {'BU_NAME': 'own-chromium'}
 
 	headless_box['start'] = start
-	out, failed = cli_mcp.CLIMCPServer()._execute('print(NAME)')
-	assert not failed and out.splitlines()[-1] == 'own-chromium' and "Installed Playwright's Chromium" in out, out
+	(out, note), failed = await _exec(cli_mcp.CLIMCPServer(), 'print(NAME)')
+	assert not failed and out == 'own-chromium\n' and "Installed Playwright's Chromium" in note, (out, note)
 	args = (tmp_path / 'uvx.args').read_text()
 	assert args.startswith('playwright install chromium --no-shell'), args
 	assert ('--with-deps' in args) == (sys.platform.startswith('linux') and os.geteuid() == 0), args  # system libraries
@@ -805,9 +829,10 @@ async def test_with_no_browser_at_all_the_error_says_what_to_install_and_names_t
 		assert ('start_remote_daemon()' in text) == bool(key) and ('BROWSER_USE_API_KEY' in text) != bool(key), text
 
 
-def test_cli_mcp_keeps_the_users_chrome_where_it_can_be_set_up(monkeypatch):
+async def test_cli_mcp_keeps_the_users_chrome_where_it_can_be_set_up(monkeypatch):
 	"""A desktop with Chrome installed keeps the chrome://inspect setup: driving the user's logged-in Chrome is the point
-	of --cli-mcp. Its first result says so."""
+	of --cli-mcp. Its first result says so, in a block of its own: a client that parses the code's output (JSON) broke
+	once per server start when the note came first in it."""
 	from browser_harness import admin, helpers
 
 	from browser_use import Browser, harness_cloud
@@ -822,8 +847,54 @@ def test_cli_mcp_keeps_the_users_chrome_where_it_can_be_set_up(monkeypatch):
 	monkeypatch.setattr(harness_cloud, 'ensure_daemon', lambda *a, **k: attached.append(1))
 	monkeypatch.setattr(Browser, 'start', lambda self: pytest.fail('started its own Chromium'))
 	mcp = cli_mcp.CLIMCPServer()
-	assert mcp._execute('print(1)') == ('Browser: your own Chrome (its tabs and logins).\n1\n', False)
-	assert mcp._execute('print(2)') == ('2\n', False) and attached == [1, 1]
+	assert await _exec(mcp, 'print(1)') == (['1\n', 'Browser: your own Chrome (its tabs and logins).'], False)
+	assert await _exec(mcp, 'print(2)') == (['2\n'], False) and attached == [1, 1]
+
+
+@pytest.mark.parametrize('browser', ['brave', 'none', 'snap'])
+async def test_a_desktop_keeps_any_browser_it_can_set_up_and_never_installs_chromium(browser, tmp_path, monkeypatch):
+	"""1.0.1 review: on a desktop whose browser find_binary does not know (Brave, Arc, Dia, a Flatpak Chrome) --cli-mcp
+	fell back to its own Chromium and installed Playwright's (150 MB) inside one tool call. 1.0.0 set up the user's
+	browser there. A desktop with no browser at all gets the error naming `browser-use install`, never an install; one
+	with only Snap Chromium says so, not 'no Chrome is installed'."""
+	from browser_harness import admin, daemon, helpers
+
+	from browser_use import Browser, harness_cloud
+	from browser_use.browser import local
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setattr(admin, 'NAME', admin.NAME)
+	monkeypatch.setattr(helpers, 'NAME', helpers.NAME)
+	monkeypatch.setattr(local, 'has_display', lambda: True)
+	monkeypatch.setattr(local, 'live_debug_dirs', lambda: [])
+	monkeypatch.delenv('BU_CDP_URL', raising=False)
+	monkeypatch.delenv('BU_CDP_WS', raising=False)
+	brave = tmp_path / 'BraveSoftware/Brave-Browser'
+	monkeypatch.setattr(daemon, 'PROFILES', [tmp_path / 'google-chrome', brave])
+	if browser == 'brave':
+		brave.mkdir(parents=True)
+		(brave / 'Local State').write_text('{}')
+	snap = '/usr/bin/chromium-browser is Snap Chromium, which cannot open DevTools for a browser it did not start itself.'
+	missing = 'No Chrome, Chromium or Edge found (tried chromium on PATH). Install one ...'
+
+	def find_binary(*a, **k):
+		raise RuntimeError(snap if browser == 'snap' else missing)
+
+	async def start(self):
+		local.find_binary()  # what Browser('chromium').start() does first
+
+	monkeypatch.setattr(local, 'find_binary', find_binary)
+	monkeypatch.setattr(Browser, 'start', start)
+	monkeypatch.setattr(cli_mcp, '_install_chromium', lambda: pytest.fail('installed Chromium on a desktop'))
+	attached = []
+	monkeypatch.setattr(harness_cloud, 'ensure_daemon', lambda *a, **k: attached.append(1))
+	(text, *note), failed = await _exec(cli_mcp.CLIMCPServer(), 'print(1)')
+	if browser == 'brave':
+		assert (text, note, failed, attached) == ('1\n', ['Browser: your own Chrome (its tabs and logins).'], False, [1])
+		return
+	assert failed and not attached and text.startswith('Error: No browser to drive') and 'browser-use install' in text, text
+	why = 'only Snap Chromium is installed' if browser == 'snap' else 'no Chrome, Chromium or Edge is installed'
+	assert f'no Chrome to attach ({why}' in text, text
 
 
 @pytest.mark.chrome
@@ -847,7 +918,7 @@ def test_cli_mcp_on_a_headless_box_opens_a_page_in_its_own_chromium(chrome_binar
 		out, failed = mcp._execute(
 			'new_tab("data:text/html,<title>own page</title>"); wait_for_load(); print(page_info()["title"])'
 		)
-		assert not failed and out.splitlines()[-1] == 'own page' and 'own Chromium' in out.splitlines()[0], out
+		assert not failed and out == 'own page\n' and 'own Chromium' in (mcp._note or ''), (out, mcp._note)
 	finally:
 		if mcp._browser is not None:
 			import asyncio

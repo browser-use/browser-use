@@ -32,6 +32,12 @@ def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 		record = stored_auth_record() or {}
 	except (AuthError, AttributeError):  # not valid JSON, or JSON that is not an object (a list): say the store is bad
 		raise MissingAPIKeyError(what, corrupt_store_message()) from None
+	except OSError as e:  # an unwritable HOME: browser-harness creates its config dir to look for the stored key
+		raise MissingAPIKeyError(
+			what,
+			f'Set BROWSER_USE_API_KEY, or set BH_HOME to a writable dir only this user can write to: the dir of the key '
+			f'`browser-use login` stores, {e.filename or ""}, cannot be created ({e.strerror or e}).',
+		) from None
 	if not record.get('api_key'):
 		raise MissingAPIKeyError(what)
 	# Scopes are the server's to judge: a key it rejects (an older login's v3 browser-only key) gets a 403 that the

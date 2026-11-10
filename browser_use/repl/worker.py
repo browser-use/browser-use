@@ -140,7 +140,7 @@ class CellStats:
 	def record_typed(self, text: object) -> None:
 		"""Text the agent typed (type_text, fill_input, bu.type, cdp Input.insertText): never sent, only replaced with
 		<typed> wherever telemetry's error messages or final result quote it (stats.scrub)."""
-		if isinstance(text, str) and text.strip():
+		if isinstance(text, str) and (text := text.strip()):  # 'q\n' submits q: q is what a page or URL quotes
 			with self.lock:
 				if len(self.typed) < MAX_URLS and text[:4096] not in self.typed:
 					self.typed.append(text[:4096])

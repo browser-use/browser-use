@@ -205,6 +205,39 @@ def _run_cli_mcp_server() -> None:
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp')
 
 
+def _run_mcp_error_server(message: str) -> None:
+	"""--cli-mcp / --mcp where nothing can run (browser-harness cannot create its dirs): a server that starts and answers
+	every tool call with message. Exiting before initialize left message in the MCP host's log and showed the agent
+	only 'Connection closed'."""
+	import asyncio
+
+	import mcp.server.stdio
+	import mcp.types as types
+	from mcp.server import Server
+
+	server = Server('browser-use', version=_browser_use_version(), instructions=message)
+	tool = types.Tool(
+		name='browser_exec',
+		description='Execute Python in the browser-harness session.',
+		input_schema={'type': 'object', 'properties': {'code': {'type': 'string'}}, 'required': ['code']},
+	)
+
+	async def list_tools(_context: Any, _params: Any) -> types.ListToolsResult:
+		return types.ListToolsResult(tools=[tool])
+
+	async def call_tool(_context: Any, _params: Any) -> types.CallToolResult:
+		return types.CallToolResult(content=[types.TextContent(type='text', text=f'Error: {message}')], is_error=True)
+
+	server.add_request_handler('tools/list', types.PaginatedRequestParams, list_tools)
+	server.add_request_handler('tools/call', types.CallToolRequestParams, call_tool)
+
+	async def serve() -> None:
+		async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+			await server.run(read_stream, write_stream, server.create_initialization_options())
+
+	asyncio.run(serve())
+
+
 def _run_doctor() -> int:
 	"""browser-use --doctor. browser-harness's doctor named itself, showed its own version and failed a stopped daemon
 	(every call starts one) and a missing sign-in (optional), so a healthy fresh install exited 1. Exit 1 only when
@@ -593,10 +626,12 @@ def _legacy_command(args: list[str]) -> str | None:
 	return None
 
 
-_CLI3_GUIDE = """Core helpers: new_tab(url), goto_url(url), page_info(), capture_screenshot(),
+CORE_HELPERS = """Core helpers: new_tab(url), goto_url(url), page_info(), capture_screenshot(),
   click_at_xy(x, y), type_text(text), fill_input(selector, text), press_key(key),
   scroll(x, y), js(code), cdp(method, ...), wait_for_load(), wait_for_element(selector),
-  list_tabs(), switch_tab(target), close_tab(target)
+  list_tabs(), switch_tab(target), close_tab(target)"""
+
+_CLI3_GUIDE = f"""{CORE_HELPERS}
 
 Read the full interface now:   browser-use skill show
 Install the skill (replaces any pre-existing browser-use skill):
@@ -791,6 +826,9 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		require_harness_dirs()
 	except BrowserConfigError as e:
 		print(e, file=sys.stderr)
+		if mcp := next((a for a in args if a in ('--cli-mcp', '--mcp')), None):
+			_run_mcp_error_server(str(e))  # the agent reads it as the tool's error
+			return 1, mcp.removeprefix('--')
 		return 1, _command_name(args)
 	if '--cli-mcp' in args:
 		_run_cli_mcp_server()

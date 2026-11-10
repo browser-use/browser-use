@@ -831,7 +831,7 @@ class Agent:
 				if tool_args := sum(name in function_tools for name in retried):
 					v3['retries']['tool_args'] = tool_args
 				forms = secret_forms(secrets) if secrets else []
-				urls = dict.fromkeys(scrub(u, forms, MAX_URL, tasks) for u in stats.urls[: min(keys, MAX_URLS)])
+				urls = dict.fromkeys(scrub(u, forms, MAX_URL, tasks, stats.typed) for u in stats.urls[: min(keys, MAX_URLS)])
 				errors = [
 					scrub(e, forms, MAX_ERROR, tasks, stats.typed)
 					for e in ([run_error] if run_error else []) + stats.error_messages

@@ -300,9 +300,10 @@ MCP tool that opens the browser to approve and stores the same key. The old `bro
 `browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
 `--cli-mcp` tools (`browser_exec`, `browser_screenshot`). Calls to the old tool names return the removed error with the
 `browser_exec` alternative; switch those clients to `--cli-mcp`. Locally `--mcp` still runs its own Chromium on a temp
-profile, as 0.x did, while `--cli-mcp` drives your own Chrome with your logins. Where that cannot work (Linux with no
-display, or no Chrome, Chromium or Edge installed) `--cli-mcp` 1.0.1 also runs its own Chromium, installing Playwright's
-once if none is there, and its first result names the browser. `--mcp` (and `python -m browser_use.mcp`)
+profile, as 0.x did, while `--cli-mcp` drives your own Chrome (or Brave, Arc, Edge) with your logins. Where that cannot
+work (Linux with no display, or no Chromium-family browser installed) `--cli-mcp` 1.0.1 also runs its own Chromium for
+the rest of that server process, installing Playwright's once if none is there and the machine has no display. The first
+`browser_exec` result names the browser in a second text block, after the code's output. `--mcp` (and `python -m browser_use.mcp`)
 keeps the `allowed_domains` / `prohibited_domains` of the default `browser_profile` in the 0.x `config.json` and
 `BROWSER_USE_ALLOWED_DOMAINS` (with either set, `start_remote_daemon()` is off: a cloud browser would open any site); a configured proxy (`proxy`, `BROWSER_USE_PROXY_*`) exits 2 instead of being dropped. `browser-use init` templates were removed.
 
@@ -355,8 +356,9 @@ longer word or number; `Agent` warns about such values):
 - the task, follow-up tasks (`add_new_task`) and `extend_system_message`, before the model sees them
 - `result.final_result()`, `result.output` / `result.structured_output` (field by field), `result.partial`,
   `result.error`, and the error `Agent.run` logs
-- anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited (without query strings), error
-  messages and the final result, also with emails, API keys, bearer tokens and `password=...` values replaced. Never
+- anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited (without query strings or path
+  tokens such as a reset or invite link's), error messages and the final result, also with emails, API keys, bearer
+  tokens, `password=...` values and runs of 6+ digits (phone, card, account numbers, one-time codes) replaced. Never
   the task text, typed text, code or secrets. `ANONYMIZED_TELEMETRY=false` turns it off
 - `result.messages`: the model's text, thinking and tool-call arguments, and the retry messages that quote them back (a follow-up task continues the unredacted
   transcript, since providers reject edited signed thinking; screenshots in it stay unredacted)

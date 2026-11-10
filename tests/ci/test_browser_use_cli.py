@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -278,6 +279,21 @@ def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path
 		assert (r.returncode, r.stdout) == (1, ''), r.stderr
 		assert 'BH_HOME' in r.stderr and 'Traceback' not in r.stderr, r.stderr
 	assert run('-m', 'browser_use.cli', 'skill', 'show').returncode == 0
+	# the default model looks for the key `browser-use login` stored, in browser-harness's config dir
+	r = run('-c', "from browser_use import Agent; Agent('x').run_sync()")
+	assert 'MissingAPIKeyError' in r.stderr and 'BROWSER_USE_API_KEY' in r.stderr and 'BH_HOME' in r.stderr, r.stderr
+	assert 'NotADirectoryError' not in r.stderr and 'PermissionError' not in r.stderr, r.stderr
+	# --cli-mcp exited before initialize: the agent saw only 'Connection closed'. It starts, and every call says why
+	init = {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '1'}}
+	messages = [
+		{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': init},
+		{'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+		{'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'browser_exec', 'arguments': {'code': '1'}}},
+	]
+	r = run('-m', 'browser_use.cli', '--cli-mcp', stdin=''.join(json.dumps(m) + '\n' for m in messages))
+	replies = {m['id']: m for m in map(json.loads, r.stdout.splitlines())}
+	result = replies[2]['result']
+	assert result['isError'] and 'BH_HOME' in result['content'][0]['text'], r.stdout
 
 
 def test_piped_code_is_read_as_utf8_whatever_the_locale_says(monkeypatch):

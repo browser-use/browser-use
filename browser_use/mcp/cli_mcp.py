@@ -138,17 +138,27 @@ TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login')
 
 
 def _error_class(e: BaseException) -> str:
+	"""The exception's class for telemetry, and its message unless the cell's own code raised it: Claude's code raises
+	with what it typed or read from the page (`assert name in text, f'{name} missing'`), which no scrub can know."""
 	from browser_use.telemetry.stats import error_class
 
 	errors = _call_errors.get()
 	name = error_class(e)
 	if errors is not None:
 		try:
-			message = str(e)[:4096]
+			message = '' if _raised_by_cell(e) else str(e)[:4096]
 		except Exception:  # - a __str__ that raises
 			message = ''
 		errors.append((name, message))
 	return name
+
+
+def _raised_by_cell(e: BaseException) -> bool:
+	"""The innermost frame is the cell's code (exec'd as '<string>'), not a helper, the server or a library."""
+	tb = e.__traceback__
+	while tb is not None and tb.tb_next is not None:
+		tb = tb.tb_next
+	return tb is not None and tb.tb_frame.f_code.co_filename == '<string>'
 
 
 class NoBrowserError(RuntimeError):
@@ -159,7 +169,7 @@ def _no_chrome_here() -> str | None:
 	"""Why --cli-mcp cannot use the user's Chrome on this machine, or None when it can (maybe after the chrome://inspect
 	setup): no Chrome is attachable, and that setup needs a display and an installed Chrome, Chromium or Edge (Playwright's
 	Chromium is not one a user sets up). A BU_CDP_URL / BU_CDP_WS is always used as given."""
-	from browser_harness import admin
+	from browser_harness import admin, daemon
 
 	from browser_use.browser import local
 
@@ -167,13 +177,17 @@ def _no_chrome_here() -> str | None:
 		return None
 	if not local.has_display():
 		why = 'no display here to turn on remote debugging in a Chrome'
+	elif any((base / 'Local State').is_file() for base in daemon.PROFILES):
+		return None  # a browser browser-harness attaches once set up, find_binary or not: Brave, Arc, a Flatpak Chrome
 	else:
 		try:
 			if local.find_binary() not in local.playwright_chromium():
 				return None
-		except RuntimeError:  # none installed, or only Snap Chromium
-			pass
-		why = 'no Chrome, Chromium or Edge is installed'
+			why = 'no Chrome, Chromium or Edge is installed'
+		except RuntimeError as e:  # none installed, or only Snap Chromium
+			why = 'no Chrome, Chromium or Edge is installed'
+			if 'Snap Chromium' in str(e):
+				why = 'only Snap Chromium is installed, which cannot be attached'
 	try:
 		admin.require_existing_daemon()  # a daemon already attached (an orchestrator's BU_CDP_WS): browser-harness reuses it
 		return None
@@ -345,6 +359,7 @@ class CLIMCPServer:
 		self._install_tried = False
 		self._installed: float | None = None  # seconds _install_chromium took, until announced
 		self._announced: str | None = None  # the browser the last browser_exec result named
+		self._note: str | None = None  # the browser now in use, for the next browser_exec result's second block
 		self.server: Server = Server(
 			'browser-use',
 			version=get_browser_use_version(),
@@ -450,6 +465,7 @@ class CLIMCPServer:
 						is_error=True,
 					)
 				output, failed = await self._locked(self._execute, code)
+				note, self._note = self._note, None
 				if len(output) > MAX_OUTPUT_CHARS:  # same cap as the agent's cells; the full text stays readable on disk
 					# utf-8: Windows' locale encoding (cp1252) failed the whole call on an emoji, after the cell ran
 					with tempfile.NamedTemporaryFile(
@@ -457,9 +473,10 @@ class CLIMCPServer:
 					) as f:
 						f.write(output)
 					output = clip(output, f.name)
-				return types.CallToolResult(
-					content=[types.TextContent(type='text', text=output or '(no output)')], is_error=failed
-				)
+				content = [types.TextContent(type='text', text=output or '(no output)')]
+				if note:  # its own block: a client that parses the code's output (JSON) gets only that in the first
+					content.append(types.TextContent(type='text', text=note))
+				return types.CallToolResult(content=content, is_error=failed)
 			if name == 'browser_screenshot':
 				max_dim = arguments.get('max_dim')
 				if max_dim is not None and (isinstance(max_dim, bool) or not isinstance(max_dim, int) or max_dim < 1):
@@ -551,8 +568,7 @@ class CLIMCPServer:
 		self._ensure_namespace()
 		if not harness_cloud.calls_cloud_admin(code):
 			self._attach()
-			if note := self._browser_note():
-				print(note)  # into the cell's result (_capture)
+			self._note = self._browser_note() or self._note
 
 	def _attach(self) -> None:
 		"""Attach what helpers drive: the cloud browser this server started, else its own Chromium (--mcp, or --cli-mcp
@@ -576,11 +592,14 @@ class CLIMCPServer:
 			self._own_started = True
 
 	async def _start_own(self, browser: Browser) -> dict[str, str]:
-		"""browser.start(); on a machine with no browser installed, installs Playwright's Chromium first (once)."""
+		"""browser.start(); on a machine with no browser and no display (a server, a container), installs Playwright's
+		Chromium first (once). Never on a desktop: 150 MB inside one tool call the user did not ask for."""
+		from browser_use.browser import local
+
 		try:
 			return await browser.start()
 		except RuntimeError as e:  # local.find_binary
-			if self._install_tried or not str(e).startswith('No Chrome, Chromium or Edge found'):
+			if self._install_tried or not str(e).startswith('No Chrome, Chromium or Edge found') or local.has_display():
 				raise
 		self._install_tried = True
 		self._installed = await asyncio.to_thread(_install_chromium)
@@ -669,8 +688,15 @@ class CLIMCPServer:
 				_error_class(e)
 				if isinstance(e, CloudAuthRequired | CloudBrowserError):
 					print(self._error(e), file=buffer)
-				else:
-					traceback.print_exc(file=buffer)
+				else:  # from the cell's first frame: this server's exec() frame is noise to the model
+					traceback.print_exception(type(e), e, e.__traceback__.tb_next if e.__traceback__ else None, file=buffer)
+					if isinstance(e, NameError) and e.name and _raised_by_cell(e):
+						from browser_use.cli import CORE_HELPERS
+
+						print(
+							f"'{e.name}' is not defined here (0.x actions like click_element were removed).\n{CORE_HELPERS}",
+							file=buffer,
+						)
 		return buffer.getvalue(), failed
 
 	def _error(self, e: Exception) -> str:

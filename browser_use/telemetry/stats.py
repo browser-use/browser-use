@@ -1,6 +1,6 @@
-"""What a run reports to telemetry: counts, names, hostnames and classes; the URLs visited without query strings, error
-messages and the final result, with secrets and credentials scrubbed (scrub()). Never the task text, typed text, code or
-secrets. Names the model's code can choose (imported modules, exception classes, cdp() methods) are kept only when
+"""What a run reports to telemetry: counts, names, hostnames and classes; the URLs visited without query strings or path
+tokens, error messages and the final result, with secrets, credentials and long numbers scrubbed (scrub()). Never the
+task text, typed text, code or secrets. Names the model's code can choose (imported modules, exception classes, cdp() methods) are kept only when
 Python, an installed package or the CDP protocol defines them."""
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from functools import cache, lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path, PurePath
 from typing import Any
+from urllib.parse import quote, quote_plus
 
 from browser_use.domains import parse_url
 
@@ -134,9 +135,20 @@ COOKIE = re.compile(r'(?im)(?<![a-z])((?:set-)?cookie["\']?\s*[=:]\s*)[^\r\n]+')
 # a URL in a message or the result: its user:password@ and its query and fragment are not sent, as in urls_visited
 TAG = r'<[a-z]+(?::[^\s<>]*)?>'  # a <secret:name> already in a URL is part of it
 URL = re.compile(
-	rf'(?i)\b([a-z][a-z0-9+.-]{{0,30}}://)((?:[^\s/?#@<>"\'`]|{TAG})*@)?((?:[^\s?#<>"\'`]|{TAG})*)'
-	rf'(?:[?#](?:[^\s<>"\'`]|{TAG})*)?'
+	rf'(?i)\b([a-z][a-z0-9+.-]{{0,30}}://)((?:[^\s/?#@<>"\'`]|{TAG})*@)?((?:[^\s;?#<>"\'`]|{TAG})*)'
+	rf'(?:[;?#](?:[^\s<>"\'`]|{TAG})*)?'  # ;jsessionid=..., as page_url
 )
+QUERY = re.compile(r'(/[^\s?#<>"\'`]*)\?[^\s<>"\'`]+')  # a path without its scheme (/login?next=...&sid=...): its query
+UUID = re.compile(r'(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+# a random run no word or slug has: 12+ letters and digits mixed (a reset token, a docs id); 'iphone-15-pro-256gb' is a slug
+TOKEN = re.compile(r'(?<![A-Za-z0-9])(?=[A-Za-z]*[0-9])(?=[0-9]*[A-Za-z])[A-Za-z0-9]{12,}')
+# a path segment after which every segment is a credential: /reset-password/<token>, /invite/<id>, /magic-link/<token>
+GRANTS = re.compile(
+	r'(?i)(?<![a-z])(?:reset|invite|invitation|magic|confirm|confirmation|verify|verification|token|tokens|activate'
+	r'|activation|unsubscribe|password)(?![a-z])'
+)
+# 6+ digits, spaces, dashes or brackets between them: a phone, card, IBAN, SSN or account number, a one-time code
+NUMBER = re.compile(r'(?<!\d)\+?\d(?:[ ()-]{0,2}\d){5,}(?!\d)')
 EXPRESSION = re.compile(r'; expression: .*', re.S)  # browser-harness js() errors quote the agent's code
 # a home folder names its user: /Users/jane, /home/jane, C:\Users\jane, file:///Users/jane; never a URL's /home/ path
 HOME = re.compile(r'(?i)((?:(?<=file://)|(?<![\w./-]))(?:/Users/|/home/)|(?<!\w)[a-z]:\\{1,2}Users\\{1,2})[^/\\\s\'"<>`:]+')
@@ -151,17 +163,19 @@ def scrub(
 ) -> str | None:
 	"""Text as sent: the task text (or each of the agent's tasks) quoted whole, and each run of TASK_WORDS of its
 	words, as <task>; the run's secrets as <secret:name> (redact_forms with its secret_forms); text the agent typed
-	as <typed>; a URL's user:password@, query and fragment dropped; a home folder's user name as <user>; emails as
+	as <typed>, also in a URL path's forms (pizza+near+me); a URL's user:password@, ;params, query and fragment dropped,
+	and a path's query; a URL path's tokens as <token> (_path_tokens); a home folder's user name as <user>; emails as
 	<email>; API keys, bearer tokens, cookies, password=... values and the values of this process's *_KEY, *_TOKEN,
-	*_SECRET and *_PASSWORD environment variables as <credential>; then cut to limit characters. Cut last: a secret cut
+	*_SECRET and *_PASSWORD environment variables as <credential>; runs of 6+ digits (a phone, card, IBAN, one-time
+	code) as <number>; then cut to limit characters. Cut last: a secret cut
 	in half would no longer match. A long text (a 1 MB result) is scrubbed in a window of 64x limit, which ends far
 	enough past what is sent that nothing cut at its end reaches it; else whole."""
 	if text is None:
 		return None
 	text = str(text)
 	tasks = tuple(t for t in ([task] if isinstance(task, str) else task) if t)
-	typed = tuple(dict.fromkeys(str(t) for t in typed if t and len(str(t)) >= MIN_TYPED))
-	window = 64 * limit + max([0, *map(len, tasks), *map(len, typed), *(len(f) for f, _ in forms)]) + 64
+	typed = tuple(dict.fromkeys(t for t in (str(t).strip() for t in typed if t) if len(t) >= MIN_TYPED))  # 'q\n' submits q
+	window = 64 * limit + max([0, *map(len, tasks), *(3 * len(t) for t in typed), *(len(f) for f, _ in forms)]) + 64
 	if len(text) > window:
 		head = _scrub(text[:window], forms, tasks, typed)
 		if len(head) >= 2 * limit + window // 2:  # what is sent ends well before what was cut
@@ -178,17 +192,42 @@ def _scrub(text: str, forms: list[tuple[str, str]], tasks: tuple[str, ...], type
 		out = out.replace(form, '<task>')
 	out = _task_runs(out, tasks, forms)
 	out = redact_forms(out, forms) if forms else out
-	for t in sorted(typed, key=len, reverse=True):  # a whole word or phrase: typing 'Paris' must not cut 'Parisian'
-		out = re.sub(rf'(?<![^\W_]){re.escape(t)}(?![^\W_])', '<typed>', out)
+	for t in sorted({f for t in typed for f in _typed_forms(t)}, key=len, reverse=True):
+		out = re.sub(rf'(?i)(?<![^\W_]){re.escape(t)}(?![^\W_])', '<typed>', out)  # whole: typing 'Paris' keeps 'Parisian'
 	for value in _env_secrets():
 		out = out.replace(value, '<credential>')
 	out = EXPRESSION.sub('; expression: <code>', out)
-	out = URL.sub(lambda m: m[1] + ('<credential>@' if m[2] else '') + m[3], out)
+	out = URL.sub(lambda m: m[1] + ('<credential>@' if m[2] else '') + _path_tokens(m[3]), out)
+	out = QUERY.sub(r'\1', out)
 	out = HOME.sub(lambda m: m[1] + '<user>', out)
 	out = BEARER.sub(lambda m: m[1] + m[2] + '<credential>', out)  # first: 'Authorization: Bearer <token>'
 	out = COOKIE.sub(lambda m: m[1] + '<credential>', out)
 	out = ASSIGNED.sub(lambda m: m[1] + m[2] + '<credential>', out)
-	return EMAIL.sub('<email>', KEYS.sub('<credential>', out))
+	return NUMBER.sub('<number>', EMAIL.sub('<email>', KEYS.sub('<credential>', out)))
+
+
+def _path_tokens(where: str) -> str:
+	"""host/path with each segment that is a token (a UUID, a TOKEN run) and every segment after a GRANTS one as <token>:
+	a password reset, invite or magic link's path is its credential, as a query string's is."""
+	host, sep, path = where.partition('/')
+	segments, granted = path.split('/'), False
+	for i, segment in enumerate(segments):
+		if not segment or '<' in segment:  # empty, or already a placeholder (<secret:name>, <typed>)
+			continue
+		if granted or UUID.search(segment) or TOKEN.search(segment):
+			segments[i] = '<token>'
+		granted = granted or bool(GRANTS.search(segment))
+	return host + sep + '/'.join(segments)
+
+
+def _typed_forms(text: str) -> set[str]:
+	"""Typed text as a page quotes it, and as a URL path does: Maps' /search/pizza+near+me, Zillow's
+	/homes/123-Main-St-Springfield-IL_rb, Wikipedia's /wiki/Albert_Einstein."""
+	words = re.findall(r'[^\W_]+', text)
+	forms = {text, quote(text), quote_plus(text)}
+	if len(words) > 1:
+		forms |= {sep.join(words) for sep in ('-', '+', '_', '%20')}
+	return {f for f in forms if len(f) >= MIN_TYPED}
 
 
 WORD = re.compile(r'\S+')

@@ -64,6 +64,7 @@ _device_id: str | None = None
 _device_id_lock = threading.Lock()
 _harness_config_disabled: bool | None = None  # browser-harness's telemetry.json, read once per process (harness_disabled)
 _tls: Any = None  # the thread's TLS context, made once under ProductTelemetry._lock (_online)
+_IMPORT_PID = os.getpid()  # a different pid in _post: a forked child
 
 
 def telemetry_dir() -> Path:
@@ -360,6 +361,13 @@ class ProductTelemetry:
 		headers = {'Content-Type': 'application/json', 'Content-Encoding': 'gzip'}
 		request = urllib.request.Request(f'{POSTHOG_HOST}/batch/', data, headers)
 		try:
+			if sys.platform == 'darwin' and os.getpid() != _IMPORT_PID:
+				# a forked child: macOS's system proxy lookup (_scproxy, CoreFoundation) segfaulted it after fork; the
+				# environment's proxies only (HTTPS_PROXY, NO_PROXY)
+				proxies = urllib.request.ProxyHandler(urllib.request.getproxies_environment())
+				opener = urllib.request.build_opener(proxies, urllib.request.HTTPSHandler(context=_tls))
+				with opener.open(request, timeout=timeout) as r:
+					return 200 <= r.status < 300
 			with urllib.request.urlopen(request, timeout=timeout, context=_tls) as r:
 				return 200 <= r.status < 300
 		except Exception:

@@ -648,6 +648,7 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 	calls = [
 		('browser_exec', {'code': 'print("Zq9-out")'}),
 		('browser_exec', {'code': 'raise KeyError("sent zq7 sk-ant-Zq9secretkey123")'}),
+		('browser_exec', {'code': 'import json\njson.loads("{Zq9")'}),
 		('browser_exec', {'code': ''}),
 		('browser_navigate', {'url': 'https://zq9.test/'}),
 		('Zq9-made-up', {}),
@@ -655,16 +656,20 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 	for name, arguments in calls:
 		await handler(None, types.CallToolRequestParams(name=name, arguments=arguments))  # pyright: ignore[reportArgumentType]
 	assert_absent({'events': sent}, 'Zq9')
-	# a rejected call has no exception: its error is the server's own text; an unknown tool's name is never sent
+	# what the cell's own code raised is its class only: it quotes what Claude typed or read from the page. A library's
+	# error keeps its message; a rejected call has no exception: its error is the server's own text; an unknown tool's
+	# name is never sent
 	errors = [e['error_message'] for e in sent]
-	assert errors == [None, "'sent zq7 <credential>'", "'code' must be a non-empty string", None, None]
+	decode = 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)'
+	assert errors == [None, None, decode, "'code' must be a non-empty string", None, None]
 	got = [(e['event'], e['action'], e['tool_name'], e['ok'], e['error_type'], e['call_n']) for e in sent]
 	assert got == [
 		('mcp_server_event', 'tool_call', 'browser_exec', True, None, 1),
 		('mcp_server_event', 'tool_call', 'browser_exec', False, 'KeyError', 2),
-		('mcp_server_event', 'tool_call', 'browser_exec', False, 'invalid_arguments', 3),
-		('mcp_server_event', 'tool_call', 'browser_navigate', False, 'unknown_tool', 4),
-		('mcp_server_event', 'tool_call', 'invalid', False, 'unknown_tool', 5),
+		('mcp_server_event', 'tool_call', 'browser_exec', False, 'JSONDecodeError', 3),
+		('mcp_server_event', 'tool_call', 'browser_exec', False, 'invalid_arguments', 4),
+		('mcp_server_event', 'tool_call', 'browser_navigate', False, 'unknown_tool', 5),
+		('mcp_server_event', 'tool_call', 'invalid', False, 'unknown_tool', 6),
 	]
 	first = sent[0]
 	assert (first['server'], first['browser'], first['agent_client'], first['is_internal']) == (
@@ -1204,6 +1209,24 @@ async def test_the_runs_error_comes_first_and_repeated_messages_are_sent_once(se
 			"RuntimeError: JavaScript evaluation failed: TypeError: x; expression: fill('zq')",
 			'RuntimeError: JavaScript evaluation failed: TypeError: x; expression: <code>',
 		),
+		# a reset, invite or magic link's path is its credential, as a query string is; a product slug is not
+		('https://app.example.com/reset-password/a3f9b2c1d4e5f6a7', 'https://app.example.com/reset-password/<token>'),
+		('https://a.example/invite/3f2a9c1e-8b7d-4e6f-9a0b-1c2d3e4f5a6b', 'https://a.example/invite/<token>'),
+		('https://slack.com/magic-link/8XqZ4Kp9LmN2vB7wR3tY6uA1', 'https://slack.com/magic-link/<token>'),
+		(
+			'https://docs.google.com/d/1BxiMVs0XRA5n-FMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
+			'https://docs.google.com/d/<token>/edit',
+		),
+		('https://www.apple.com/shop/iphone-15-pro-max-256gb', 'https://www.apple.com/shop/iphone-15-pro-max-256gb'),
+		('at https://shop.example/cart;jsessionid=AB12CD34EF56?x=1', 'at https://shop.example/cart'),
+		('Failed loading /login?next=/account&sid=abc123def456', 'Failed loading /login'),
+		# third-party data an extraction result or a page-quoting error carries
+		(
+			'John, +1 (415) 555-0137, card 4111 1111 1111 1111, IBAN DE89370400440532013000, SSN 123-45-6789',
+			'John, <number>, card <number>, IBAN DE<number>, SSN <number>',
+		),
+		('Your verification code is 482913', 'Your verification code is <number>'),
+		('Timeout 30000ms at http://127.0.0.1:9222/json', 'Timeout 30000ms at http://127.0.0.1:9222/json'),
 	],
 )
 def test_scrub_replaces_credentials_and_emails_and_keeps_ordinary_text(text, out):
@@ -1249,6 +1272,15 @@ def test_scrub_sends_five_task_words_in_a_row_and_typed_text_as_placeholders():
 	assert out == 'Done: logged in. <task> and downloaded it'
 	assert scrub('the Acme portal is up', [], 300, task=task) == 'the Acme portal is up'  # four words: ordinary text
 	assert scrub('searched Paris Hilton; Parisian', [], 300, typed=['Paris Hilton', 'Parisian x']) == 'searched <typed>; Parisian'
+	assert scrub('searched for cheap flights paris', [], 300, typed=['cheap flights paris\n']) == 'searched for <typed>'
+	# sites put the query in the path: Zillow, Maps, Wikipedia
+	for url, typed, out in (
+		('https://www.zillow.com/homes/123-Main-St-Springfield-IL_rb/', '123 Main St, Springfield, IL', '/homes/<typed>_rb/'),
+		('https://www.google.com/maps/search/pizza+near+me/', 'pizza near me', '/maps/search/<typed>/'),
+		('https://en.wikipedia.org/wiki/Albert_Einstein', 'Albert Einstein', '/wiki/<typed>'),
+		('https://www.airbnb.com/s/Lisbon%20Portugal/homes', 'Lisbon Portugal', '/s/<typed>/homes'),
+	):
+		assert scrub(url, [], 200, typed=[typed]).endswith(out), url
 
 
 @pytest.mark.parametrize(

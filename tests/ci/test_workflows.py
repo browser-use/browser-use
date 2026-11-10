@@ -147,6 +147,7 @@ def test_publish_needs_the_pyproject_version_tag_on_the_checked_out_commit(tmp_p
 
 	def run(event: str, release_tag: str = '') -> subprocess.CompletedProcess:
 		env = {**os.environ, 'EVENT_NAME': event, 'RELEASE_TAG': release_tag}
+		env['PATH'] = f'{Path(sys.executable).parent}{os.pathsep}{env["PATH"]}'  # python3 with tomllib, as on the runner (3.12)
 		return subprocess.run(['bash', '-c', steps[check]['run']], cwd=work, env=env, capture_output=True, text=True, timeout=60)
 
 	assert 'Tag 1.0.1 does not exist' in run('workflow_dispatch').stdout  # no tag anywhere
