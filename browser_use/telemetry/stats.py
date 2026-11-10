@@ -195,8 +195,10 @@ def _scrub(text: str, forms: list[tuple[str, str]], tasks: tuple[str, ...], type
 		out = out.replace(form, '<task>')
 	out = _task_runs(out, tasks, forms)
 	out = redact_forms(out, forms) if forms else out
+	typed = _bounded(typed)
 	for t in sorted({f for t in typed for f in _typed_forms(t)}, key=len, reverse=True):
-		out = re.sub(rf'(?i)(?<![^\W_]){re.escape(t)}(?![^\W_])', '<typed>', out)  # whole: typing 'Paris' keeps 'Parisian'
+		if t.lower() in out.lower():  # a regex only for a form the text holds: a 64k-character form compiles slowly
+			out = re.sub(rf'(?i)(?<![^\W_]){re.escape(t)}(?![^\W_])', '<typed>', out)  # whole: 'Paris' keeps 'Parisian'
 	out = _task_runs(out, typed, [], '<typed>')  # a part of a long typed text: a message the agent wrote
 	for value in _env_secrets():
 		out = out.replace(value, '<credential>')
@@ -251,15 +253,30 @@ def _word(w: str) -> str:
 	return w.strip('.,;:!?"\'()[]{}*`').lower()
 
 
+TYPED_RUNS_CHARS = 262_144  # typed characters whose word runs are matched: bounds the run set at ~50k
+
+
+def _bounded(texts: tuple[str, ...] | list[str], limit: int = TYPED_RUNS_CHARS) -> tuple[str, ...]:
+	out: list[str] = []
+	for t in texts:
+		if limit <= 0:
+			break
+		out.append(t[:limit])
+		limit -= len(t)
+	return tuple(out)
+
+
 @lru_cache(maxsize=4)  # one event scrubs up to 71 texts with the same tasks
-def _task_grams(tasks: tuple[str, ...], forms: tuple[tuple[str, str], ...]) -> frozenset[tuple[str, ...]]:
+def _task_grams(tasks: tuple[str, ...], forms: tuple[tuple[str, str], ...]) -> frozenset[int]:
+	"""Hashes of every TASK_WORDS-word run (a hash, not the words: 50 typed texts of 64k characters are 600k runs; a
+	collision only scrubs an extra run)."""
 	from browser_use.repl.session import redact_forms
 
-	grams: set[tuple[str, ...]] = set()
+	grams: set[int] = set()
 	for t in tasks:
 		for form in dict.fromkeys((t, redact_forms(t, list(forms)) if forms else t)):
 			words = [_word(w) for w in form.split()]
-			grams.update(tuple(words[i : i + TASK_WORDS]) for i in range(len(words) - TASK_WORDS + 1))
+			grams.update(hash(tuple(words[i : i + TASK_WORDS])) for i in range(len(words) - TASK_WORDS + 1))
 	return frozenset(grams)
 
 
@@ -274,7 +291,7 @@ def _task_runs(text: str, tasks: tuple[str, ...], forms: list[tuple[str, str]], 
 	words = [_word(m[0]) for m in tokens]
 	covered = [False] * len(tokens)
 	for i in range(len(tokens) - TASK_WORDS + 1):
-		if tuple(words[i : i + TASK_WORDS]) in grams:
+		if hash(tuple(words[i : i + TASK_WORDS])) in grams:
 			covered[i : i + TASK_WORDS] = [True] * TASK_WORDS
 	if not any(covered):
 		return text

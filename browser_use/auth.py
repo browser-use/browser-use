@@ -26,13 +26,19 @@ def clean_api_key(key: str, source: str, what: str = 'Browser Use Cloud') -> str
 def harness_dir_setting(path: object) -> str:
 	"""The setting that chose browser-harness dir path: BH_CONFIG_DIR, BH_RUNTIME_DIR, BH_TMP_DIR or BH_AGENT_WORKSPACE
 	when set to it or a dir around it (each overrides BH_HOME for its dir), else BH_HOME."""
-	if path:
-		failed = Path(str(path)).expanduser().resolve()
-		for name in ('BH_CONFIG_DIR', 'BH_RUNTIME_DIR', 'BH_TMP_DIR', 'BH_AGENT_WORKSPACE'):
-			if raw := os.environ.get(name):
-				base = Path(raw).expanduser().resolve()
-				if failed.is_relative_to(base) or base.is_relative_to(failed):
-					return name
+	try:
+		failed = Path(str(path)).expanduser().resolve() if path else None
+	except (OSError, RuntimeError, ValueError):  # it only picks the hint: an unresolvable path keeps the BH_HOME one
+		failed = None
+	for name in ('BH_CONFIG_DIR', 'BH_RUNTIME_DIR', 'BH_TMP_DIR', 'BH_AGENT_WORKSPACE'):
+		if failed is None or not (raw := os.environ.get(name)):
+			continue
+		try:
+			base = Path(raw).expanduser().resolve()
+		except (OSError, RuntimeError, ValueError):  # a malformed override ('~nouser/x', a NUL): skip it
+			continue
+		if failed.is_relative_to(base) or base.is_relative_to(failed):
+			return name
 	return 'BH_HOME'
 
 

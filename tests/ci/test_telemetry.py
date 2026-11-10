@@ -2187,3 +2187,21 @@ def test_a_library_error_quoting_page_text_is_sent_as_its_class_only():
 		exec(compile('raise ValueError(x)', '<cell 3>', 'exec'), {'x': page_text})
 	except ValueError as e:
 		assert raised_by_cell(e)
+
+
+def test_long_typed_texts_are_matched_in_bounded_memory_and_time():
+	"""Retest 1.0.1 review: 50 typed texts of 64k characters held every five-word run as a tuple (~600k runs, ~100 MB)."""
+	import tracemalloc
+
+	from browser_use.telemetry.stats import TYPED_RUNS_CHARS, _bounded, _task_grams, scrub
+
+	rng = random.Random(7)
+	typed = tuple(' '.join(rng.choice(string.ascii_lowercase) * 6 + str(i) for i in range(9000))[:65536] for _ in range(50))
+	assert sum(map(len, _bounded(typed))) == TYPED_RUNS_CHARS
+	_task_grams.cache_clear()
+	tracemalloc.start()
+	started = time.perf_counter()
+	out = scrub(typed[0][:400], [], 500, typed=typed)
+	_, peak = tracemalloc.get_traced_memory()
+	tracemalloc.stop()
+	assert '<typed>' in out and time.perf_counter() - started < 5 and peak < 40_000_000
