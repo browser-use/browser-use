@@ -36,45 +36,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Create pre-release tag
+      - name: Tag the pyproject version
         run: |
+          set -euo pipefail
           git fetch --tags
-          latest_tag=$(git tag --list --sort=-v:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$' | head -n 1)
-          if [ -z "$latest_tag" ]; then
-            echo "Failed to find the latest git tag from list:" > /dev/stderr
-            git tag --list --sort=-v:refname
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          # The tag is what pyproject.toml says gets published; never a bump of the newest (0.x) tag.
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+rc[0-9]+$ ]]; then
+            echo "pyproject.toml version $version is not a pre-release (X.Y.ZrcN); bump it first" > /dev/stderr
             exit 1
-          else
-            # Bump the tag rc version
-            if [[ "$latest_tag" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(rc([0-9]+))?$ ]]; then
-              major="${BASH_REMATCH[1]}"
-              minor="${BASH_REMATCH[2]}"
-              patch="${BASH_REMATCH[3]}"
-              rc="${BASH_REMATCH[5]}"
-              echo "latest_tag: ${major}.${minor}.${patch}rc${rc:-0}"
-              if [ -z "$rc" ]; then
-                # No rc, so bump patch and set rc=1            # 0.2.1 -> 0.2.2rc1
-                patch=$((patch + 1))
-                new_tag="${major}.${minor}.${patch}rc1"
-              else
-                if [ "$rc" -ge 99 ]; then
-                  echo "Error: rc version is already at 99 for tag $latest_tag, refusing to increment further." > /dev/stderr
-                  exit 1
-                fi
-                rc=$((rc + 1))
-                new_tag="${major}.${minor}.${patch}rc${rc}"    # 0.2.1rc1 -> 0.2.1rc2
-              fi
-            else
-              echo "Error: latest_tag '$latest_tag' does not match expected version pattern." > /dev/stderr
-              exit 1
-            fi
           fi
-          echo "new_tag: $new_tag"
-          git tag $new_tag
-          git push origin $new_tag
+          if git rev-parse -q --verify "refs/tags/$version" > /dev/null; then
+            echo "Tag $version already exists; bump the pyproject.toml version first" > /dev/stderr
+            exit 1
+          fi
+          echo "new_tag: $version"
+          git tag "$version"
+          git push origin "$version"
 
   publish_to_pypi:
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    needs: tag_pre_release
+    # A failed tag step stops the publish; a skipped one (release event, create_tag=false) does not.
+    if: always() && needs.tag_pre_release.result != 'failure' && needs.tag_pre_release.result != 'cancelled' && (github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -113,27 +96,32 @@ jobs:
           version: "0.12.9"
           enable-cache: true
           activate-environment: true
-      - run: uv sync
+      - name: Release tag matches the pyproject version
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          if [ "$TAG" != "$version" ]; then
+            echo "::error::Release tag $TAG does not match pyproject.toml version $version"
+            exit 1
+          fi
+      - run: uv sync --locked --dev --all-extras
 
       - run: uv run --no-sync ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
+      # The dispatched SHA is what reaches PyPI: its tests must pass here (test.yaml's matrix runs the chrome ones)
+      - run: uv run --no-sync pytest tests/ci -m "not chrome" -q
       - run: uv build
+      - name: Smoke test the wheel in a fresh venv
+        run: |
+          set -euo pipefail
+          uv venv --python 3.11 /tmp/wheel-smoke
+          uv pip install --python /tmp/wheel-smoke/bin/python dist/*.whl
+          /tmp/wheel-smoke/bin/browser-use --version
+          # Outside the checkout: `python -c` puts the cwd first on sys.path, which would import the source tree, not the wheel
+          cd "$RUNNER_TEMP"
+          /tmp/wheel-smoke/bin/python -c "import os, browser_use; from browser_use import Agent, Browser, ChatBrowserUse, Tools; assert not browser_use.__file__.startswith(os.environ['GITHUB_WORKSPACE']), browser_use.__file__"
 
-      # - name: Detect installed Playwright version
-      #   run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
-
-      # - name: Cache playwright binaries
-      #   uses: actions/cache@v3
-      #   with:
-      #     path: |
-      #       ~/.cache/ms-playwright
-      #     key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
-
-      - run: uvx playwright install chrome
-      - run: uvx playwright install chromium
-
-      # TODO: just depend on the other test.yml action for this instead of re-running the tests here
-      # - run: uv run pytest tests/ci/test_tools.py   # final sanity check: run a few of the tests before release
-      
       # publish to PyPI
       - run: uv publish --trusted-publishing always
       - name: Push to stable branch (if stable release)

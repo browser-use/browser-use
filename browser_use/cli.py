@@ -7,6 +7,7 @@ import time
 from contextlib import redirect_stderr, redirect_stdout
 from importlib.metadata import PackageNotFoundError, version
 from io import StringIO
+from typing import TYPE_CHECKING, Any
 
 
 def _browser_use_version() -> str:
@@ -29,6 +30,55 @@ def _set_harness_client_env() -> None:
 
 	os.environ['BH_CLIENT'] = 'browser-use-cli'
 	os.environ['BH_CLIENT_VERSION'] = _browser_use_version()
+	os.environ.setdefault('BH_DEVICE_NAME', 'browser-use')  # names the key `login` creates in the dashboard
+
+
+def _scrub_harness_telemetry() -> None:
+	"""browser-harness's cli_event carries the piped code, its output, helper arguments and error text. In the
+	browser-use CLI those never leave the machine: every event is scrubbed, then sent by the library's
+	sender to the library's PostHog project under its device id, next to the same machine's agent_events (browser-harness
+	would send it to its own project under its own install id, and create that id). ANONYMIZED_TELEMETRY turns it off as
+	in the library (browser-harness alone only knows 0, false, no and off): its is_enabled() says so too, else it built the
+	event before the send was dropped."""
+	from browser_harness import telemetry
+
+	from browser_use.config import CONFIG
+
+	enabled = telemetry.is_enabled
+	if not getattr(enabled, '__bu_scrubbed__', False):
+
+		def is_enabled() -> bool:
+			return bool(CONFIG.ANONYMIZED_TELEMETRY) and enabled()
+
+		is_enabled.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry.is_enabled = is_enabled
+	if not getattr(telemetry._install_id, '__bu_scrubbed__', False):
+
+		def install_id(config: dict | None = None, *, create: bool = True) -> str | None:
+			"""The id `browser-use telemetry status` shows: the one cli_event is sent under."""
+			from browser_use.telemetry.service import get_or_create_device_id
+
+			return get_or_create_device_id() if create and CONFIG.ANONYMIZED_TELEMETRY else None
+
+		install_id.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry._install_id = install_id
+	if getattr(telemetry._send_detached, '__bu_scrubbed__', False):
+		return
+
+	def scrubbed(payload: dict) -> None:
+		if not CONFIG.ANONYMIZED_TELEMETRY:
+			return
+		from browser_use.telemetry.service import Job
+		from browser_use.telemetry.service import telemetry as product_telemetry
+		from browser_use.telemetry.stats import scrub_cli_event
+
+		event = scrub_cli_event(payload)
+		props = event.get('properties') or {}
+		product_telemetry().notice = False  # no log line on the CLI's stderr each call (it never had one)
+		product_telemetry().capture_run(Job(str(event.get('event') or 'cli_event'), lambda steps, keys: props))
+
+	scrubbed.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+	telemetry._send_detached = scrubbed
 
 
 def _capture_via_harness(
@@ -45,6 +95,7 @@ def _capture_via_harness(
 		if capture_cli_event is None:
 			return
 		_set_harness_client_env()
+		_scrub_harness_telemetry()
 		code = _exit_code(result)
 		capture_cli_event(
 			action='error' if code else 'completed',
@@ -57,7 +108,7 @@ def _capture_via_harness(
 		pass
 
 
-def _run_mcp_stdio_server(module_name: str) -> None:
+def _run_mcp_stdio_server(module_name: str, **kwargs: Any) -> None:
 	"""Silence all logging"""
 	import asyncio
 	import importlib
@@ -69,66 +120,256 @@ def _run_mcp_stdio_server(module_name: str) -> None:
 	logging.disable(logging.CRITICAL)
 
 	main = importlib.import_module(module_name).main
-	asyncio.run(main())
+	asyncio.run(main(**kwargs))
 
 
-def _run_mcp_server() -> None:
-	_run_mcp_stdio_server('browser_use.mcp.server')
+def _mcp_browser_options() -> dict[str, Any]:
+	"""The 0.x --mcp server's browser restrictions (0.x config.py, mcp/server.py): allowed_domains and prohibited_domains
+	of config.json's default browser_profile, BROWSER_USE_ALLOWED_DOMAINS over them. Ignoring them gave an MCP client
+	restricted to one site a browser that goes anywhere. A proxy, which 1.0 cannot run locally, raises."""
+	import json
+	import os
+	from pathlib import Path
+
+	from browser_use.exceptions import removed
+
+	if os.environ.get('BROWSER_USE_CONFIG_PATH'):
+		path = Path(os.environ['BROWSER_USE_CONFIG_PATH']).expanduser()
+	elif os.environ.get('BROWSER_USE_CONFIG_DIR'):
+		path = Path(os.environ['BROWSER_USE_CONFIG_DIR']).expanduser() / 'config.json'
+	else:
+		path = Path(os.environ.get('XDG_CONFIG_HOME') or '~/.config').expanduser() / 'browseruse' / 'config.json'
+	try:
+		profiles = list((json.loads(path.read_text(encoding='utf-8')).get('browser_profile') or {}).values())
+	except (OSError, ValueError, AttributeError):  # no config, or one 0.x itself replaced with a fresh default
+		profiles = []
+	profile = next((p for p in profiles if isinstance(p, dict) and p.get('default')), profiles[0] if profiles else {})
+	profile = profile if isinstance(profile, dict) else {}
+	options = {k: profile[k] for k in ('allowed_domains', 'prohibited_domains') if profile.get(k)}
+	if domains := os.environ.pop('BROWSER_USE_ALLOWED_DOMAINS', '').strip():  # Browser() raises on the variable itself
+		options['allowed_domains'] = [d.strip() for d in domains.split(',') if d.strip()]
+	proxy_env = [
+		k
+		for k in ('BROWSER_USE_PROXY_URL', 'BROWSER_USE_NO_PROXY', 'BROWSER_USE_PROXY_USERNAME', 'BROWSER_USE_PROXY_PASSWORD')
+		if os.environ.get(k)
+	]
+	if profile.get('proxy') or proxy_env:
+		where = proxy_env[0] if proxy_env else f'the proxy of the default browser_profile in {path}'
+		raise ValueError(removed(f'browser-use --mcp with a proxy ({where})', "Browser('chromium') has no proxy yet; remove it."))
+	return options
+
+
+def _run_mcp_server(command: str = 'browser-use --mcp') -> int:
+	# The 0.x --mcp server (browser_navigate, browser_click, ...) ran the removed engine. Its clients now get the
+	# browser-harness exec server (browser_exec, browser_screenshot): a protocol change, see MIGRATING.md. It keeps the
+	# 0.x server's own Chromium and its domain restrictions: an old config must not start driving the user's logged-in
+	# Chrome, or go to sites it was kept off.
+	print(
+		f'{command} is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
+		'browser_login) on its own Chromium; browser-use --cli-mcp drives your own Chrome instead.',
+		file=sys.stderr,
+	)
+	from browser_use.domains import DomainRules
+
+	try:
+		options = _mcp_browser_options()
+		DomainRules.of(options.get('allowed_domains'), options.get('prohibited_domains'))  # a bad pattern: here, not mid-protocol
+	except (TypeError, ValueError) as e:
+		print(f'{command}: {e}', file=sys.stderr)
+		return 2
+	_run_mcp_stdio_server('browser_use.mcp.cli_mcp', own_browser=True, **options)
+	return 0
 
 
 def _run_cli_mcp_server() -> None:
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp')
 
 
+def _run_doctor() -> int:
+	"""browser-use --doctor. browser-harness's doctor named itself, showed its own version and failed a stopped daemon
+	(every call starts one) and a missing sign-in (optional), so a healthy fresh install exited 1. Exit 1 only when
+	nothing can run: no local browser and no key."""
+	import platform
+
+	from browser_harness import admin
+
+	from browser_use.auth import browser_use_api_key
+	from browser_use.browser.browser import _name_daemon_files
+	from browser_use.browser.local import find_binary
+
+	_name_daemon_files()  # the daemon this checks is the one the next call would use
+	print(f'browser-use {_browser_use_version()} (browser-harness {admin._version()}), Python {platform.python_version()}')
+	try:
+		local = find_binary()
+	except RuntimeError as e:  # none installed (its error names `browser-use install`), or only a Snap one (it does not)
+		local, local_text = None, str(e).splitlines()[0]
+		if 'browser-use install' not in local_text:  # Playwright's Chromium is found past a Snap one
+			local_text += '  (or: browser-use install)'
+	else:
+		local_text = local
+	try:
+		key = bool(browser_use_api_key())
+		key_text = 'yes'
+	except RuntimeError:  # MissingAPIKeyError
+		key, key_text = False, 'none: browser-use login (Browser() and the bu-* models need it)'
+	chrome_text = 'yes' if admin._chrome_running() else "no (only Browser('chrome') and the CLI attach to it)"
+	print(f'  local browser   {local_text}')
+	print(f'  Chrome running  {chrome_text}')
+	print(f'  daemon          {"running" if admin.daemon_alive() else "stopped (the next call starts it)"}')
+	print(f'  cloud key       {key_text}')
+	return 0 if (local or key) else 1
+
+
+INSTALL_TEXT = """Pick where the agent's browser runs:
+  Browser()                   Browser Use Cloud browser (default). Needs a key: browser-use login
+  Browser('chromium')         a fresh local Chrome/Chromium/Edge (or the Chromium just installed) with its own temp profile
+                              (headless when there is no display: servers, Docker, CI)
+  Browser('chrome')           the Chrome you have open, with your logins (browser-harness discovery)
+  Browser('chrome', profile='Work')
+                              a new Chrome on a temporary copy of your Chrome profile 'Work'
+
+Check the local setup: browser-use --doctor"""
+
+
 def _run_install_command(argv: list[str]) -> int:
 	if any(arg in {'-h', '--help'} for arg in argv):
 		print('usage: browser-use install')
 		print()
-		print('Install Chromium browser and system dependencies.')
+		print("Install Playwright's Chromium (+ system dependencies on Linux) for Browser('chromium').")
+		print('Not needed for the default cloud browser or a Chrome you already have.')
 		return 0
-
 	import platform
+	import shutil
 	import subprocess
 
-	print('Installing Chromium browser + system dependencies...')
-	print('This may take a few minutes...\n')
-
+	if not shutil.which('uvx'):
+		print(
+			'uvx not found. Install uv from https://docs.astral.sh/uv/ or run: pip install playwright && playwright install chromium',
+			file=sys.stderr,
+		)
+		return 1
+	print('Installing Chromium browser + system dependencies...\nThis may take a few minutes...\n')
 	cmd = ['uvx', 'playwright', 'install', 'chromium']
 	if platform.system() == 'Linux':
 		cmd.append('--with-deps')
 	cmd.append('--no-shell')
-
 	result = subprocess.run(cmd)
-	if result.returncode == 0:
-		print('\nInstallation complete.')
-		print('Ready to use. Run: uvx browser-use')
-		return 0
-
-	print('\nInstallation failed', file=sys.stderr)
-	return result.returncode or 1
-
-
-def _run_init_command(argv: list[str]) -> int | None:
-	from browser_use.init_cmd import main as init_main
-
-	original_argv = sys.argv
-	try:
-		sys.argv = [original_argv[0], *argv]
-		init_main()
-	except SystemExit as exc:
-		if exc.code is None:
-			return 0
-		if isinstance(exc.code, int):
-			return exc.code
-		print(exc.code, file=sys.stderr)
-		return 1
-	finally:
-		sys.argv = original_argv
+	if result.returncode != 0:
+		print('\nInstallation failed', file=sys.stderr)
+		return result.returncode or 1
+	print('\nInstallation complete.\n')
+	print(INSTALL_TEXT)
 	return 0
 
 
+LOGIN_DONE = (
+	'Signed in. One key for the library (default model and cloud browser), this CLI, the MCP server\n'
+	'(browser-use --cli-mcp) and browser-harness. Try it in Python:\n'
+	'  from browser_use import Agent\n'
+	"  print(Agent('Find the top story on Hacker News').run_sync().final_result())"
+)
+
+
+def _read_api_key_stdin() -> str:
+	"""The key for `login --api-key-stdin`, checked before anything is stored."""
+	import ssl
+	import urllib.error
+	import urllib.request
+
+	from browser_harness import auth
+
+	from browser_use.auth import KEYS_URL
+	from browser_use.utils import urlopen_keyed
+
+	key = auth._read_manual_api_key()  # piped stdin, or a hidden prompt on a terminal; rejects empty and short input
+	if not key.startswith('bu_'):
+		raise auth.AuthError(f'that is not a Browser Use API key (they start with bu_); create one at {KEYS_URL} and paste it')
+	if not key.isascii() or any(c.isspace() or not c.isprintable() for c in key):  # stored, it would break every request
+		raise auth.AuthError(
+			f'the key has a space, line break, control or non-ASCII character inside it; copy it again from {KEYS_URL} and paste it whole'
+		)
+	request = urllib.request.Request(f'{auth.auth_base()}/api/v4/browsers?pageSize=1', headers={'X-Browser-Use-API-Key': key})
+	try:  # one read-only call, so a mistyped or revoked key is never stored and "Signed in" is true
+		urlopen_keyed(request, 15).close()
+	except urllib.error.HTTPError as e:
+		if e.code == 401:  # a 403 is a real key without the browser scope: it still works for the bu-* models
+			raise auth.AuthError(
+				f'Browser Use Cloud rejected that key (HTTP 401); create one at {KEYS_URL} and paste it'
+			) from None
+	except OSError as e:
+		reason = getattr(e, 'reason', e)  # urllib wraps the handshake's error in URLError
+		if isinstance(reason, ssl.SSLError):  # a certificate the TLS check refused is not offline
+			why = getattr(reason, 'verify_message', None) or reason  # the certificate problem itself, when there is one
+			raise auth.AuthError(
+				f'could not check the key: the TLS connection to {auth.auth_base()} failed ({why}); '
+				'the key was not stored. Behind a TLS-inspecting proxy, set SSL_CERT_FILE to its CA bundle and retry'
+			) from None
+		# offline: store it; the first cloud call reports a bad key
+	return key
+
+
+def _run_login_command(argv: list[str]) -> int:
+	"""browser-use login [--device-code | --api-key-stdin] [--no-open] [--json]: browser-harness's OAuth login, same
+	key store (~/.config/browser-harness/auth.json), so one login works everywhere. browser-use logout removes it."""
+	import os
+
+	from browser_harness import auth
+
+	from browser_use.auth import harden_login_callback, set_aside_corrupt_store
+
+	_set_harness_client_env()
+	command = ['login', *argv]
+	if any(arg in {'-h', '--help'} for arg in argv):
+		return _normalize_captured_cli_output(auth.run_auth_cli, command)
+	try:  # Ctrl-C at the hidden key prompt, during the key check or while it waits for the approval: nothing stored
+		if '--api-key-stdin' in argv:
+			try:
+				sys.stdin = StringIO(_read_api_key_stdin())
+			except auth.AuthError as e:
+				print(e, file=sys.stderr)
+				return 1
+		harden_login_callback()
+		if notice := set_aside_corrupt_store():
+			print(notice, file=sys.stderr)
+		code = auth.run_auth_cli(command)
+	except KeyboardInterrupt:
+		print('Login cancelled.', file=sys.stderr)
+		return 130
+	if code == 0 and '--json' not in argv:
+		print(LOGIN_DONE)
+		if os.environ.get('BROWSER_USE_API_KEY'):
+			print('Note: BROWSER_USE_API_KEY is set in this shell and takes precedence over the stored key.')
+	return code
+
+
+def _run_logout_command(argv: list[str]) -> int:
+	import json
+
+	from browser_harness import auth
+
+	from browser_use.auth import corrupt_store_path
+
+	if (path := corrupt_store_path()) and not any(arg in {'-h', '--help'} for arg in argv):
+		path.unlink()  # an unreadable store holds no usable key; logging out removes it
+		print(json.dumps({'status': 'logged-out', 'path': str(path), 'note': 'the file was corrupt'}, indent=2))
+		return 0
+	return _normalize_captured_cli_output(auth.run_auth_cli, ['logout', *argv])
+
+
+def _run_init_command(argv: list[str]) -> int:
+	print(
+		'browser-use init (project templates) was removed in 1.0. Start from:\n'
+		"  from browser_use import Agent\n  print(Agent('Find the top story on Hacker News').run_sync().final_result())",
+		file=sys.stderr,
+	)
+	return 2
+
+
 def _as_browser_use_cli_text(text: str) -> str:
-	return text.replace('Browser Harness', 'Browser Use').replace('browser-harness', 'browser-use')
+	"""Rebrand command names in browser-harness output; paths (~/.config/browser-harness/auth.json) stay real."""
+	import re
+
+	return re.sub(r'(?<![/\\])browser-harness(?![/\\])', 'browser-use', text.replace('Browser Harness', 'Browser Use'))
 
 
 def _normalize_captured_cli_output(func, argv: list[str]) -> int:
@@ -159,6 +400,9 @@ def _normalize_captured_cli_output(func, argv: list[str]) -> int:
 def _patch_browser_harness_cli_text() -> None:
 	from browser_harness import auth, run, telemetry
 
+	from browser_use.auth import harden_login_callback
+
+	harden_login_callback()  # `browser-use auth login` runs browser-harness's login too
 	run.HELP = _as_browser_use_cli_text(run.HELP)
 	run.USAGE = _as_browser_use_cli_text(run.USAGE)
 
@@ -177,19 +421,87 @@ def _patch_browser_harness_cli_text() -> None:
 
 	auth.run_auth_cli = run_auth_cli
 	telemetry.run_telemetry_cli = run_telemetry_cli
+	fix_snap = run.run_doctor_fix_snap  # its text named `browser-harness --doctor`
+	run.run_doctor_fix_snap = lambda: _normalize_captured_cli_output(lambda _argv: fix_snap(), [])
+	from browser_harness import macos
+
+	if not getattr(macos.run_cli, '__bu_rebranded__', False):  # its answers said to run `browser-harness mac-approve`
+		mac_approve = macos.run_cli
+
+		def run_mac_approve(argv: list[str]) -> int:
+			return _normalize_captured_cli_output(mac_approve, argv)  # one line at the end: nothing to stream
+
+		run_mac_approve.__bu_rebranded__ = True  # type: ignore[attr-defined]
+		macos.run_cli = run_mac_approve
 
 
 _delegated_to_harness = False
 
 
-def _run_browser_harness() -> int | None:
-	from browser_harness import run
+def _guard_cloud_browsers(run, code: str | None) -> None:
+	"""Cloud browser rules for piped code (browser_use/harness_cloud.py), installed in the namespace it runs in."""
+	from browser_use import harness_cloud
+
+	harness_cloud.install(vars(run))
+	if (
+		code
+		and harness_cloud.calls_cloud_admin(code)
+		and not code.lstrip().startswith(tuple(f'{n}(' for n in harness_cloud.CLOUD_ADMIN))
+	):
+		# browser-harness only skips its pre-run ensure_daemon() when the code *starts* with start_remote_daemon(; for
+		# `b = start_remote_daemon(...)` that call would attach the local Chrome first. Skip it once, here too.
+		guarded = harness_cloud.ensure_daemon
+
+		def skip_pre_run_attach(*args, **kwargs) -> None:
+			vars(run)['ensure_daemon'] = guarded
+
+		vars(run)['ensure_daemon'] = skip_pre_run_attach
+
+
+class _HarnessStderr:
+	"""sys.stderr while browser-harness runs piped code. Its own lines ("browser-harness: ...", the macOS Allow-popup
+	hint `run browser-harness mac-approve`) named a command `uv tool install browser-use` does not put on PATH."""
+
+	def __init__(self, wrapped):
+		self._wrapped = wrapped
+
+	def write(self, text):
+		if text.startswith('browser-harness: '):  # not the cell's own output
+			text = _as_browser_use_cli_text(text)
+		return self._wrapped.write(text)
+
+	def __getattr__(self, name):
+		return getattr(self._wrapped, name)
+
+
+def _run_browser_harness(code: str | None = None) -> int | None:
+	import os
+
+	from browser_harness import helpers, run
+
+	from browser_use.browser.browser import _name_daemon_files
+	from browser_use.repl.capture import install as install_capture
+	from browser_use.repl.page_info import install as install_page_info
 
 	global _delegated_to_harness
 
+	_name_daemon_files()  # with BH_RUNTIME_DIR set, every BU_NAME would otherwise share one bu.sock
+	# browser-harness's daily "agents: run `browser-harness --update -y`": browser-use pins it exactly, so that command
+	# is not on PATH (uv tool install) or upgrades it past the pin (a venv). It updates with browser-use (--update).
+	os.environ['BH_UPDATE_CHECK'] = '0'
 	_set_harness_client_env()
+	_scrub_harness_telemetry()
 	_patch_browser_harness_cli_text()
+	_guard_cloud_browsers(run, code)
+	install_page_info()  # cli-1: run.py star-imported the helpers already, so rebind its name too
+	run.page_info = helpers.page_info
+	install_capture()  # win-cli-5: a hidden tab's screenshot gets the Agent's activate fallback
+	run.cdp = helpers.cdp
 	args = sys.argv[1:]
+	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
+		from browser_use import harness_cloud
+
+		harness_cloud.forget(run.NAME)
 	if args and args[0] == 'doctor' and args[1:]:
 		if args[1:] in (['--help'], ['-h']):
 			print('usage: browser-use doctor [--fix-snap]')
@@ -198,27 +510,46 @@ def _run_browser_harness() -> int | None:
 			print('usage: browser-use doctor [--fix-snap]', file=sys.stderr)
 			sys.exit(2)
 	_delegated_to_harness = True
-	run.main()
+	stderr, sys.stderr = sys.stderr, _HarnessStderr(sys.stderr)
+	try:
+		run.main()
+	finally:
+		sys.stderr = stderr
 	return None
 
 
-# Subcommands and flags from the pre-3.0 CLI; maps to hint
+_AGENT_HINT = (
+	'# the CLI runs Python, not agent tasks; run an agent with the library, in Python:\n'
+	"  from browser_use import Agent\n  print(Agent('<task>').run_sync().final_result())"
+)
+
+# Subcommands and flags from the 0.x CLI; maps to hint
 _LEGACY_HINTS: dict[str, str] = {
 	'open': 'new_tab("https://example.com")',
 	'state': 'print(page_info())',
 	'screenshot': 'print(capture_screenshot())',
 	'eval': 'print(js("document.title"))',
 	'cookies': 'print(cdp("Network.getCookies"))',
+	# the 0.x page commands: coordinates come from page_info() and a screenshot, not element indexes
+	'click': 'click_at_xy(200, 300)',
+	'type': 'type_text("hello")',
+	'input': 'fill_input("input[name=q]", "hello")',
+	'keys': 'press_key("Enter")',
+	'scroll': 'scroll(640, 400, dy=600)  # dy > 0 scrolls down',
+	'back': 'js("history.back()")',
+	'hover': 'cdp("Input.dispatchMouseEvent", type="mouseMoved", x=200, y=300)',
 	'python': '# the CLI runs Python directly now — pipe it on stdin as shown below',
-	'run': '# write the steps as Python using the pre-imported helpers shown below',
+	'run': _AGENT_HINT,
+	'-p': _AGENT_HINT,
+	'--prompt': _AGENT_HINT,
 	'connect': '# connecting is automatic — the default flow attaches to your running Chrome',
 	'close': '# restart the local daemon with `browser-use --reload`; stop cloud browsers with stop_remote_daemon(name)',
 	'sessions': '# named local sessions were removed — one default daemon; use BU_NAME=<name> for cloud daemons',
 	'profile': '# profiles now come from your real Chrome; see the profile-sync interaction skill',
-	'cloud': '# authenticate with `browser-use auth login`, then start_remote_daemon("<name>")',
+	'cloud': '# authenticate with `browser-use login`, then start_remote_daemon("<name>")',
 	'daemon': '# the daemon starts automatically on every call; restart it with `browser-use --reload`',
 	'record': '# session recording was removed; use capture_screenshot() per step',
-	'mcp': '# MCP server mode is now the --mcp flag: `browser-use --mcp`',
+	'mcp': '# MCP server mode is now the --cli-mcp flag: `browser-use --cli-mcp`',
 	'--session': '# use BU_NAME=<name> as an env var for named cloud daemons; local runs use one default daemon',
 	'--headed': '# local control always attaches to your real, visible Chrome — no flag needed',
 	'--cdp-url': '# use the BU_CDP_URL=<url> env var instead of a flag',
@@ -244,7 +575,7 @@ _CLI3_GUIDE = """Core helpers: new_tab(url), goto_url(url), page_info(), capture
   list_tabs(), switch_tab(target), close_tab(target)
 
 Read the full interface now:   browser-use skill show
-Install the CLI 3.0 skill (upgrades the CLI and replaces any pre-existing browser-use skill):
+Install the skill (replaces any pre-existing browser-use skill):
                                browser-use skill install
 Then load the freshly installed browser-use skill, and follow it to use the latest CLI.
 Skill reference:               https://github.com/browser-use/browser-use/blob/main/browser_use/skills/browser-use/SKILL.md
@@ -257,7 +588,7 @@ def _legacy_migration_message(command: str) -> str:
 		replacement = f'  {hint.lstrip("# ")}\n\nExample:\n  browser-use <<\'PY\'\n  new_tab("https://example.com")\n  print(page_info())\n  PY'
 	else:
 		replacement = f"  browser-use <<'PY'\n  {hint}\n  PY"
-	return f"""The browser-use CLI changed in 3.0, and '{command}' was removed.
+	return f"""The browser-use CLI changed in 1.0, and '{command}' was removed.
 
 The old preset subcommands are gone. To use the CLI, you write raw Python and
 pipe it on stdin, and it runs in a persistent browser session. Browser management
@@ -319,20 +650,46 @@ Recommended: install the skill so your coding agent remembers this:
 
 You can also paste this into your agent to get started:
 
-  Install or upgrade browser-use to the latest stable version with uv using
-  Python 3.12, register the skill from `browser-use skill`, and connect it to
-  my browser. Follow https://github.com/browser-use/browser-use if setup or
-  connection fails.
+  Install browser-use with `uv tool install browser-use=={version}`, run `browser-use skill install`
+  to register the skill, and connect it to my browser. If setup or connection fails,
+  follow https://github.com/browser-use/browser-harness/blob/main/install.md
 
 More:
+  browser-use login        sign in once for cloud browsers and the default model
   browser-use --doctor     check install, daemon, and browser health
   browser-use --help       full command list
-  docs: https://github.com/browser-use/browser-use/blob/main/browser_use/skills/browser-use/SKILL.md"""
+  docs: https://docs.browser-use.com/open-source/browser-use-cli"""
 
 _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Python piped on stdin:
   browser-use <<'PY'
   print(page_info())
   PY"""
+
+
+HELP = """Browser Use CLI: your coding agent drives a browser with Python piped on stdin.
+
+  browser-use <<'PY'
+  new_tab("https://example.com")
+  print(page_info())
+  PY
+
+Helpers are pre-imported; the daemon starts and attaches to your running Chrome by itself.
+
+Commands:
+  browser-use login [--device-code | --api-key-stdin]   sign in to Browser Use Cloud (cloud browsers, default model)
+  browser-use logout                  remove the stored key
+  browser-use auth status             show the sign-in state
+  browser-use --doctor                check install, daemon and browser
+  browser-use doctor --fix-snap       how to fix Snap Chromium blocking CDP (Linux)
+  browser-use mac-approve             approve Chrome's macOS remote-debugging prompt
+  browser-use --reload                restart the daemon
+  browser-use install                 install Chromium for the library's Browser('chromium') (Playwright's build)
+  browser-use skill [show | install [--target NAME] [--path DIR] [--install-cli]]
+                                      print or install the agent skill
+  browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login)
+  browser-use --version               print the versions
+Update: uv tool upgrade browser-use (or pip install -U browser-use).
+Library: from browser_use import Agent, see https://github.com/browser-use/browser-use"""
 
 
 def _command_name(args: list[str]) -> str:
@@ -354,15 +711,52 @@ def _command_name(args: list[str]) -> str:
 	return args[0] if args else 'run'
 
 
+def _stdin_is_terminal() -> bool:
+	"""On Windows isatty() is True for every character device, NUL too: `browser-use < NUL` and a subprocess started
+	with stdin=DEVNULL got the quickstart and exit 0, not the empty-stdin error (win-cli-8). Only a console is a terminal."""
+	if not sys.stdin.isatty():
+		return False
+	if sys.platform != 'win32':
+		return True
+	import ctypes
+	import msvcrt
+
+	try:
+		handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+	except (OSError, ValueError):  # no file descriptor: trust isatty()
+		return True
+	console = ctypes.c_void_p(handle)  # a HANDLE is pointer-sized; ctypes passes a bare int as a 32-bit C int
+	return bool(ctypes.windll.kernel32.GetConsoleMode(console, ctypes.byref(ctypes.c_ulong())))
+
+
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
+	if args in (['--help'], ['-h'], ['help']):  # browser-harness's own help named its commands and flags, not ours
+		print(HELP)
+		return 0, 'help'
+	if args and args[0] == '--update':  # browser-harness's self-update would update it, not browser-use
+		print('browser-use does not update itself: uv tool upgrade browser-use (or pip install -U browser-use).', file=sys.stderr)
+		return 2, 'update'
+	if args in (['--version'], ['-V']):
+		from importlib.metadata import version as package_version
+
+		print(f'browser-use {_browser_use_version()} (browser-harness {package_version("browser-harness")})')
+		return 0, 'version'
+	from browser_use.utils import install_tls_opener  # after --version: importing it costs ~12 ms on macOS (proxy lookup)
+
+	install_tls_opener()  # browser-harness's own requests here (cloud browsers, login) verify as the OS does
 	if '--cli-mcp' in args:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
 	if '--mcp' in args:
-		_run_mcp_server()
-		return 0, 'mcp'
+		return _run_mcp_server(), 'mcp'
+	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
+		return _run_doctor(), 'doctor'
 	if args and args[0] == 'install':
 		return _run_install_command(args[1:]), 'install'
+	if args[:1] in (['login'], ['logout']) or args[:2] in (['auth', 'login'], ['auth', 'logout']):
+		# `auth login` is browser-harness's spelling (the skill teaches it): the same checks as `login`
+		command, rest = (args[1], args[2:]) if args[0] == 'auth' else (args[0], args[1:])
+		return (_run_login_command if command == 'login' else _run_logout_command)(rest), command
 	if args and args[0] == 'init':
 		return _run_init_command(args[1:]), 'init'
 	if '--template' in args or '-t' in args:
@@ -377,9 +771,10 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		print(_legacy_migration_message(legacy), file=sys.stderr)
 		return 2, f'legacy:{legacy}'
 
+	code = None
 	if not args:
-		if sys.stdin.isatty():
-			print(_QUICKSTART)
+		if _stdin_is_terminal():
+			print(_QUICKSTART.replace('{version}', _browser_use_version()))
 			return 0, 'quickstart'
 		code = sys.stdin.read()
 		if not code.strip():
@@ -387,8 +782,18 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 			return 1, 'run'
 		sys.stdin = StringIO(code)
 
+	from browser_harness.auth import CloudAuthRequired
+
+	from browser_use.harness_cloud import CloudBrowserError
+
 	try:
-		return _run_browser_harness(), args[0] if args else 'run'
+		return _run_browser_harness(code), args[0] if args else 'run'
+	except CloudAuthRequired:  # its message names `browser-harness auth login`, not on PATH for `uv tool install browser-use`
+		print('Not signed in to Browser Use Cloud. Run `browser-use login`, then retry.', file=sys.stderr)
+		return 1, args[0] if args else 'run'
+	except CloudBrowserError as e:
+		print(e, file=sys.stderr)
+		return 1, args[0] if args else 'run'
 	except NameError as exc:
 		name = _unknown_exec_name(exc)
 		if name is None or not _raised_from_piped_code(exc):
@@ -456,6 +861,12 @@ def main() -> int | None:
 			error_message=(stderr_tail.tail.strip() or None) if _exit_code(result) else None,
 		)
 	return result
+
+
+if not TYPE_CHECKING:  # pyright would accept any name imported from here
+	from browser_use.legacy import removed_names
+
+	__getattr__ = removed_names(__name__)  # a 0.x name raises the removed error naming its 1.0 answer
 
 
 if __name__ == '__main__':
