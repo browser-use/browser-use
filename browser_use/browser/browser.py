@@ -800,7 +800,7 @@ class Browser:
 				return
 			_kill_daemon(self.name)
 		try:
-			self._ensure_daemon()
+			self._ensure_daemon(self.name)
 		except Exception as e:
 			raise RuntimeError(f'The browser is gone: its browser-harness daemon stopped and could not reattach: {e}') from None
 		self._attach_agent_tab()
@@ -833,15 +833,19 @@ class Browser:
 		except Exception as e:  # - the tab is gone (closed): the run starts where the daemon is
 			logger.debug('Could not attach the agent tab again: %s', e)
 
-	def _ensure_daemon(self) -> None:
+	def _ensure_daemon(self, name: str | None) -> None:
 		"""Start our daemon on self._daemon_env. browser-harness blames any BU_CDP_WS failure on a remote browser and
 		suggests start_remote_daemon(); for the Chrome this Browser launched, say that it exited instead."""
 		from browser_harness import admin
 
+		with self._stop_mutex:
+			if name is None or self.name != name:  # stopped while this thread was queued; a later start has another name
+				return
+			env, launched = self._daemon_env, self._local
 		try:
-			admin.ensure_daemon(name=self.name, env=self._daemon_env)
+			admin.ensure_daemon(name=name, env=env)
 		except Exception:
-			proc = self._local and self._local.proc
+			proc = launched and launched.proc
 			if proc and proc.poll() is not None:
 				raise RuntimeError(
 					f'the local browser exited (code {proc.returncode}): it crashed, was killed or closed'
@@ -849,6 +853,10 @@ class Browser:
 			if self.cdp_url and 'CDP WS handshake failed' in str(sys.exc_info()[1]):
 				raise _unreachable(self.cdp_url, sys.exc_info()[1]) from None
 			raise
+		finally:
+			with self._stop_mutex:
+				if self.name != name:  # to_thread kept starting it after a cancelled start's stop already ran
+					_shutdown_daemon(name)  # a later start has another name and must stay running
 
 	async def _stopped(self) -> None:
 		"""Wait for a stop thread a cancelled stop() left running, so a new start never overlaps it."""
@@ -920,7 +928,7 @@ class Browser:
 			# BU_BROWSER_ID: the daemon knows the cloud browser is its own, so it attaches to its visible tab (a background
 			# tab is hidden, and a cloud browser never answers a hidden tab's screenshot) and stops it when it shuts down.
 			self._daemon_env = {'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0', **({'BU_BROWSER_ID': self.id} if self.id else {})}
-			await asyncio.to_thread(self._ensure_daemon)
+			await asyncio.to_thread(self._ensure_daemon, self.name)
 			# this process dying uncleanly (SIGKILL, OOM) left the daemon, and Chrome or a cloud browser billing until its timeout
 			from browser_harness import _ipc as ipc
 
