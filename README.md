@@ -39,11 +39,19 @@
 
 <br/>
 
-<div align="center">
+The open-source browser agent. Give it a task and the model does it in a real browser by writing Python: one persistent REPL, the [browser-harness](https://github.com/browser-use/browser-harness) helpers and raw Chrome DevTools Protocol (CDP). Runs on any LLM, locally or on [Browser Use Cloud](https://cloud.browser-use.com). MIT licensed.
 
-The open-source browser agent. Run it locally with any LLM, or on [Browser Use Cloud](https://cloud.browser-use.com): stealth browsers from $0.02/hour, top score (90.5%) on [Stealth Bench V2](https://browser-use.com/benchmarks/browsers).
+```
+  ● task: "book the earliest driving test"
+  │
+  ● model writes a cell          new_tab(url); click(41); js(...)
+  │
+  ● REPL runs it on Chrome (CDP) → output back to the model
+  │
+  ✓ finish(result)
+```
 
-</div>
+**The model, a REPL and CDP. That's the whole agent.**
 
 <br/>
 
