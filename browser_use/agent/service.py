@@ -286,6 +286,7 @@ class Agent:
 				'stand alone, not inside longer words or numbers; a longer value is safer.'
 			)
 		self.task, self.llm, self.browser, self.tools = task, as_chat_model(llm), browser, tools
+		self._tasks = [task]  # every task this agent ran (follow-ups too): telemetry never sends their text
 		# bu-fast and bu-ultrafast are evaluated in ultrafast mode (Google Flights: 0/3 in default mode, 3/3)
 		fast = gateway_alias(self.llm) in ('bu-fast', 'bu-ultrafast')
 		self.mode = check_mode(mode if mode is not None else 'ultrafast' if fast else 'default')
@@ -339,6 +340,7 @@ class Agent:
 		"""The next run() continues this conversation with a new task."""
 		_check_task_arg(task)
 		self.task, self._continue = task, True
+		self._tasks.append(task)
 
 	def _check_task(self) -> None:
 		if self.browser.use_cloud and (m := LOCAL_TARGET.search(self.task)):  # a hint, never a refusal
@@ -811,7 +813,8 @@ class Agent:
 				'error_phase': phase,
 				'budget_hit': budget_hit,
 			}
-			secrets, task = self.sensitive_data, self.task
+			secrets = self.sensitive_data
+			tasks = list(dict.fromkeys([*self._tasks, self.task]))  # a follow-up's result can quote the first task
 			run_error = result.error if result else None
 			final = result.text if result else None
 			known = rec.known
@@ -828,8 +831,11 @@ class Agent:
 				if tool_args := sum(name in function_tools for name in retried):
 					v3['retries']['tool_args'] = tool_args
 				forms = secret_forms(secrets) if secrets else []
-				urls = dict.fromkeys(scrub(u, forms, MAX_URL, task) for u in stats.urls[: min(keys, MAX_URLS)])
-				errors = [scrub(e, forms, MAX_ERROR, task) for e in ([run_error] if run_error else []) + stats.error_messages]
+				urls = dict.fromkeys(scrub(u, forms, MAX_URL, tasks) for u in stats.urls[: min(keys, MAX_URLS)])
+				errors = [
+					scrub(e, forms, MAX_ERROR, tasks, stats.typed)
+					for e in ([run_error] if run_error else []) + stats.error_messages
+				]
 				repairs = ('delivery_placeholder', 'delivery_missing_files', 'delivery_split', 'text_repair', 'text_tool_markup')
 				event = AgentTelemetryEvent(
 					get_browser_use_version(),
@@ -860,7 +866,7 @@ class Agent:
 					download_exts=top(Counter(download_ext(p) for p in downloads), keys),
 					urls_visited=[u for u in urls if u],
 					error_messages=[e for e in dict.fromkeys(errors) if e][:MAX_ERRORS],
-					final_result=scrub(final, forms, MAX_RESULT, task) or None,
+					final_result=scrub(final, forms, MAX_RESULT, tasks, stats.typed) or None,
 				)
 				return event.properties
 
