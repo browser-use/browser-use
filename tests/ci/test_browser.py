@@ -607,6 +607,8 @@ async def test_the_cloud_browser_id_is_never_logged_whole_or_put_in_a_command_li
 		return SimpleNamespace(kill=lambda: None, poll=lambda: None, stdin=None)
 
 	monkeypatch.setattr(subprocess, 'Popen', popen)
+	# Windows starts the MCP reaper through WMI instead
+	monkeypatch.setattr(cli_mcp, '_spawn_outside_job', lambda args, env: spawned.append((args, env)) or True)
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # setup_logging turns it off
 	caplog.set_level(logging.DEBUG, logger='browser_use')
 	browser = Browser()
