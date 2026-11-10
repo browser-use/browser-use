@@ -369,72 +369,71 @@ class Repl:
 			else:
 				writer.close()
 
-		server = await asyncio.start_server(on_connect, '127.0.0.1', 0, limit=STREAM_LIMIT)
-		port = server.sockets[0].getsockname()[1]
-		env = worker_env(self.env)
-		env.update(BH_TAB_MARKER='0', BU_STATE_DIR=str(self.state), BU_REPL_PORT=str(port), BU_REPL_TOKEN=token)
-		# A naive call never reaches another browser (the user's own Chrome): a `browser-harness` CLI call reuses this run's
-		# daemon or fails, and any daemon a cell starts dials a dead port instead of discovering a local Chrome.
-		env.update(BH_REQUIRE_EXISTING_DAEMON='1', BU_CDP_WS='ws://127.0.0.1:9/browser-use-owns-the-browser')
-		# browser-harness runs <agent workspace>/agent_helpers.py on import and reads its domain-skills: never the user's
-		# global one (~/.config/browser-harness/agent-workspace), which a prompt-injected run could plant for later runs
-		env['BH_AGENT_WORKSPACE'] = str(self.state / 'agent-workspace')
-		env['BU_REPL_PARENT_PID'] = str(os.getpid())  # the worker exits when we die (worker._watch_parent)
-		# A browser-harness CLI call from a cell would send its piped code and output (page text) as cli_event, and the
-		# allowlisted env drops ANONYMIZED_TELEMETRY. The run is already counted (agent_event).
-		env['BH_TELEMETRY'] = '0'
-		env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # page text is Unicode; Windows defaults to cp1252
-		if self.mode == 'ultrafast':
-			env['BU_MODE'] = 'ultrafast'
-		if self.highlight_actions:
-			env['BU_HIGHLIGHT_ACTIONS'] = '1'
-		log = open(self.state / 'worker.log', 'ab')  # noqa: ASYNC230 - handed to the child process
-		try:
-			self.proc = subprocess.Popen(  # noqa: ASYNC220 - asyncio forks synchronously too; see self.proc
-				# -P: the workspace is not sys.path[0]: a json.py there must not shadow the stdlib (worker.py appends it)
-				[sys.executable, '-P', '-m', 'browser_use.repl.worker'],
-				cwd=self.workspace,
-				stdin=subprocess.DEVNULL,
-				stdout=log,
-				stderr=log,
-				env=env,
-				# Own process group, so a reset kills the cell's subprocesses too.
-				**(
-					{'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}  # type: ignore[attr-defined]
-					if sys.platform == 'win32'
-					else {'start_new_session': True}
-				),
-			)
-			self.job = _job_for(self.proc.pid)  # before the first cell: every process a cell starts joins it
-			_WORKERS[self.proc.pid] = self.job
-			# An Agent on a keep_alive Browser keeps its REPL until close(): one dropped without it (a service running
-			# many Agents on one Browser) left a ~35 MB worker each until exit
-			self._reaper = weakref.finalize(self, _end_worker, self.proc.pid, self.job)
-			self._reaper.atexit = False  # exit: kill_workers, before browsers stop
-			from browser_use.browser.browser import _install_cleanup
-
-			_install_cleanup()  # atexit and SIGTERM kill the worker (kill_workers) before they stop browsers
-			exited = asyncio.ensure_future(_exited(self.proc))
+		with contextlib.closing(await asyncio.start_server(on_connect, '127.0.0.1', 0, limit=STREAM_LIMIT)) as server:
+			port = server.sockets[0].getsockname()[1]
+			env = worker_env(self.env)
+			env.update(BH_TAB_MARKER='0', BU_STATE_DIR=str(self.state), BU_REPL_PORT=str(port), BU_REPL_TOKEN=token)
+			# A naive call never reaches another browser (the user's own Chrome): a `browser-harness` CLI call reuses this run's
+			# daemon or fails, and any daemon a cell starts dials a dead port instead of discovering a local Chrome.
+			env.update(BH_REQUIRE_EXISTING_DAEMON='1', BU_CDP_WS='ws://127.0.0.1:9/browser-use-owns-the-browser')
+			# browser-harness runs <agent workspace>/agent_helpers.py on import and reads its domain-skills: never the user's
+			# global one (~/.config/browser-harness/agent-workspace), which a prompt-injected run could plant for later runs
+			env['BH_AGENT_WORKSPACE'] = str(self.state / 'agent-workspace')
+			env['BU_REPL_PARENT_PID'] = str(os.getpid())  # the worker exits when we die (worker._watch_parent)
+			# A browser-harness CLI call from a cell would send its piped code and output (page text) as cli_event, and the
+			# allowlisted env drops ANONYMIZED_TELEMETRY. The run is already counted (agent_event).
+			env['BH_TELEMETRY'] = '0'
+			env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # page text is Unicode; Windows defaults to cp1252
+			if self.mode == 'ultrafast':
+				env['BU_MODE'] = 'ultrafast'
+			if self.highlight_actions:
+				env['BU_HIGHLIGHT_ACTIONS'] = '1'
+			log = open(self.state / 'worker.log', 'ab')  # noqa: ASYNC230 - handed to the child process
 			try:
-				done, _ = await asyncio.wait({connected, exited}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
+				self.proc = subprocess.Popen(  # noqa: ASYNC220 - asyncio forks synchronously too; see self.proc
+					# -P: the workspace is not sys.path[0]: a json.py there must not shadow the stdlib (worker.py appends it)
+					[sys.executable, '-P', '-m', 'browser_use.repl.worker'],
+					cwd=self.workspace,
+					stdin=subprocess.DEVNULL,
+					stdout=log,
+					stderr=log,
+					env=env,
+					# Own process group, so a reset kills the cell's subprocesses too.
+					**(
+						{'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}  # type: ignore[attr-defined]
+						if sys.platform == 'win32'
+						else {'start_new_session': True}
+					),
+				)
+				self.job = _job_for(self.proc.pid)  # before the first cell: every process a cell starts joins it
+				_WORKERS[self.proc.pid] = self.job
+				# An Agent on a keep_alive Browser keeps its REPL until close(): one dropped without it (a service running
+				# many Agents on one Browser) left a ~35 MB worker each until exit
+				self._reaper = weakref.finalize(self, _end_worker, self.proc.pid, self.job)
+				self._reaper.atexit = False  # exit: kill_workers, before browsers stop
+				from browser_use.browser.browser import _install_cleanup
+
+				_install_cleanup()  # atexit and SIGTERM kill the worker (kill_workers) before they stop browsers
+				exited = asyncio.ensure_future(_exited(self.proc))
+				try:
+					done, _ = await asyncio.wait({connected, exited}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
+				finally:
+					exited.cancel()
+				if connected not in done:
+					raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
+				self.reader, self.writer = connected.result()
+				init = {'secrets': self.secrets, 'search': self.search is not None, 'downloads': self.downloads is not None}
+				self.writer.write(json.dumps(init).encode() + b'\n')
+				await self.writer.drain()
+				if not await asyncio.wait_for(self.reader.readline(), 60):
+					raise ConnectionError('worker exited')
+			except BaseException as e:  # cancelled or failed half way: never leave a half-started worker behind
+				await self.close()
+				if isinstance(e, (TimeoutError, ConnectionError)):
+					raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}') from e
+				raise
 			finally:
-				exited.cancel()
-			if connected not in done:
-				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
-			self.reader, self.writer = connected.result()
-			init = {'secrets': self.secrets, 'search': self.search is not None, 'downloads': self.downloads is not None}
-			self.writer.write(json.dumps(init).encode() + b'\n')
-			await self.writer.drain()
-			if not await asyncio.wait_for(self.reader.readline(), 60):
-				raise ConnectionError('worker exited')
-		except BaseException as e:  # cancelled or failed half way: never leave a half-started worker behind
-			await self.close()
-			if isinstance(e, (TimeoutError, ConnectionError)):
-				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}') from e
-			raise
-		finally:
-			log.close()
-			server.close()
+				log.close()
 
 	async def close(self) -> None:
 		if (writer := getattr(self, 'writer', None)) is not None:  # our end of the worker connection; idempotent

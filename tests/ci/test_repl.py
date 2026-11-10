@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import browser_use
+import browser_use.repl.session as repl_session
 from browser_use.repl import Repl, redact, worker_env
 
 PACKAGE = Path(browser_use.__file__).parent
@@ -30,6 +31,49 @@ async def test_worker_runs_cells_over_loopback(tmp_path):
 		assert r['value'] == '40'
 	finally:
 		await repl.close()
+
+
+async def test_worker_log_open_failure_closes_the_startup_listener(tmp_path, monkeypatch):
+	"""A failed log open must release the listener before a later startup retries with a real worker."""
+	assert Path(repl_session.__file__).resolve() == Path(__file__).resolve().parents[2] / 'browser_use/repl/session.py'
+	repl = Repl(tmp_path)
+	servers = []
+	serving_after_failure = []
+	start_server = asyncio.start_server
+	failure = PermissionError('worker log is not writable')
+
+	async def record_server(*args, **kwargs):
+		server = await start_server(*args, **kwargs)
+		servers.append(server)
+		return server
+
+	def fail_worker_log_open(path, *args, **kwargs):
+		if Path(path) == repl.state / 'worker.log':
+			raise failure
+		return open(path, *args, **kwargs)
+
+	monkeypatch.setattr(asyncio, 'start_server', record_server)
+	try:
+		with monkeypatch.context() as patch:
+			patch.setattr(repl_session, 'open', fail_worker_log_open, raising=False)
+			for attempt in range(2):
+				with pytest.raises(PermissionError) as raised:
+					await repl.start()
+				assert raised.value is failure
+				assert repl.proc is None
+				assert len(servers) == attempt + 1
+				serving_after_failure.append(servers[-1].is_serving())
+		await asyncio.wait_for(repl.start(), 30)
+		assert len(servers) == 3 and not servers[-1].is_serving()
+		r = await repl.call('exec', 'print("recovered")', 30)
+		assert (r['output'].strip(), r['error']) == ('recovered', None)
+		assert serving_after_failure == [False, False]
+	finally:
+		await repl.close()
+		for server in servers:
+			server.close()
+		for server in servers:
+			await server.wait_closed()
 
 
 async def test_worker_is_spawned_without_pass_fds(tmp_path, monkeypatch):
