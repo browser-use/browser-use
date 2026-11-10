@@ -855,8 +855,9 @@ class Browser:
 			raise
 		finally:
 			with self._stop_mutex:
-				if self.name != name:  # to_thread kept starting it after a cancelled start's stop already ran
-					_shutdown_daemon(name)  # a later start has another name and must stay running
+				stale = self.name != name  # to_thread kept starting it after a cancelled start's stop already ran
+			if stale:  # a later start has another name: don't hold up its start while this daemon shuts down
+				_shutdown_daemon(name)
 
 	async def _stopped(self) -> None:
 		"""Wait for a stop thread a cancelled stop() left running, so a new start never overlaps it."""
