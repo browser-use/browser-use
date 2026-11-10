@@ -252,7 +252,9 @@ Domain-scoped `sensitive_data` still limits where each secret is typed, independ
 
 Every 0.x module path (0.1 to 0.13) 1.0 does not have, and every public name of a 0.x module 1.0 kept, raises the
 removed error naming its replacement (`ModuleNotFoundError` for a module, `ImportError` for a name; both are
-`ImportError`, so `except ImportError` fallbacks still work). Import from the top level: `from browser_use import Agent, Browser, Tools,
+`ImportError`, so `except ImportError` fallbacks still work). Read as an attribute (`browser_use.BrowserSession`), the
+same text is an `AttributeError`, so `hasattr()` and `getattr(module, name, default)` feature detection takes its
+fallback. Import from the top level: `from browser_use import Agent, Browser, Tools,
 ActionResult, ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle`.
 
 | 0.x | 1.0 |
@@ -326,6 +328,9 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
   password a proxy URL holds). Variables whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH`
   are not in its environment. That is all the allowlist does: see the last bullets below for how the worker can still
   reach your keys.
+- It gets its own browser-harness agent workspace (`workspace/.browser-use/agent-workspace`): the global
+  `agent_helpers.py` and domain skills (`~/.config/browser-harness/agent-workspace`) are not loaded into it, including
+  one a cell of an earlier run wrote there.
 - `search()` (`web_search`) and `downloads()` ask the parent over the control channel; the parent sends the request,
   so the Browser Use key never enters the worker.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and

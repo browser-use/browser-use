@@ -269,6 +269,36 @@ async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, e
 	assert (result.status, len(requests), sleeps) == (status, calls, slept), result.error
 
 
+async def test_a_provider_retry_after_still_leaves_the_delivery_turn(tmp_path):
+	"""Review: after a Retry-After wait the retried request kept the deadline computed before the wait, so it ran past
+	the delivery turn's start and the run's end (status timeout, no answer). The wait now stops at the delivery turn
+	and each attempt gets the time left."""
+	import asyncio
+	import time
+
+	from pydantic_ai import exceptions as x
+
+	sent = []
+
+	async def fn(messages, info: AgentInfo):
+		sent.append((time.monotonic() - session.started, info.model_settings['request_timeout']))
+		if len(sent) == 2:
+			raise x.ModelRateLimitError('grok-4.7', 'The model is currently at capacity', retry_after=3)
+		if len(sent) == 3:
+			await asyncio.sleep(2.5)  # the retried request: slow
+		if len(sent) < 4:
+			return ModelResponse(parts=[ToolCallPart('python', {'code': 'x = 1'})])
+		return ModelResponse(parts=[ToolCallPart('finish', {'result': 'delivered', 'success': True})])
+
+	model = FunctionModel(fn)
+	model._system = 'xai'  # BrowserLoop retries it (no SDK retries)
+	session = Session(repl=FakeRepl(tmp_path), timeout_s=4)  # the delivery turn starts at 2 s
+	result = await run(build_agent(model), 'task', session, 'function:x')
+	assert (result.status, result.output, session.budget_hit) == ('completed', 'delivered', 'timeout'), (result.error, sent)
+	retried_at, deadline = sent[2]
+	assert retried_at < 2.2 and deadline <= 1.0, sent
+
+
 async def test_gemini_requests_the_sdk_already_retried_are_not_sent_again(tmp_path, monkeypatch):
 	"""rr-failure 5: a persistent Gemini 500 took 6 requests, the other providers 3: google-genai retries twice
 	(build_agent's max_retries=2), and BrowserLoop, looking for max_retries on the client, sent it once more."""
@@ -482,6 +512,33 @@ async def test_a_short_timeout_still_leaves_time_to_deliver(daemon, tmp_path):
 	assert (result.status, result.output) == ('completed', 'ran out of time'), result.error
 	assert result.duration_s < 8 and session.budget_hit == 'timeout'
 	assert Session(repl=session.repl, timeout_s=1700).delivery_at() == pytest.approx(1530)  # default budget unchanged
+
+
+async def test_ultrafast_cells_get_10s_more_within_the_budget(tmp_path):
+	"""Pi src/runtime.ts:257: an ultrafast cell may run 10 s past the cell timeout (for the automatic state print)."""
+	model, seen = script(('python', {'code': "import time; time.sleep(2); print('slept')"}), ('finish', {'result': 'ok'}))
+	session = Session(repl=Repl(tmp_path, mode='ultrafast'), cell_timeout_s=1)
+	try:
+		result = await run(build_agent(model), 'task', session, 'm')
+	finally:
+		await session.repl.close()
+	assert (result.status, result.output, seen[1][-1].parts[0].content) == ('completed', 'ok', ['slept\n']), result.error
+
+
+async def test_a_short_timeout_still_leaves_time_to_deliver_in_ultrafast_mode(tmp_path):
+	"""Review: the 10 s ultrafast grace was added past the time left before the delivery turn: run(timeout=20) with a
+	hanging cell ended status=timeout with no answer, the default mode delivered at 10 s. The grace is now part of it."""
+	model, _ = script(
+		('python', {'code': 'import time; time.sleep(30)'}),
+		('finish', {'success': False, 'result': 'ran out of time'}),
+	)
+	session = Session(repl=Repl(tmp_path, mode='ultrafast'), timeout_s=8)
+	try:
+		result = await run(build_agent(model), 'task', session, 'm')
+	finally:
+		await session.repl.close()
+	assert (result.status, result.output, session.budget_hit) == ('completed', 'ran out of time', 'timeout'), result.error
+	assert result.duration_s < 8
 
 
 async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path):
@@ -1124,14 +1181,23 @@ async def test_failed_deliveries_spread_over_a_long_run_do_not_end_it(tmp_path, 
 	assert (result.status, result.output, result.error) == ('completed', 'the answer', None)
 
 
-async def test_an_empty_structured_result_on_the_last_request_is_delivered(tmp_path):
-	"""The empty-result repair needs a request after it. On the repair after the delivery-only turn (the model ran python
+@pytest.mark.parametrize(
+	'output_type, result',
+	[
+		(_Authors, {'authors': []}),
+		(str, 'Saved 34 authors: [authors](authors.csv)'),  # a link to a file it never wrote (review)
+		(str, '...'),
+	],
+)
+async def test_a_delivery_needing_repair_on_the_last_request_is_delivered(tmp_path, output_type, result):
+	"""The delivery repair needs a request after it. On the repair after the delivery-only turn (the model ran python
 	on the delivery turn) nothing can follow: refused there, the run ended max_steps with output '' and lost the
-	model's answer, which 54d87367b delivered."""
-	model, seen = script(('python', {'code': 'step1'}), ('python', {'code': 'step2'}), ('finish', {'result': {'authors': []}}))
+	model's answer, which 54d87367b delivered for an empty result only."""
+	model, seen = script(('python', {'code': 'step1'}), ('python', {'code': 'step2'}), ('finish', {'result': result}))
 	session = Session(repl=FakeRepl(tmp_path, pad=10), max_steps=2)
-	result = await run(build_agent(model, output_type=_Authors), 'task', session, 'function:x')
-	assert (len(seen), result.status, result.output) == (3, 'completed', _Authors(authors=[]))
+	got = await run(build_agent(model, output_type=output_type), 'task', session, 'function:x')
+	expected = _Authors(authors=[]) if output_type is _Authors else result
+	assert (len(seen), got.status, got.output) == (3, 'completed', expected), got.error
 
 
 class _EvalRepl(FakeRepl):

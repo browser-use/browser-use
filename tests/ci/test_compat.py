@@ -193,8 +193,10 @@ def test_removed_classes_raise_with_pointer():
 	import browser_use
 
 	for name in ['BrowserSession', 'BrowserProfile', 'ChatGroq', 'DomService']:
-		with pytest.raises(ImportError, match=rf'^browser_use\.{name} {REMOVED}'):
+		with pytest.raises(AttributeError, match=rf'^browser_use\.{name} {REMOVED}'):
 			getattr(browser_use, name)
+		with pytest.raises(ImportError, match=rf'^browser_use\.{name} {REMOVED}'):
+			exec(f'from browser_use import {name}')
 	# C19: each provider class names its own replacement (Azure was 16.7% of external 0.x runs and got a groq example)
 	for name, instead in [
 		('ChatAzureOpenAI', "llm='azure:<deployment>' with AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY and OPENAI_API_VERSION"),
@@ -314,6 +316,27 @@ def test_0x_names_and_members_name_their_replacement():
 	assert not hasattr(browser_use.utils, 'not_a_0x_name') and not hasattr(ChatOpenAI('m', api_key='x'), 'nope')
 
 
+def test_feature_detection_of_removed_0x_names_takes_the_fallback():
+	"""Review: hasattr(browser_use, 'BrowserSession') and getattr(..., None) raised ImportError, so code that supports
+	0.x and 1.0 by feature detection crashed. A from-import still names the 1.0 answer."""
+	import browser_use.agent.views
+	import browser_use.llm
+	import browser_use.tools
+
+	for module, name in [
+		(browser_use, 'BrowserSession'),
+		(browser_use, 'ChatGroq'),
+		(browser_use, 'dom'),
+		(browser_use.llm, 'ChatGroq'),
+		(browser_use.llm, 'openai_gpt_4o'),
+		(browser_use.agent.views, 'AgentOutput'),
+		(browser_use.tools, 'registry'),
+	]:
+		assert not hasattr(module, name) and getattr(module, name, 'fallback') == 'fallback', name
+		with pytest.raises(ImportError, match=rf'^{re.escape(module.__name__)}\.{name} {REMOVED}'):
+			exec(f'from {module.__name__} import {name}')
+
+
 def test_0x_names_from_every_tag_name_their_replacement():
 	"""Live migration survey (ast over all 152 0.x tags, 20 popular GitHub files): 0.1-0.13 Agent arguments and
 	methods, BrowserSession/BrowserContext members, Controller and @action arguments and the llm.<model> instances gave
@@ -339,7 +362,7 @@ def test_0x_names_from_every_tag_name_their_replacement():
 		(lambda: tools.action('d', page_filter=len), TypeError, r'allowed_domains'),
 		(lambda: tools.exclude_action, AttributeError, r'Tools\.exclude_action\(\) .*no built-in actions'),
 		(lambda: ActionResult(images=[{'name': 'a.png', 'data': 'iVBORw0KGgo'}]), RemovedField, r'ActionResult\(images=\.\.\.\)'),
-		(lambda: llm.openai_gpt_4o, ImportError, r"llm\.openai_gpt_4o .*ChatOpenAI\('gpt-4o'\)"),
+		(lambda: llm.openai_gpt_4o, AttributeError, r"llm\.openai_gpt_4o .*ChatOpenAI\('gpt-4o'\)"),
 		(lambda: exec('from browser_use.llm import google_gemini_2_5_flash'), ImportError, r'ChatGoogle'),
 		(lambda: exec('from browser_use.llm import get_llm_by_name'), ImportError, r"llm='openai:gpt-4o'"),
 		# the settings= answer for temperature failed live: Anthropic 400s it on Claude 4.x, after the browser started

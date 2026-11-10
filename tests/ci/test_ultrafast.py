@@ -176,12 +176,6 @@ async def test_default_worker_has_no_bu(daemon, tmp_path, monkeypatch):
 		await r.close()
 
 
-async def test_ultrafast_cell_timeout_has_10s_more(repl):
-	# Pi src/runtime.ts:257: ultrafast cells may run 10 s past the cell timeout (for the automatic state print).
-	out, err = await cell(repl, "time.sleep(2); print('slept')", timeout=1)
-	assert err is None and out.strip() == 'slept'
-
-
 # --- bu.state() ---
 
 
