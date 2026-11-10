@@ -302,8 +302,11 @@ MCP tool that opens the browser to approve and stores the same key. The old `bro
 `browser_exec` alternative; switch those clients to `--cli-mcp`. Locally `--mcp` still runs its own Chromium on a temp
 profile, as 0.x did, while `--cli-mcp` drives your own Chrome (or Brave, Arc, Edge) with your logins. Where that cannot
 work (Linux with no display, or no Chromium-family browser installed) `--cli-mcp` 1.0.1 also runs its own Chromium for
-the rest of that server process, installing Playwright's once if none is there and the machine has no display. The first
-`browser_exec` result names the browser in a second text block, after the code's output. `--mcp` (and `python -m browser_use.mcp`)
+the rest of that server process. Both install Playwright's Chromium in the first `browser_exec` call when none is there
+and the machine has no display (as root on Linux also its system libraries, with `apt-get install libatomic1`). The first
+`browser_exec` result names the browser in a second text block, after the code's output. `http_get()` in the CLI and
+`--cli-mcp` is plain HTTP from this machine, as in the Agent: it no longer goes through the fetch-use proxy when
+`BROWSER_USE_API_KEY` is set (URLs and headers stay local; localhost and intranet URLs work). `--mcp` (and `python -m browser_use.mcp`)
 keeps the `allowed_domains` / `prohibited_domains` of the default `browser_profile` in the 0.x `config.json` and
 `BROWSER_USE_ALLOWED_DOMAINS` (with either set, `start_remote_daemon()` is off: a cloud browser would open any site); a configured proxy (`proxy`, `BROWSER_USE_PROXY_*`) exits 2 instead of being dropped. `browser-use init` templates were removed.
 
@@ -332,8 +335,8 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
   are not in its environment. That is all the allowlist does: see the last bullets below for how the worker can still
   reach your keys.
 - It gets its own browser-harness agent workspace (`workspace/.browser-use/agent-workspace`): the global
-  `agent_helpers.py` and domain skills (`~/.config/browser-harness/agent-workspace`) are not loaded into it, including
-  one a cell of an earlier run wrote there.
+  `agent_helpers.py` and domain skills (`~/.config/browser-harness/agent-workspace`, or `BH_AGENT_WORKSPACE` when set)
+  are not loaded into it, including one a cell of an earlier run wrote there. The CLI and `--cli-mcp` still load them.
 - `search()` (`web_search`) and `downloads()` ask the parent over the control channel; the parent sends the request,
   so the Browser Use key never enters the worker.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
@@ -356,8 +359,9 @@ longer word or number; `Agent` warns about such values):
 - the task, follow-up tasks (`add_new_task`) and `extend_system_message`, before the model sees them
 - `result.final_result()`, `result.output` / `result.structured_output` (field by field), `result.partial`,
   `result.error`, and the error `Agent.run` logs
-- anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited (without query strings or path
-  tokens such as a reset or invite link's), error messages and the final result, also with emails, API keys, bearer
+- anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited in the agent's own tabs
+  (without ports, query strings or path tokens such as a reset or invite link's), error messages (only the class of an
+  error the model's own code raised: its message quotes the page) and the final result, also with emails, API keys, bearer
   tokens, `password=...` values and runs of 6+ digits (phone, card, account numbers, one-time codes) replaced. Never
   the task text, typed text, code or secrets. `ANONYMIZED_TELEMETRY=false` turns it off
 - `result.messages`: the model's text, thinking and tool-call arguments, and the retry messages that quote them back (a follow-up task continues the unredacted

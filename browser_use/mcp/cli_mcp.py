@@ -19,12 +19,14 @@ from contextlib import contextmanager
 from io import StringIO
 from typing import Any
 
+import browser_harness
 import mcp.server.stdio
 import mcp.types as types
 from browser_harness import _ipc as ipc
 from browser_harness.auth import CloudAuthRequired
 from mcp.server import Server
 
+import browser_use
 from browser_use import Browser, harness_cloud
 from browser_use.auth import browser_use_api_key, harden_login_callback, set_aside_corrupt_store
 from browser_use.browser.browser import _name_daemon_files
@@ -42,6 +44,8 @@ _NAMESPACE_IMPORTS = (
 	'from browser_harness.helpers import *\n'
 )
 
+
+_INTERNAL = tuple(os.path.dirname(m.__file__ or '') + os.sep for m in (browser_harness, browser_use))
 
 LOGIN_HINT = 'Not signed in to Browser Use Cloud. Call the browser_login tool (it opens the browser to approve), then retry.'
 LOGIN_WAIT_SECONDS = 45.0
@@ -140,25 +144,32 @@ TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login')
 def _error_class(e: BaseException) -> str:
 	"""The exception's class for telemetry, and its message unless the cell's own code raised it: Claude's code raises
 	with what it typed or read from the page (`assert name in text, f'{name} missing'`), which no scrub can know."""
-	from browser_use.telemetry.stats import error_class
+	from browser_use.telemetry.stats import error_class, raised_by_cell
 
 	errors = _call_errors.get()
 	name = error_class(e)
 	if errors is not None:
 		try:
-			message = '' if _raised_by_cell(e) else str(e)[:4096]
+			message = '' if raised_by_cell(e) else str(e)[:4096]
 		except Exception:  # - a __str__ that raises
 			message = ''
 		errors.append((name, message))
 	return name
 
 
-def _raised_by_cell(e: BaseException) -> bool:
-	"""The innermost frame is the cell's code (exec'd as '<string>'), not a helper, the server or a library."""
-	tb = e.__traceback__
-	while tb is not None and tb.tb_next is not None:
-		tb = tb.tb_next
-	return tb is not None and tb.tb_frame.f_code.co_filename == '<string>'
+def _print_cell_traceback(e: BaseException, file: StringIO) -> None:
+	"""The traceback from the cell's first frame (this server's exec() frame is noise to the model) to the last frame
+	outside browser-harness and browser-use: their internals (js() -> _js_evaluate -> _runtime_value) say nothing the
+	exception line does not."""
+	tb = e.__traceback__.tb_next if e.__traceback__ else None
+	files, t = [], tb
+	while t is not None:
+		files.append(t.tb_frame.f_code.co_filename)
+		t = t.tb_next
+	limit = len(files)
+	while limit > 1 and files[limit - 1].startswith(_INTERNAL):
+		limit -= 1
+	traceback.print_exception(type(e), e, tb, limit=limit or None, file=file)
 
 
 class NoBrowserError(RuntimeError):
@@ -467,9 +478,10 @@ class CLIMCPServer:
 				output, failed = await self._locked(self._execute, code)
 				note, self._note = self._note, None
 				if len(output) > MAX_OUTPUT_CHARS:  # same cap as the agent's cells; the full text stays readable on disk
-					# utf-8: Windows' locale encoding (cp1252) failed the whole call on an emoji, after the cell ran
+					# utf-8: Windows' locale encoding (cp1252) failed the whole call on an emoji, after the cell ran; newline='':
+					# the file holds the output as captured (Windows wrote each \n as \r\n)
 					with tempfile.NamedTemporaryFile(
-						'w', encoding='utf-8', errors='replace', prefix='browser_exec_', suffix='.txt', delete=False
+						'w', encoding='utf-8', errors='replace', newline='', prefix='browser_exec_', suffix='.txt', delete=False
 					) as f:
 						f.write(output)
 					output = clip(output, f.name)
@@ -688,9 +700,11 @@ class CLIMCPServer:
 				_error_class(e)
 				if isinstance(e, CloudAuthRequired | CloudBrowserError):
 					print(self._error(e), file=buffer)
-				else:  # from the cell's first frame: this server's exec() frame is noise to the model
-					traceback.print_exception(type(e), e, e.__traceback__.tb_next if e.__traceback__ else None, file=buffer)
-					if isinstance(e, NameError) and e.name and _raised_by_cell(e):
+				else:
+					from browser_use.telemetry.stats import raised_by_cell
+
+					_print_cell_traceback(e, buffer)
+					if isinstance(e, NameError) and e.name and raised_by_cell(e):
 						from browser_use.cli import CORE_HELPERS
 
 						print(

@@ -50,6 +50,12 @@ def slug(rng: random.Random, n: int = 10) -> str:
 	return 'q' + ''.join(rng.choices(string.ascii_lowercase, k=n))
 
 
+def lib_raise(exception: str) -> str:
+	"""Cell code whose exception a library raises: its message is sent, scrubbed. What the cell's own code raises is
+	sent as its class only (stats.raised_by_cell)."""
+	return f'exec(compile({"raise " + exception!r}, "lib.py", "exec"))'
+
+
 class Page(BaseHTTPRequestHandler):
 	def do_GET(self):
 		title = parse_qs(urlsplit(self.path).query).get('t', ['form'])[0]  # a page title the agent reads
@@ -214,11 +220,11 @@ async def test_agent_event_sends_urls_errors_and_result_never_task_secrets_typed
 	r = await agent.run()
 	assert r.status == 'completed', r.error
 	(props,) = sent
-	assert_absent(props, task, secret, typed, query, value, fragment, 'type_text(', 'wait_for_load()')
+	assert_absent(props, task, secret, typed, query, value, fragment, error, 'type_text(', 'wait_for_load()')
 	assert props['schema_version'] == 4 and props['agent_type'] == 'pydantic' and props['os']
 	assert 'task' not in props and 'final_result_response' not in props
 	assert props['urls_visited'] == [f'http://127.0.0.1/{path}/{path}2', f'http://{other_host}.invalid/{path}3']  # no port
-	assert props['error_messages'] == [f'ValueError: {error}']  # the class and message, never the frames or the code
+	assert props['error_messages'] == ['ValueError']  # the cell raised it with what it read: its class, never the message
 	assert props['final_result'] == f'{result} <task>'  # the result quoted the task, its secret redacted
 	assert set(props['domains']) == {'127.0.0.1', f'{other_host}.invalid'} and props['domain_count'] == 2
 	h = props['helper_counts']
@@ -584,6 +590,30 @@ def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch, sent):
 	assert props['helper_counts'] == {'js': 1}
 
 
+def test_cli_event_sends_only_the_class_of_an_error_the_piped_code_raised(monkeypatch, sent):
+	"""Retest 1.0.1: the CLI sent the message the piped code's own raise wrote (`assert 'Paid' in text, text[:300]`),
+	page text no scrub knows; --cli-mcp sent only its class. A library's error keeps its scrubbed message."""
+	from browser_harness import telemetry as harness
+
+	import browser_use.cli as cli
+
+	monkeypatch.setattr(harness, '_send_detached', harness._send_detached)  # restored after the test, wrapper and all
+	monkeypatch.setattr(harness, 'is_enabled', lambda: True)
+	monkeypatch.setattr(harness, '_install_id', lambda *a, **k: 'test-install')
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	cli._scrub_harness_telemetry()
+	for code in ('text = "Zq9 Jane Doe"\nassert "Paid" in text, text', 'import json\njson.loads("{Zq9")'):
+		try:
+			exec(code, {})  # as browser-harness's run.py runs the piped code
+		except Exception as exc:  # and sends its event while it handles the error (run.main)
+			harness.capture_cli_event(action='error', command='script', exit_code=1, error_message=str(exc))
+	assert_absent({'events': sent}, 'Zq9')
+	assert [p['error_message'] for p in sent] == [
+		'AssertionError',
+		'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)',
+	]
+
+
 def test_cli_event_goes_to_the_library_project_under_the_device_id(posthog, monkeypatch, tmp_path, caplog):
 	"""Retest 11-09: the browser-use CLI's cli_event (`--cli-mcp` and `--mcp` included) went to the browser-harness
 	PostHog project under a browser-harness install id, agent_event to the library project under the browser-use device
@@ -900,13 +930,13 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 	assert r.status == 'completed', r.error
 	(event,) = posthog.events()
 	raw = '\n'.join(posthog.bodies)
-	sent = ('path', 'error', 'result', 'mod')  # the URL path, the error messages and the result are sent
+	sent = ('path', 'result', 'mod')  # the URL path, a library's error message and the result are sent
 	leaked = [name for name, v in vars(c).items() if v in raw and name not in sent]
 	assert not leaked, f'leaked {leaked}'
 	assert 'type_text(' not in raw and 'Runtime.evaluate' in raw
 	p = event['properties']
 	assert p['urls_visited'] == [f'http://127.0.0.1/{c.path}']
-	assert p['error_messages'] == [f'custom: {c.error}', f"ModuleNotFoundError: No module named '{c.mod}'"]
+	assert p['error_messages'] == ['custom', f"ModuleNotFoundError: No module named '{c.mod}'"]  # the cell's own raise: class
 	assert p['final_result'] == f'{c.result} <task>'  # the task, quoted whole (and with its secret redacted)
 	assert (event['event'], event['distinct_id'], event['uuid']) == ('agent_event', 'bu-test-device', str(uuid.UUID(p['run_id'])))
 	assert (p['schema_version'], p['status'], p['steps'], p['is_internal'], p['$lib']) == (
@@ -1107,7 +1137,7 @@ async def test_planted_secrets_and_credentials_never_reach_posthog(chrome, site,
 	task = f'find {p.task}'
 	model, _ = script(
 		('python', {'code': f'new_tab({url!r}); wait_for_load(); type_text({p.typed!r}); print(page_info())'}),
-		('python', {'code': f'raise ValueError({f"auth failed: {creds} {p.jwt} {p.secret}"!r})'}),
+		('python', {'code': lib_raise(f'ValueError({f"auth failed: {creds} {p.jwt} {p.secret}"!r})')}),
 		('finish', {'success': True, 'result': f'{task}: {creds} {p.secret}'}),
 	)
 	agent = Agent(
@@ -1134,8 +1164,7 @@ async def test_typed_text_and_quoted_task_words_are_never_sent_also_after_a_foll
 	code = (
 		f'new_tab({site + "/"!r}); wait_for_load()\n'
 		'js(\'document.getElementById("f").focus()\')\n'
-		f'type_text({typed!r}); fill_input("#f", {filled!r})\n'
-		f'raise ValueError("the field rejected " + {typed!r})'
+		f'type_text({typed!r}); fill_input("#f", {filled!r})\n' + lib_raise(f'ValueError("the field rejected " + {typed!r})')
 	)
 	model, _ = script(
 		('python', {'code': code}),
@@ -1163,7 +1192,7 @@ async def test_urls_errors_and_the_result_are_cut_and_capped(sent, tmp_path, mon
 		'for i in range(60):\n'
 		"    sys.modules['__main__'].stats.url(f'https://zq{i}.example/' + 'p' * 300 + f'?q={i}', navigation=True)"
 	)
-	fails = [('python', {'code': f'raise ValueError("{i} " + "e" * 400)'}) for i in range(25)]
+	fails = [('python', {'code': lib_raise(f'ValueError("{i} " + "e" * 400)')}) for i in range(25)]
 	model, _ = script(('python', {'code': visit}), *fails, ('finish', {'success': True, 'result': 'r' * 1000}))
 	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()).status == 'completed'
 	(props,) = sent
@@ -1175,15 +1204,15 @@ async def test_urls_errors_and_the_result_are_cut_and_capped(sent, tmp_path, mon
 
 async def test_the_runs_error_comes_first_and_repeated_messages_are_sent_once(sent, tmp_path, monkeypatch):
 	no_browser(monkeypatch)
-	model, _ = script(*[('python', {'code': 'raise KeyError("same")'})] * 3, ('finish', {'success': False, 'result': 'no'}))
+	model, _ = script(*[('python', {'code': lib_raise('KeyError("same")')})] * 3, ('finish', {'success': False, 'result': 'no'}))
 	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()
 	(props,) = sent
 	assert props['error_messages'] == ["KeyError: 'same'"] and props['cell_error_types'] == {'KeyError': 3}
 	sent.clear()
-	model, _ = script(('python', {'code': 'raise KeyError("cell")'}))  # then the model fails: the run's error
+	model, _ = script(('python', {'code': 'data = {}\ndata["Zq9 from the page"]'}))  # then the model fails: the run's error
 	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()
 	(props,) = sent
-	assert props['status'] == 'error' and props['error_messages'][1:] == ["KeyError: 'cell'"]
+	assert props['status'] == 'error' and props['error_messages'][1:] == ['KeyError']  # the cell's own lookup: class only
 	assert props['error_messages'][0].startswith('AssertionError: unexpected model call 2')
 
 
@@ -1203,7 +1232,13 @@ async def test_the_runs_error_comes_first_and_repeated_messages_are_sent_once(se
 		('ValueError: <secret:pw> was rejected', 'ValueError: <secret:pw> was rejected'),
 		("NameError: name 'basic_task' is not defined", "NameError: name 'basic_task' is not defined"),
 		('the basic plan; a token expired; disk-usage-report', 'the basic plan; a token expired; disk-usage-report'),
-		('net::ERR at https://admin:Pw1@intranet:8080/a?token=x&q=y#f', 'net::ERR at https://<credential>@intranet:8080/a'),
+		('net::ERR at https://admin:Pw1@intranet:8080/a?token=x&q=y#f', 'net::ERR at https://<credential>@intranet/a'),
+		# the host as urls_visited sends it: no port, a tunnel or preview deploy as its provider
+		('Timeout at https://zq-quiet-river.trycloudflare.com:443/admin', 'Timeout at https://*.trycloudflare.com/admin'),
+		(
+			'see https://myapp-git-zq-branch-acme.vercel.app and https://Shop.Example',
+			'see https://*.vercel.app and https://shop.example',
+		),
 		('done: https://shop.example/home/deals?ref=zq#top', 'done: https://shop.example/home/deals'),
 		(
 			r"No file '/Users/jane/a.pdf', C:\Users\jane\a, file:///home/jane/x",
@@ -1233,7 +1268,7 @@ async def test_the_runs_error_comes_first_and_repeated_messages_are_sent_once(se
 			'John, <number>, card <number>, IBAN DE<number>, SSN <number>',
 		),
 		('Your verification code is 482913', 'Your verification code is <number>'),
-		('Timeout 30000ms at http://127.0.0.1:9222/json', 'Timeout 30000ms at http://127.0.0.1:9222/json'),
+		('Timeout 30000ms at http://127.0.0.1:9222/json', 'Timeout 30000ms at http://127.0.0.1/json'),
 	],
 )
 def test_scrub_replaces_credentials_and_emails_and_keeps_ordinary_text(text, out):
@@ -1312,14 +1347,20 @@ def test_page_url_keeps_scheme_host_and_path_only(url, out):
 
 
 def test_cell_stats_list_each_url_once_in_order_after_the_agent_navigated():
+	"""A page read lists its URL only in a tab the agent navigated: Browser('chrome') reaches the user's other tabs
+	(their mail), whose hostname alone counts."""
 	from browser_use.repl.worker import CellStats
 
 	s = CellStats()
-	s.url('https://mail.example.com/inbox/42')  # the user's own tab, before the agent navigated
-	s.url('https://shop.example.com/a?x=1', navigation=True)
-	s.url('https://shop.example.com/a?x=2#f')  # the same page with another query
-	s.url('https://pay.example.com/checkout')
-	assert s.take()['urls'] == ['https://shop.example.com/a', 'https://pay.example.com/checkout']
+	s.url('https://mail.example.com/inbox/42', tab='T1')  # the user's own tab, before the agent navigated
+	s.url('https://shop.example.com/a?x=1', navigation=True, tab='T1')
+	s.url('https://shop.example.com/a?x=2#f', tab='T1')  # the same page with another query
+	s.url('https://pay.example.com/checkout', tab='T1')  # a link the agent clicked there
+	s.url('https://mail.example.com/mail/u/0/zq-thread', tab='T2')  # switch_tab() to the user's mail: its host only
+	s.url('https://docs.example.com/d/zq-doc')  # no tab known
+	out = s.take()
+	assert out['urls'] == ['https://shop.example.com/a', 'https://pay.example.com/checkout']
+	assert out['hosts'] == ['docs.example.com', 'mail.example.com', 'pay.example.com', 'shop.example.com']
 	s.url('https://shop.example.com/a', navigation=True)  # a revisit in a later cell
 	assert s.take()['urls'] == []
 	stats = RunStats()

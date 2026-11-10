@@ -197,13 +197,22 @@ def _scrub(text: str, forms: list[tuple[str, str]], tasks: tuple[str, ...], type
 	for value in _env_secrets():
 		out = out.replace(value, '<credential>')
 	out = EXPRESSION.sub('; expression: <code>', out)
-	out = URL.sub(lambda m: m[1] + ('<credential>@' if m[2] else '') + _path_tokens(m[3]), out)
+	out = URL.sub(_url, out)
 	out = QUERY.sub(r'\1', out)
 	out = HOME.sub(lambda m: m[1] + '<user>', out)
 	out = BEARER.sub(lambda m: m[1] + m[2] + '<credential>', out)  # first: 'Authorization: Bearer <token>'
 	out = COOKIE.sub(lambda m: m[1] + '<credential>', out)
 	out = ASSIGNED.sub(lambda m: m[1] + m[2] + '<credential>', out)
 	return NUMBER.sub('<number>', EMAIL.sub('<email>', KEYS.sub('<credential>', out)))
+
+
+def _url(m: re.Match) -> str:
+	"""A URL as urls_visited sends it: its user:password@ as <credential>@, no port; a tunnel or preview deploy's host as
+	its provider (host()); the path's tokens as <token>. URL already dropped the query and fragment."""
+	authority, sep, path = m[3].partition('/')
+	if h := host(m[1] + authority):
+		authority = f'[{h}]' if ':' in h else h
+	return m[1] + ('<credential>@' if m[2] else '') + _path_tokens(authority + sep + path)
 
 
 def _path_tokens(where: str) -> str:
@@ -387,6 +396,17 @@ def imported_modules(code: str) -> list[str]:
 	return [n if known_module(n) else 'other' for n in names]
 
 
+def raised_by_cell(e: BaseException) -> bool:
+	"""The innermost frame is the model's own code (an Agent cell '<cell N>' or its finish '<finish>'; code the CLI or
+	--cli-mcp exec'd, '<string>'), not a helper or a library: its message is what the code typed or read from the page
+	(`assert name in text, text[:300]`, `data[name]`), which no scrub can know. Telemetry sends only its class."""
+	tb = e.__traceback__
+	while tb is not None and tb.tb_next is not None:
+		tb = tb.tb_next
+	name = tb.tb_frame.f_code.co_filename if tb is not None else ''
+	return name.startswith('<cell ') or name in ('<string>', '<finish>')
+
+
 def error_class(e: BaseException | type) -> str:
 	"""The exception's (or class's) name when Python, the standard library or an installed package defines it; 'custom'
 	for a class the model's code defined, which could be named anything."""
@@ -547,15 +567,18 @@ def is_internal() -> bool:
 	return os.getenv('BROWSER_USE_TELEMETRY_INTERNAL', '').strip().lower()[:1] in ('t', 'y', '1')
 
 
-def scrub_cli_event(payload: dict) -> dict:
+def scrub_cli_event(payload: dict, error: BaseException | None = None) -> dict:
 	"""A browser-harness event as the browser-use CLI sends it: without the piped code, its output and the helper
-	arguments; helper names are kept as counts, the error message as its exception line, scrubbed (scrub)."""
+	arguments; helper names are kept as counts, the error message as its exception line, scrubbed (scrub), or only the
+	class of error, the exception being handled, when the piped code raised it itself (raised_by_cell)."""
 	props = payload.get('properties')
 	if not isinstance(props, dict):
 		return payload
 	steps = [s for s in props.get('steps') or [] if isinstance(s, dict)]
 	clean = {k: v for k, v in props.items() if k not in CLI_CONTENT}
-	if clean.get('error_message') is not None:  # a traceback's frames quote the code: its last line only
+	if clean.get('error_message') is not None and error is not None and raised_by_cell(error):
+		clean['error_message'] = error_class(error)
+	elif clean.get('error_message') is not None:  # a traceback's frames quote the code: its last line only
 		clean['error_message'] = scrub(error_line(clean['error_message']), [], MAX_ERROR) or None
 	clean['helper_counts'] = top(Counter(str(s['helper']) for s in steps if s.get('helper'))) or None
 	clean['helper_errors'] = sum(1 for s in steps if s.get('error')) if steps else None

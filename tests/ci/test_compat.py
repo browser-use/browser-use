@@ -1215,7 +1215,8 @@ async def test_browser_exec_output_is_capped_like_agent_cells():
 	from browser_use.repl.session import MAX_OUTPUT_CHARS
 
 	mcp = cli_mcp.CLIMCPServer()
-	big = 'A' * 2_000_000 + '\U0001f600 \u4e2d'  # not in Windows' cp1252: the overflow file failed the whole call there
+	# not in Windows' cp1252: the overflow file failed the whole call there; and Windows wrote each \n as \r\n
+	big = 'A\n' * 1_000_000 + '\U0001f600 \u4e2d'
 	mcp._execute = lambda code: (big, False)  # what print("A"*2_000_000) captures, without a browser
 	handler = mcp.server._request_handlers['tools/call'].handler
 	r = await handler(None, types.CallToolRequestParams(name='browser_exec', arguments={'code': 'print(1)'}))
@@ -1223,5 +1224,26 @@ async def test_browser_exec_output_is_capped_like_agent_cells():
 	head, _, path = text.rpartition('\n[Truncated. Full captured output: ')
 	assert not r.is_error and head == big[:MAX_OUTPUT_CHARS]
 	full = Path(path.removesuffix(']'))
-	assert full.read_text(encoding='utf-8') == big
+	assert full.read_bytes() == big.encode('utf-8')  # the bytes captured: a client may slice it by offset
 	full.unlink()
+
+
+def test_browser_exec_error_shows_the_cells_frames_not_browser_harness_internals(monkeypatch):
+	"""e2e 1.0.1: js("nope(") printed four browser-harness frames (js -> _js_evaluate -> _runtime_evaluate ->
+	_runtime_value) between the cell's line and the error, which says it all."""
+	from browser_harness import helpers
+
+	from browser_use.mcp import cli_mcp
+
+	fake: dict = {}  # the daemon's answer, raised in browser-harness's helpers.py as its _send raises it
+	error = 'JavaScript evaluation failed at line 0, column 5: SyntaxError: Unexpected end of input'
+	exec(compile(f'def _send(req, *a, **k):\n    raise RuntimeError({error!r})', helpers.__file__, 'exec'), fake)
+	monkeypatch.setattr(helpers, '_send', fake['_send'])
+	out, failed = cli_mcp.CLIMCPServer()._execute('x = 1\njs("nope(")', connect=False)
+	assert failed and out.splitlines() == [
+		'Traceback (most recent call last):',
+		'  File "<string>", line 2, in <module>',
+		f'RuntimeError: {error}',
+	], out
+	out, _ = cli_mcp.CLIMCPServer()._execute('import json\njson.loads("{")', connect=False)
+	assert 'json/decoder.py' in out.replace('\\', '/')  # a library's frames stay: they say where it failed

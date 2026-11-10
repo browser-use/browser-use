@@ -55,7 +55,7 @@ from browser_use.repl.session import (
 	redact_forms,
 	secret_forms,
 )
-from browser_use.telemetry.stats import MAX_URLS, error_class, host, page_url
+from browser_use.telemetry.stats import MAX_URLS, error_class, host, page_url, raised_by_cell
 from browser_use.utils import TLSHandler, install_tls_opener, name_download
 
 MAX_IMAGES_PER_CELL = 4
@@ -125,6 +125,7 @@ class CellStats:
 		self.lock = threading.Lock()  # ultrafast reads CDP events on a background thread
 		# Browser('chrome') attaches to a tab the user had open: a page read is only counted once this worker navigated
 		self.navigated = False
+		self.tabs: set[str] = set()  # targets this worker navigated: a page read there is the agent's page, not the user's
 		self.downloads: set[str | None] = set()  # guids seen: one download_started per download, whichever events announce it
 		self.started: list[str] = []  # names of downloads that started since the last cell output
 		self.names: dict[str, str | None] = {}  # guid -> suggested file name: a finished download is renamed to it
@@ -159,20 +160,24 @@ class CellStats:
 				s[2] += ns
 				s[3] = max(s[3], ns)
 
-	def url(self, url, navigation: bool = False) -> None:
+	def url(self, url, navigation: bool = False, tab: str | None = None) -> None:
 		"""A navigation's hostname and URL without query or fragment (page_url), or (navigation=False) those of a page the
-		agent read. A URL never seen before counts as a new page, a navigation to one already seen as a revisit (by
-		hash). Chrome's own error page (chrome-error://chromewebdata/) is not a host: the page stays on the host that
-		failed to load."""
+		agent read in tab. A read URL is listed only in a tab this worker navigated (a link it clicked there); in a tab of
+		the user's it switched to (their mail, Browser('chrome')) only its hostname counts. A URL never seen before
+		counts as a new page, a navigation to one already seen as a revisit (by hash). Chrome's own error page
+		(chrome-error://chromewebdata/) is not a host: the page stays on the host that failed to load."""
 		if str(url).startswith('chrome-error:'):
 			return
 		if h := host(url):
 			with self.lock:
 				self.navigated = self.navigated or navigation
+				if navigation and tab:
+					self.tabs.add(tab)
 				if self.navigated:
 					self.hosts.add(h)
 					self.host = h
-					if len(self.listed) < MAX_URLS and (u := page_url(url)) and u not in self.listed:
+					listed = navigation or (tab is not None and tab in self.tabs)
+					if listed and len(self.listed) < MAX_URLS and (u := page_url(url)) and u not in self.listed:
 						self.listed.add(u)
 						self.urls.append(u)
 					key = hash(str(url).split('#', 1)[0])
@@ -313,9 +318,19 @@ def _back_to_agent_tab() -> None:
 TYPING = {'type_text': 0, 'fill_input': 1, 'bu.type': 1}  # helper -> position of the text it types
 
 
+def _attached_tab() -> str | None:
+	"""The tab the daemon is attached to now (it attaches another one itself when that tab closes), or None."""
+	from browser_harness import helpers
+
+	try:
+		return helpers._send({'meta': 'current_tab'})['targetId']
+	except Exception:  # - no daemon: no tab
+		return None
+
+
 def _counted(name: str, fn):
-	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname, once the
-	agent navigated."""
+	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname once the
+	agent navigated, and its URL in a tab the agent navigated (CellStats.url)."""
 
 	at = TYPING.get(name)
 
@@ -330,7 +345,7 @@ def _counted(name: str, fn):
 		finally:  # an error counts even when the model's code catches it
 			stats.timed('helper_t', name, time.perf_counter_ns() - started, failed)
 		if name in ('page_info', 'current_tab') and isinstance(result, dict):
-			stats.url(result.get('url'))
+			stats.url(result.get('url'), tab=result.get('targetId') or (_attached_tab() if stats.navigated else None))
 		return result
 
 	return counted
@@ -609,7 +624,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			return {}
 		if method in NAVIGATING:
 			check_url(params.get('url', ''))
-			stats.url(params.get('url'), navigation=True)
+			attached = method == 'Page.navigate' and session_id is None  # else another tab's session, or a new tab
+			stats.url(params.get('url'), navigation=True, tab=_attached_tab() if attached else None)
 		# browser-harness sends its Windows key code as nativeVirtualKeyCode; macOS Chrome reads it as a Mac one, so a
 		# printable press_key() on a visible tab also opened chrome://settings/help. 0.x never sent it.
 		params.pop('nativeVirtualKeyCode', None)
@@ -999,7 +1015,10 @@ def _run(code_obj, ns, loop):
 
 
 def _message(e: BaseException, name: str) -> str:
-	"""'Class: message' for telemetry: the exception line only, never the traceback's frames or the cell's code."""
+	"""'Class: message' for telemetry: the exception line only, never the traceback's frames or the cell's code; only
+	the class when the cell's own code raised it (stats.raised_by_cell)."""
+	if raised_by_cell(e):
+		return name
 	try:
 		text = str(e)
 	except Exception:  # - a __str__ that raises

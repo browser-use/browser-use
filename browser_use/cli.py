@@ -36,7 +36,7 @@ def _set_harness_client_env() -> None:
 def _scrub_harness_telemetry() -> None:
 	"""browser-harness's cli_event carries the piped code, its output, helper arguments and error text. In the
 	browser-use CLI the code, output and arguments never leave the machine, the error message is sent as its exception
-	line with credentials scrubbed (stats.scrub_cli_event): every event is scrubbed, then sent by the library's
+	line with credentials scrubbed, or as its class when the piped code raised it (stats.scrub_cli_event): every event is scrubbed, then sent by the library's
 	sender to the library's PostHog project under its device id, next to the same machine's agent_events (browser-harness
 	would send it to its own project under its own install id, and create that id). ANONYMIZED_TELEMETRY turns it off as
 	in the library (browser-harness alone only knows 0, false, no and off): its is_enabled() says so too, else it built the
@@ -92,7 +92,7 @@ def _scrub_harness_telemetry() -> None:
 		if not product_telemetry().enabled:
 			return
 
-		event = scrub_cli_event(payload)
+		event = scrub_cli_event(payload, sys.exc_info()[1])  # browser-harness sends while it handles the piped code's error
 		props = event.get('properties') or {}
 		product_telemetry().notice = False  # no log line on the CLI's stderr each call (it never had one)
 		product_telemetry().capture_run(Job(str(event.get('event') or 'cli_event'), lambda steps, keys: props))
