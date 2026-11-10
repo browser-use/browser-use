@@ -147,6 +147,10 @@ class Session:
 		so the delivery request has up to 30 s (timeout=25 left it 2.5 s: the run ended empty)."""
 		return self.timeout_s - max(0.1 * self.timeout_s, min(30.0, 0.5 * self.timeout_s))
 
+	def time_left(self) -> float:
+		"""Seconds until the delivery-only turn starts, or on that turn until the run's end."""
+		return (self.timeout_s if self.finalizing else self.delivery_at()) - (time.monotonic() - self.started)
+
 	def partial(self) -> Any:
 		"""The last checkpoint(..., partial=True), secret values redacted. None when missing or unreadable."""
 		try:
@@ -427,10 +431,17 @@ class BrowserLoop(AbstractCapability[Session]):
 				s.finalizing = True
 				s.rec.delivery()
 				ctx.enqueue(DELIVER_NOW)
-		settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
-		_deadlines(s, settings, request_context.model, MODEL_TIMEOUT_S)
 		if s.finalizing:  # restrict this very request
+			settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
 			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
+			request_context.model_settings = cast(Any, settings)
+		return request_context
+
+	async def prepare_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
+		"""The request's deadline, per attempt: a retry after the provider's Retry-After kept the deadline computed
+		before the sleep and ran past the delivery turn's start (status timeout, no answer)."""
+		settings: dict[str, Any] = dict(request_context.model_settings or {})
+		_deadlines(ctx.deps, settings, request_context.model, MODEL_TIMEOUT_S)
 		request_context.model_settings = cast(Any, settings)
 		return request_context
 
@@ -461,8 +472,8 @@ class BrowserLoop(AbstractCapability[Session]):
 			raise error
 		s.provider_retried = True
 		s.rec.retry('provider_transient')
-		delay = min(error.retry_after or 0, 60)
-		logger.warning(f'{type(error).__name__} from {error.model_name}: retrying once in {delay:g} s')
+		delay = min(error.retry_after or 0, 60, max(s.time_left(), 0))  # a wait never runs into the delivery turn
+		logger.warning(f'{type(error).__name__} from {error.model_name}: retrying once in {round(delay, 1):g} s')
 		slept = now()
 		await asyncio.sleep(delay)
 		s.rec.phase('retry_sleep', now() - slept)
@@ -676,7 +687,7 @@ def _deadlines(s: Session, settings: dict[str, Any], model: Model, wait_s: float
 	"""request_timeout of one model request, and first_event_timeout of a streamed one (OpenAI Responses, streamed by
 	StreamResponses). A non-streamed request gets wait_s in all; a streamed one gets wait_s until its first event, then
 	STREAM_TIMEOUT_S in all. bu-pi deadlineStream: neither holds the run past the delivery turn's start."""
-	left = max(1.0, (s.timeout_s if s.finalizing else s.delivery_at()) - (time.monotonic() - s.started))
+	left = max(1.0, s.time_left())
 	if isinstance(model, OpenAIResponsesModel):
 		settings['first_event_timeout'] = min(settings.get('first_event_timeout') or wait_s, left)
 		wait_s = STREAM_TIMEOUT_S

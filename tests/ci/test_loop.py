@@ -269,6 +269,36 @@ async def test_transient_provider_error_is_retried_once(tmp_path, monkeypatch, e
 	assert (result.status, len(requests), sleeps) == (status, calls, slept), result.error
 
 
+async def test_a_provider_retry_after_still_leaves_the_delivery_turn(tmp_path):
+	"""Review: after a Retry-After wait the retried request kept the deadline computed before the wait, so it ran past
+	the delivery turn's start and the run's end (status timeout, no answer). The wait now stops at the delivery turn
+	and each attempt gets the time left."""
+	import asyncio
+	import time
+
+	from pydantic_ai import exceptions as x
+
+	sent = []
+
+	async def fn(messages, info: AgentInfo):
+		sent.append((time.monotonic() - session.started, info.model_settings['request_timeout']))
+		if len(sent) == 2:
+			raise x.ModelRateLimitError('grok-4.7', 'The model is currently at capacity', retry_after=3)
+		if len(sent) == 3:
+			await asyncio.sleep(2.5)  # the retried request: slow
+		if len(sent) < 4:
+			return ModelResponse(parts=[ToolCallPart('python', {'code': 'x = 1'})])
+		return ModelResponse(parts=[ToolCallPart('finish', {'result': 'delivered', 'success': True})])
+
+	model = FunctionModel(fn)
+	model._system = 'xai'  # BrowserLoop retries it (no SDK retries)
+	session = Session(repl=FakeRepl(tmp_path), timeout_s=4)  # the delivery turn starts at 2 s
+	result = await run(build_agent(model), 'task', session, 'function:x')
+	assert (result.status, result.output, session.budget_hit) == ('completed', 'delivered', 'timeout'), (result.error, sent)
+	retried_at, deadline = sent[2]
+	assert retried_at < 2.2 and deadline <= 1.0, sent
+
+
 async def test_gemini_requests_the_sdk_already_retried_are_not_sent_again(tmp_path, monkeypatch):
 	"""rr-failure 5: a persistent Gemini 500 took 6 requests, the other providers 3: google-genai retries twice
 	(build_agent's max_retries=2), and BrowserLoop, looking for max_retries on the client, sent it once more."""
