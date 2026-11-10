@@ -299,8 +299,9 @@ def _read_api_key_stdin() -> str:
 	except OSError as e:
 		reason = getattr(e, 'reason', e)  # urllib wraps the handshake's error in URLError
 		if isinstance(reason, ssl.SSLError):  # a certificate the TLS check refused is not offline
+			why = getattr(reason, 'verify_message', None) or reason  # the certificate problem itself, when there is one
 			raise auth.AuthError(
-				f'could not check the key: the TLS connection to {auth.auth_base()} failed ({reason}); '
+				f'could not check the key: the TLS connection to {auth.auth_base()} failed ({why}); '
 				'the key was not stored. Behind a TLS-inspecting proxy, set SSL_CERT_FILE to its CA bundle and retry'
 			) from None
 		# offline: store it; the first cloud call reports a bad key
