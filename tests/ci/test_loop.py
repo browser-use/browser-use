@@ -484,6 +484,33 @@ async def test_a_short_timeout_still_leaves_time_to_deliver(daemon, tmp_path):
 	assert Session(repl=session.repl, timeout_s=1700).delivery_at() == pytest.approx(1530)  # default budget unchanged
 
 
+async def test_ultrafast_cells_get_10s_more_within_the_budget(tmp_path):
+	"""Pi src/runtime.ts:257: an ultrafast cell may run 10 s past the cell timeout (for the automatic state print)."""
+	model, seen = script(('python', {'code': "import time; time.sleep(2); print('slept')"}), ('finish', {'result': 'ok'}))
+	session = Session(repl=Repl(tmp_path, mode='ultrafast'), cell_timeout_s=1)
+	try:
+		result = await run(build_agent(model), 'task', session, 'm')
+	finally:
+		await session.repl.close()
+	assert (result.status, result.output, seen[1][-1].parts[0].content) == ('completed', 'ok', ['slept\n']), result.error
+
+
+async def test_a_short_timeout_still_leaves_time_to_deliver_in_ultrafast_mode(tmp_path):
+	"""Review: the 10 s ultrafast grace was added past the time left before the delivery turn: run(timeout=20) with a
+	hanging cell ended status=timeout with no answer, the default mode delivered at 10 s. The grace is now part of it."""
+	model, _ = script(
+		('python', {'code': 'import time; time.sleep(30)'}),
+		('finish', {'success': False, 'result': 'ran out of time'}),
+	)
+	session = Session(repl=Repl(tmp_path, mode='ultrafast'), timeout_s=8)
+	try:
+		result = await run(build_agent(model), 'task', session, 'm')
+	finally:
+		await session.repl.close()
+	assert (result.status, result.output, session.budget_hit) == ('completed', 'ran out of time', 'timeout'), result.error
+	assert result.duration_s < 8
+
+
 async def test_an_open_js_dialog_is_named_instead_of_timing_out(daemon, tmp_path):
 	"""M15: with an alert open, js() took 20 s, click_at_xy 20 s and screenshot() 65 s, with errors that did not say why."""
 	import time

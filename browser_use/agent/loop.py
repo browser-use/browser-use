@@ -169,7 +169,10 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 		return [NO_TIME]
 	ctx.deps.rec.cell_start()
 	starts = getattr(repl, 'start_ns', 0)  # test doubles have none
-	r = await repl.call('exec', code, min(ctx.deps.cell_timeout_s, max(left, 1.0)))
+	# Ultrafast prints the page state after the cell's code, so its cells get 10 s more (Pi src/runtime.ts:257), out of
+	# the time left: added to it, a short run(timeout=...) lost the delivery turn (status timeout, no answer)
+	grace = 10 if getattr(repl, 'mode', 'default') == 'ultrafast' else 0
+	r = await repl.call('exec', code, min(ctx.deps.cell_timeout_s + grace, max(left, 1.0)))
 	ctx.deps.stats.add_cell(r, code, time.monotonic() - started)
 	ctx.deps.rec.phase('repl_start', getattr(repl, 'start_ns', 0) - starts)
 	ctx.deps.rec.cell(r, code, now() - t0, ctx.deps.vision)
