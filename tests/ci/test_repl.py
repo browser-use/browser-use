@@ -777,26 +777,25 @@ def test_hidden_cloud_tab_is_activated_before_its_capture():
 	assert [m for m, _ in calls] == ['Runtime.evaluate', 'Page.captureScreenshot']
 
 
-def test_cli_mcp_screenshot_activates_a_hidden_tab_whose_capture_hangs(monkeypatch, tmp_path):
+@pytest.mark.parametrize('kind', ['cdp', 'cloud'])
+def test_cli_mcp_screenshot_activates_a_hidden_tab_whose_capture_hangs(monkeypatch, tmp_path, kind):
 	"""win-cli-5: the CLI and --cli-mcp called browser-harness's bare capture_screenshot(): a background tab of a
-	headless Chromium stalled 10 s or timed out at 60 s, where the Agent's screenshot() activates it after a short try."""
-	from browser_harness import helpers
+	headless Chromium stalled 10 s or timed out at 60 s, where the Agent's screenshot() activates it after a short try.
+	A cloud browser's hidden tab is activated without the 10 s try, as the Agent's is (cloud CLI: 10.6 s -> 0.4 s)."""
+	from browser_harness import admin, helpers
 
 	from browser_use.mcp import cli_mcp
 
 	raw_cdp, calls, state = _tab(capture_hangs=True)
 	monkeypatch.setattr(helpers, 'cdp', raw_cdp)
 	monkeypatch.setattr(helpers, 'current_tab', lambda: {'targetId': 'T'})
+	monkeypatch.setattr(admin, 'daemon_browser_kind', lambda name=None: kind)
 	ns = cli_mcp.CLIMCPServer()._ensure_namespace()
 	path = ns['capture_screenshot'](str(tmp_path / 'shot.png'))
 	assert Path(path).read_bytes() == b'\x00\x00\x00'  # base64 'AAAA'
 	assert state['visibility'] == 'visible'
-	assert [m for m, _ in calls] == [
-		'Runtime.evaluate',
-		'Page.captureScreenshot',
-		'Target.activateTarget',
-		'Page.captureScreenshot',
-	]
+	first_try = ['Page.captureScreenshot'] if kind != 'cloud' else []
+	assert [m for m, _ in calls] == ['Runtime.evaluate', *first_try, 'Target.activateTarget', 'Page.captureScreenshot']
 
 
 PARENT = """

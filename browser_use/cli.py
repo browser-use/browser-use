@@ -717,7 +717,8 @@ def _stdin_is_terminal() -> bool:
 		handle = msvcrt.get_osfhandle(sys.stdin.fileno())
 	except (OSError, ValueError):  # no file descriptor: trust isatty()
 		return True
-	return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(ctypes.c_ulong())))
+	console = ctypes.c_void_p(handle)  # a HANDLE is pointer-sized; ctypes passes a bare int as a 32-bit C int
+	return bool(ctypes.windll.kernel32.GetConsoleMode(console, ctypes.byref(ctypes.c_ulong())))
 
 
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
