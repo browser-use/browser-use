@@ -255,6 +255,93 @@ def test_stdin_from_the_null_device_is_empty_stdin_not_the_quickstart():
 	assert 'received empty stdin' in r.stderr and 'Welcome' not in r.stdout
 
 
+def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path):
+	"""Live (k8s read-only fs, `docker run -u` without a home, Lambda): browser-harness creates ~/.config/browser-harness
+	when imported, so Browser().start() and every browser-use command that drives a browser died with a bare
+	PermissionError on ~/.config, naming neither browser-use nor BH_HOME. Commands that need no browser still work."""
+	(tmp_path / '.config').write_text('')  # no dir can be made under it: an unwritable HOME, for root and on Windows too
+	env = {
+		k: v for k, v in os.environ.items() if not k.startswith('BH_') and k not in ('XDG_CONFIG_HOME', 'BROWSER_HARNESS_HOME')
+	}
+	env.update(HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONPATH=str(ROOT), BU_CDP_URL='http://127.0.0.1:1')
+
+	def run(*argv: str, stdin: str = '') -> subprocess.CompletedProcess[str]:
+		return subprocess.run(
+			[sys.executable, *argv], input=stdin, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
+		)
+
+	start = "import asyncio\nfrom browser_use import Browser\nasyncio.run(Browser(cdp_url='http://127.0.0.1:1').start())"
+	r = run('-c', start)
+	assert 'BrowserConfigError: browser-use cannot create its browser-harness dir' in r.stderr and 'BH_HOME' in r.stderr, r.stderr
+	for argv, stdin in ((['--doctor'], ''), ([], 'print(1)')):
+		r = run('-m', 'browser_use.cli', *argv, stdin=stdin)
+		assert (r.returncode, r.stdout) == (1, ''), r.stderr
+		assert 'BH_HOME' in r.stderr and 'Traceback' not in r.stderr, r.stderr
+	assert run('-m', 'browser_use.cli', 'skill', 'show').returncode == 0
+
+
+def test_piped_code_is_read_as_utf8_whatever_the_locale_says(monkeypatch):
+	"""Windows: Python decodes a stdin pipe with the ANSI code page (cp1252; cp932 on Japanese Windows), so piped
+	fill_input('input', 'Zürich') typed 'ZÃ¼rich', and some CJK text raised UnicodeDecodeError before the code ran.
+	Coding agents pipe UTF-8; PowerShell's starts with a BOM."""
+	import codecs
+	import io
+
+	from browser_use import cli
+
+	code = 'fill_input("input", "Zürich 東京 €5")\n'
+	ran = []
+	monkeypatch.setattr(cli, '_run_browser_harness', ran.append)
+	for raw in (code.encode(), codecs.BOM_UTF8 + code.encode()):
+		monkeypatch.setattr(sys, 'stdin', io.TextIOWrapper(io.BytesIO(raw), encoding='cp1252'))
+		cli._dispatch([])
+	assert ran == [code, code]
+
+
+def test_piped_http_get_fetches_from_this_machine_with_a_key_set(monkeypatch):
+	"""With BROWSER_USE_API_KEY set, piped code's http_get was browser-harness's: it POSTs the URL and its headers
+	(Authorization too) to the fetch-use proxy, so localhost and intranet URLs failed and the headers left the machine.
+	It is the Agent's http_get now: plain HTTP from here, as the docs say."""
+	import http.server
+	import threading
+
+	import fetch_use
+	from browser_harness import run
+
+	from browser_use import cli
+
+	class Echo(http.server.BaseHTTPRequestHandler):
+		def do_GET(self):
+			body = f'{self.path} {self.headers.get("Authorization")}'.encode()
+			self.send_response(200)
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.write(body)
+
+		def log_message(self, *args):
+			pass
+
+	def proxied(*args, **kwargs):
+		raise AssertionError('http_get went to the fetch-use proxy')
+
+	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Echo)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	url = f'http://127.0.0.1:{server.server_address[1]}/internal'
+	got = []
+	monkeypatch.setattr(fetch_use, 'fetch_sync', proxied)
+	monkeypatch.setattr(run, 'http_get', run.http_get)  # put back after the test
+	# the piped code runs in browser-harness's run module: its names are the module's
+	monkeypatch.setattr(run, 'main', lambda: got.append(vars(run)['http_get'](url, headers={'Authorization': 'Bearer t'})))
+	monkeypatch.setattr(sys, 'argv', ['browser-use'])
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'bu_test')
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	try:
+		cli._run_browser_harness('print(http_get(url))')
+	finally:
+		server.shutdown()
+	assert got == ['/internal Bearer t']
+
+
 def test_every_install_line_pins_the_released_version_exactly():
 	"""Users and their agents copy these lines: each pins browser-use with == to this release, never >=."""
 	import tomllib

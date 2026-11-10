@@ -6,7 +6,7 @@ import sys
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from importlib.metadata import PackageNotFoundError, version
-from io import StringIO
+from io import StringIO, TextIOWrapper
 from typing import TYPE_CHECKING, Any
 
 
@@ -500,6 +500,7 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	from browser_harness import helpers, run
 
 	from browser_use.browser.browser import _name_daemon_files
+	from browser_use.repl import worker
 	from browser_use.repl.capture import install as install_capture
 	from browser_use.repl.page_info import install as install_page_info
 
@@ -517,6 +518,9 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	run.page_info = helpers.page_info
 	install_capture()  # win-cli-5: a hidden tab's screenshot gets the Agent's activate fallback
 	run.cdp = helpers.cdp
+	# The Agent's http_get, plain HTTP from this machine: browser-harness's sends the URL and headers to the fetch-use
+	# proxy whenever BROWSER_USE_API_KEY is set (localhost and intranet URLs then fail, Authorization leaves the machine)
+	run.http_get = worker.http_get
 	args = sys.argv[1:]
 	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
 		from browser_use import harness_cloud
@@ -764,19 +768,8 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	from browser_use.utils import install_tls_opener  # after --version: importing it costs ~12 ms on macOS (proxy lookup)
 
 	install_tls_opener()  # browser-harness's own requests here (cloud browsers, login) verify as the OS does
-	if '--cli-mcp' in args:
-		_run_cli_mcp_server()
-		return 0, 'cli-mcp'
-	if '--mcp' in args:
-		return _run_mcp_server(), 'mcp'
-	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
-		return _run_doctor(), 'doctor'
 	if args and args[0] == 'install':
 		return _run_install_command(args[1:]), 'install'
-	if args[:1] in (['login'], ['logout']) or args[:2] in (['auth', 'login'], ['auth', 'logout']):
-		# `auth login` is browser-harness's spelling (the skill teaches it): the same checks as `login`
-		command, rest = (args[1], args[2:]) if args[0] == 'auth' else (args[0], args[1:])
-		return (_run_login_command if command == 'login' else _run_logout_command)(rest), command
 	if args and args[0] == 'init':
 		return _run_init_command(args[1:]), 'init'
 	if '--template' in args or '-t' in args:
@@ -791,6 +784,29 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		print(_legacy_migration_message(legacy), file=sys.stderr)
 		return 2, f'legacy:{legacy}'
 
+	from browser_use.browser.browser import require_harness_dirs
+	from browser_use.exceptions import BrowserConfigError
+
+	try:  # every command below imports browser-harness
+		require_harness_dirs()
+	except BrowserConfigError as e:
+		print(e, file=sys.stderr)
+		return 1, _command_name(args)
+	if '--cli-mcp' in args:
+		_run_cli_mcp_server()
+		return 0, 'cli-mcp'
+	if '--mcp' in args:
+		return _run_mcp_server(), 'mcp'
+	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
+		return _run_doctor(), 'doctor'
+	if args[:1] in (['login'], ['logout']) or args[:2] in (['auth', 'login'], ['auth', 'logout']):
+		# `auth login` is browser-harness's spelling (the skill teaches it): the same checks as `login`
+		command, rest = (args[1], args[2:]) if args[0] == 'auth' else (args[0], args[1:])
+		return (_run_login_command if command == 'login' else _run_logout_command)(rest), command
+
+	if isinstance(sys.stdin, TextIOWrapper) and not sys.stdin.isatty():
+		# Windows decoded a pipe with the ANSI code page (cp1252, cp932): piped 'Zürich' ran as 'ZÃ¼rich', or raised
+		sys.stdin.reconfigure(encoding='utf-8-sig', errors='replace')  # -sig: PowerShell's UTF-8 starts with a BOM
 	code = None
 	if not args:
 		if _stdin_is_terminal():
