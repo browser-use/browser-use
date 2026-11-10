@@ -83,6 +83,7 @@ def server(tmp_path, monkeypatch):
 	httpd = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
 	httpd.daemon_threads = True
 	tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+	tls.minimum_version = ssl.TLSVersion.TLSv1_2
 	tls.load_cert_chain(cert, key)
 	httpd.socket = tls.wrap_socket(httpd.socket, server_side=True)
 	threading.Thread(target=httpd.serve_forever, daemon=True).start()
