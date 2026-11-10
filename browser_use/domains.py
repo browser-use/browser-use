@@ -344,7 +344,10 @@ class Guard:
 	def _connect(self) -> None:
 		from websockets.sync.client import connect
 
-		self._ws = connect(self.ws_url, max_size=None, open_timeout=GUARD_START_S, close_timeout=1)
+		from browser_use.utils import tls_context
+
+		tls = tls_context() if self.ws_url.startswith('wss:') else None  # a ws:// URL refuses an ssl argument
+		self._ws = connect(self.ws_url, max_size=None, open_timeout=GUARD_START_S, close_timeout=1, ssl=tls)
 		self.pages.clear()
 		self._replies.clear()
 		self._discovered = False  # until setDiscoverTargets answered: the targets it reports were already open

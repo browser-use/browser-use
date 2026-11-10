@@ -1,5 +1,8 @@
+import http.client
 import logging
 import os
+import ssl
+import threading
 import urllib.request
 from collections.abc import Iterator
 from functools import cache
@@ -17,7 +20,77 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 		return None  # urllib then raises the 3xx as an HTTPError
 
 
-_keyed_opener = urllib.request.build_opener(_NoRedirect)
+def new_tls_context() -> ssl.SSLContext:
+	"""The TLS context of every HTTPS request this package makes itself: it trusts what the OS trusts. Python's default
+	context reads only the roots already in the Windows store, and a fresh Windows host fetches a missing root (the
+	Starfield root behind api.browser-use.com) only when the OS verifier asks for it: urllib failed with
+	CERTIFICATE_VERIFY_FAILED where Edge, curl.exe and the model calls (httpx2 uses truststore) worked. truststore verifies
+	with the OS (Windows CryptoAPI, macOS Security, OpenSSL's system store on Linux); SSL_CERT_FILE and SSL_CERT_DIR are
+	trusted too, as before. Without truststore: Python's default context plus certifi's roots."""
+	try:
+		import truststore
+
+		ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+	except Exception as e:  # - not installed, or this platform's verifier cannot load
+		logger.debug('truststore unavailable (%s): default TLS context with certifi', e)
+	else:
+		cafile, capath = os.environ.get('SSL_CERT_FILE') or None, os.environ.get('SSL_CERT_DIR') or None
+		if cafile or capath:  # a proxy's CA: extra roots, as the default context loaded them
+			try:
+				ctx.load_verify_locations(cafile, capath)
+			except (OSError, ssl.SSLError) as e:
+				logger.debug('SSL_CERT_FILE / SSL_CERT_DIR not loaded: %s', e)
+		return ctx
+	ctx = ssl.create_default_context()
+	try:
+		import certifi
+
+		ctx.load_verify_locations(certifi.where())
+	except Exception as e:  # - certifi missing or unreadable: the default roots alone
+		logger.debug('certifi unavailable: %s', e)
+	return ctx
+
+
+_thread_tls = threading.local()
+
+
+def tls_context() -> ssl.SSLContext:
+	"""This thread's new_tls_context(), made on its first call. truststore holds a context's lock through the whole
+	handshake: with one context for every thread, a handshake that stalled (telemetry to a firewalled PostHog) held up the
+	other threads' HTTPS, the gateway check included, until its timeout."""
+	ctx = getattr(_thread_tls, 'ctx', None)
+	if ctx is None:
+		ctx = _thread_tls.ctx = new_tls_context()
+	return ctx
+
+
+class TLSHandler(urllib.request.HTTPSHandler):
+	"""HTTPS through tls_context(), made on the first HTTPS request: loading it takes tens of ms, too long for every CLI call."""
+
+	def https_open(self, req: urllib.request.Request) -> Any:
+		return self.do_open(http.client.HTTPSConnection, req, context=tls_context())
+
+
+class _TLSOpener:
+	"""build_opener(TLSHandler), built on the first urlopen as urllib builds its default opener: proxy variables set by
+	then (the .env browser-harness reads when it is imported) apply. Built at install, HTTPS_PROXY from that .env was ignored."""
+
+	_opener: urllib.request.OpenerDirector | None = None
+
+	def open(self, *args: Any, **kwargs: Any) -> Any:
+		if self._opener is None:
+			self._opener = urllib.request.build_opener(TLSHandler)
+		return self._opener.open(*args, **kwargs)
+
+
+def install_tls_opener() -> None:
+	"""Send urllib.request.urlopen in this process through tls_context(): browser-harness's own requests (cloud browser
+	start and stop, login, its version check) and piped code. Only in processes this package runs (the CLI, the MCP
+	server, the REPL worker), never on import: a library must not change urllib for the program that imports it."""
+	urllib.request.install_opener(_TLSOpener())  # type: ignore[arg-type]  # urlopen only calls .open
+
+
+_keyed_opener = urllib.request.build_opener(_NoRedirect, TLSHandler)
 
 
 def urlopen_keyed(request: urllib.request.Request, timeout: float) -> Any:

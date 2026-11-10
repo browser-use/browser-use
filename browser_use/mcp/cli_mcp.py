@@ -30,6 +30,7 @@ from browser_use.browser.browser import _name_daemon_files
 from browser_use.domains import DomainRules
 from browser_use.exceptions import removed
 from browser_use.harness_cloud import CloudBrowserError
+from browser_use.repl.capture import install as install_capture
 from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
 from browser_use.utils import get_browser_use_version
@@ -70,16 +71,55 @@ These rules override the skill below where they differ:
 
 """
 
-# Runs detached for each cloud browser this server starts. Its stdin is a pipe only this server holds: the read
-# returns at EOF, when the server exits however it ends (stdin closed, SIGTERM, SIGKILL), and it stops that browser.
+# Runs detached for each cloud browser this server starts, and stops that browser once the server exits however it ends
+# (stdin closed, SIGTERM, SIGKILL). POSIX: its stdin is a pipe only this server holds, and the read returns at EOF.
+# Windows: the mcp client puts the server in a Job Object it kills whole once the server exits or the client dies, so the
+# reaper starts outside it (_spawn_outside_job) and waits on the server's process (BU_CLEANUP_PID). A process created
+# after BU_CLEANUP_SINCE reused that pid: the server is gone. Whenever it cannot tell, it exits and stops nothing.
 # The browser id comes in the environment, never argv: it drives the browser without a key, and argv is in any local
 # user's ps.
 _REAPER = (
 	'import os, sys\n'
-	'sys.stdin.buffer.read()\n'
+	"if os.environ.get('BU_CLEANUP_PID'):\n"
+	'\timport ctypes\n'
+	"\tk = ctypes.WinDLL('kernel32', use_last_error=True)\n"
+	'\tk.OpenProcess.restype = ctypes.c_void_p\n'
+	'\tk.GetProcessTimes.argtypes = [ctypes.c_void_p] * 5\n'
+	'\tk.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]\n'
+	"\th, t = k.OpenProcess(0x101000, False, int(os.environ['BU_CLEANUP_PID'])), (ctypes.c_uint64 * 4)()\n"
+	'\tif not h:\n'
+	'\t\tif ctypes.get_last_error() != 87: sys.exit()\n'  # 87: no such process
+	'\telif not k.GetProcessTimes(h, *(ctypes.addressof(t) + 8 * i for i in range(4))): sys.exit()\n'
+	"\telif t[0] / 1e7 - 11644473600 < float(os.environ['BU_CLEANUP_SINCE']):\n"
+	'\t\tif k.WaitForSingleObject(h, 0xFFFFFFFF) != 0: sys.exit()\n'
+	'else:\n'
+	'\tsys.stdin.buffer.read()\n'
 	'from browser_use.harness_cloud import stop_cloud\n'
+	'from browser_use.utils import install_tls_opener; install_tls_opener()\n'
 	"stop_cloud(sys.argv[1], os.environ['BU_CLEANUP_BROWSER_ID'])\n"
 )
+
+
+def _spawn_outside_job(args: list[str], env: dict[str, str]) -> bool:
+	"""Windows: start args through WMI, which creates the process outside this one's Job Object (CreateProcess with
+	CREATE_BREAKAWAY_FROM_JOB is refused: the mcp client's job does not allow breakaway). env is its whole environment.
+	Whether it started; False also where WMI is unavailable or blocked."""
+	try:
+		import pythoncom
+		import win32com.client
+
+		pythoncom.CoInitialize()  # a worker thread runs the cell
+		wmi = win32com.client.GetObject(r'winmgmts:\\.\root\cimv2')
+		startup = wmi.Get('Win32_ProcessStartup').SpawnInstance_()
+		startup.Properties_.Item('ShowWindow').Value = 0  # SW_HIDE: no console window
+		startup.Properties_.Item('EnvironmentVariables').Value = [f'{k}={v}' for k, v in env.items()]
+		process = wmi.Get('Win32_Process')
+		params = process.Methods_('Create').InParameters.SpawnInstance_()
+		params.Properties_.Item('CommandLine').Value = subprocess.list2cmdline(args)
+		params.Properties_.Item('ProcessStartupInformation').Value = startup
+		return process.ExecMethod_('Create', params).Properties_.Item('ReturnValue').Value == 0
+	except Exception:
+		return False
 
 
 _cell = threading.local()  # .buffer: where the cell running on this thread prints
@@ -387,6 +427,7 @@ class CLIMCPServer:
 		if self._namespace is None:
 			ns: dict[str, Any] = {}
 			install_page_info()  # cli-1: before the * import binds page_info
+			install_capture()  # win-cli-5: capture_screenshot() of a hidden tab activates it after a short try
 			exec(_NAMESPACE_IMPORTS, ns)
 			harness_cloud.install(ns)
 			ns['start_remote_daemon'] = self._start_remote
@@ -419,11 +460,16 @@ class CLIMCPServer:
 		browser = harness_cloud.start(name, profileName, create_kwargs, self._namespace)
 		self._cloud_started = True
 		if browser.get('id'):
+			args = [sys.executable, '-P', '-c', _REAPER, name]  # -P: never import from the cwd
+			env = {**os.environ, 'BU_CLEANUP_BROWSER_ID': browser['id']}
+			watch = {'BU_CLEANUP_PID': str(os.getpid()), 'BU_CLEANUP_SINCE': repr(time.time())}
+			if os.name == 'nt' and _spawn_outside_job(args, {**env, **watch}):
+				return browser
 			detach: dict[str, Any] = ipc.spawn_kwargs()  # own session: a Ctrl-C to this server's group does not kill it first
 			self._reapers.append(
 				subprocess.Popen(
-					[sys.executable, '-P', '-c', _REAPER, name],  # -P: never import from the cwd
-					env={**os.environ, 'BU_CLEANUP_BROWSER_ID': browser['id']},
+					args,
+					env=env,
 					stdin=subprocess.PIPE,
 					stdout=subprocess.DEVNULL,
 					stderr=subprocess.DEVNULL,
@@ -545,6 +591,14 @@ class CLIMCPServer:
 				pass
 			finally:
 				sys.stdout = stdout
+				# Windows: the client closed the session; stop the cloud browser before exiting, not only from the reaper (the
+				# client kills the server's Job Object right after it exits, and with it a reaper WMI could not start).
+				# Not on POSIX: the reaper already does it there, and this stop waits up to 15 s on the daemon it spawned.
+				if self._cloud_started and os.name == 'nt':
+					try:
+						harness_cloud.stop_cloud(self._remote)
+					except Exception:
+						pass
 
 
 async def main(own_browser: bool = False, **browser_options: Any):

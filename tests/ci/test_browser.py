@@ -163,7 +163,7 @@ async def test_keep_alive_cloud_downloads_land_in_each_runs_workspace(cloud, mon
 
 	files = [{'path': '/d/report.csv', 'url': 'u1'}]
 	with_downloads(monkeypatch, files)
-	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'data'))
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: io.BytesIO(b'data'))
 	browser = Browser(keep_alive=True)
 	results = []
 	for name in ('a', 'b'):
@@ -607,6 +607,8 @@ async def test_the_cloud_browser_id_is_never_logged_whole_or_put_in_a_command_li
 		return SimpleNamespace(kill=lambda: None, poll=lambda: None, stdin=None)
 
 	monkeypatch.setattr(subprocess, 'Popen', popen)
+	# Windows starts the MCP reaper through WMI instead
+	monkeypatch.setattr(cli_mcp, '_spawn_outside_job', lambda args, env: spawned.append((args, env)) or True)
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # setup_logging turns it off
 	caplog.set_level(logging.DEBUG, logger='browser_use')
 	browser = Browser()
@@ -633,7 +635,7 @@ async def test_downloads_lists_a_cloud_browsers_finished_files(cloud, monkeypatc
 
 	files = [{'path': 'report.csv', 'size': 4, 'url': 'u1'}, {'path': 'data.json', 'size': 2, 'url': 'u2'}]
 	with_downloads(monkeypatch, files)
-	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'data'))
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: io.BytesIO(b'data'))
 	log = tmp_path / '.browser-use' / 'downloads.jsonl'  # what the worker logs when the tab shows a JSON page
 	log.parent.mkdir(parents=True)
 	log.write_text('{"json_page": "https://api.test/data?q=1"}\n{"name": "data.json", "url": "https://api.test/data.json"}\n')
@@ -807,7 +809,7 @@ async def test_failed_download_is_retried_after_the_stop(cloud, monkeypatch, tmp
 	with_downloads(monkeypatch, [{'path': '/dl/report.pdf', 'url': 'https://files.test/r'}])
 	attempts = []
 
-	def urlopen(url, timeout=None):
+	def urlopen(url, timeout=None, context=None):
 		attempts.append(url)
 		if len(attempts) == 1:
 			raise ConnectionResetError('reset by peer')
@@ -857,7 +859,7 @@ async def test_stop_waits_for_a_running_download_and_its_cloud_listing(cloud, mo
 		return {'files': [{'path': f'/dl/{n}', 'url': f'https://files.test/{n}'} for n in names], 'hasMore': False}
 
 	monkeypatch.setattr(browser_mod, '_cloud', fake)
-	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'x'))
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: io.BytesIO(b'x'))
 	browser = Browser()
 	await browser.start()
 	browser.note_downloads(tmp_path / 'downloads.jsonl')
@@ -884,7 +886,7 @@ async def test_stop_waits_for_a_download_only_the_daemon_saw_begin(cloud, monkey
 		return {'files': [{'path': '/dl/b.zip', 'url': 'https://files.test/b'}] if done else [], 'hasMore': False}
 
 	monkeypatch.setattr(browser_mod, '_cloud', fake)
-	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(b'x'))
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: io.BytesIO(b'x'))
 	browser = Browser()
 	await browser.start()
 	files = await browser.stop(downloads_dir=tmp_path / 'downloads')
@@ -897,7 +899,7 @@ def test_a_cdp_url_with_a_query_keeps_it_after_the_version_path(monkeypatch):
 
 	asked = []
 
-	def urlopen(url, timeout=None):
+	def urlopen(url, timeout=None, context=None):
 		asked.append(url)
 		return io.BytesIO(b'{"webSocketDebuggerUrl": "ws://host:9222/devtools/browser/x"}')
 
@@ -931,6 +933,45 @@ async def test_a_download_that_sends_only_page_events_never_holds_the_stop(monke
 	browser._downloads_dir = tmp_path / 'downloads'
 	browser.note_downloads(tmp_path / 'downloads.jsonl')
 	assert await browser._finish_downloads() == 2
+
+
+@pytest.mark.parametrize('worker_saw_begin', [True, False])
+async def test_a_download_the_keep_alive_worker_saw_finish_never_holds_the_stop(monkeypatch, tmp_path, worker_saw_begin):
+	"""rc5 local-download-keepalive-1: with Browser(keep_alive=True) the run leaves its REPL worker running, and it drains
+	the daemon's events: it, not the stop, took the 'completed' event of a download still running as run() returned and
+	logged it. The stop read the worker's log once, before it waited (and never, when the log did not exist yet), so it
+	waited DOWNLOADS_TIMEOUT_S (300 s) and warned that the finished file was lost. When the stop's read took the
+	download's downloadWillBegin, the worker had no name for it, so the stop names it."""
+	import time
+
+	from browser_use.browser import local as _local
+	from browser_use.repl import worker
+
+	begin = {'method': 'Browser.downloadWillBegin', 'params': {'guid': 'a', 'url': 'https://h/a', 'suggestedFilename': 'a.bin'}}
+	monkeypatch.setattr(worker, 'STATE', tmp_path / '.browser-use')
+	(tmp_path / '.browser-use').mkdir()
+	(tmp_path / 'downloads').mkdir()
+	(tmp_path / 'downloads' / 'a').write_text('x')  # Chrome saves it as its guid
+	if worker_saw_begin:
+		worker.CellStats().observe([begin])
+	stats, drains = worker.CellStats(), []
+
+	def drain(name, req):  # the worker takes the 'completed' event, and logs it
+		drains.append(req)
+		if len(drains) == 2:
+			stats.observe([{'method': 'Browser.downloadProgress', 'params': {'guid': 'a', 'state': 'completed'}}])
+		return {'events': [begin] if len(drains) == 1 and not worker_saw_begin else []}
+
+	monkeypatch.setattr(browser_mod, '_daemon_request', drain)
+	monkeypatch.setattr(browser_mod, 'DOWNLOADS_TIMEOUT_S', 10)
+	browser = Browser('chromium')
+	browser._local = _local.LocalBrowser()  # a Chrome this Browser launched: its downloads are local files
+	browser._downloads_dir = tmp_path / 'downloads'
+	browser.note_downloads(tmp_path / '.browser-use' / 'downloads.jsonl')  # Agent.run's, as the run ends
+	started = time.monotonic()
+	assert await browser._finish_downloads() == 1
+	assert time.monotonic() - started < 5
+	assert [p.name for p in (tmp_path / 'downloads').iterdir()] == ['a.bin']
 
 
 async def test_a_cancelled_run_never_waits_for_a_running_download(cloud, monkeypatch, tmp_path):
@@ -1179,7 +1220,7 @@ async def test_downloads_never_overwrite_an_earlier_file(cloud, monkeypatch, tmp
 
 	(tmp_path / 'report.csv').write_bytes(b'earlier session')
 	with_downloads(monkeypatch, [{'path': '/a/report.csv', 'url': 'u1'}, {'path': '/b/report.csv', 'url': 'u2'}])
-	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: io.BytesIO(url.encode()))
 	browser = Browser()
 	await browser.start()
 	files = await browser.stop(downloads_dir=tmp_path)
@@ -1282,7 +1323,7 @@ async def test_download_with_a_name_too_long_for_the_filesystem_is_shortened(clo
 	long = 'é' * 126 + 'x.csv'  # 257 bytes
 	(tmp_path / 'existing').mkdir()
 	with_downloads(monkeypatch, [{'path': long, 'url': 'u1'}, {'path': f'b/{long}', 'url': 'u2'}])
-	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: io.BytesIO(url.encode()))
 	browser = Browser()
 	await browser.start()
 	files = await browser.stop(downloads_dir=tmp_path / 'existing')
@@ -1318,7 +1359,7 @@ async def test_a_json_page_the_cloud_browser_saved_is_not_copied(cloud, monkeypa
 	listed = ('cookies.json', 'cookies (1).json', 'get.json', 'r.csv', 'data.json', 'json.json', 'json (1).json')
 	files = [{'path': p, 'url': p} for p in listed]
 	with_downloads(monkeypatch, files)
-	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None: io.BytesIO(url.encode()))
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: io.BytesIO(url.encode()))
 	browser = Browser()
 	browser.json_page_copies |= browser_mod.json_page_copies(log)
 	await browser.start()

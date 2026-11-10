@@ -39,7 +39,7 @@ from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import BrowserConfigError, removed
-from browser_use.utils import file_names, name_download, urlopen_keyed
+from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
 
 logger = logging.getLogger(__name__)
 load_env()  # 0.x read .env on import; credentials below resolve from it
@@ -235,7 +235,7 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 	A transfer that fails or runs out of time leaves no file."""
 	if (left := deadline - time.monotonic()) <= 0:
 		raise TimeoutError('download deadline passed')
-	with urllib.request.urlopen(url, timeout=min(30.0, left)) as r:  # the timeout bounds each read
+	with urllib.request.urlopen(url, timeout=min(30.0, left), context=tls_context()) as r:  # the timeout bounds each read
 		dest.mkdir(parents=True, exist_ok=True)
 		for path in file_names(dest, name):
 			try:
@@ -324,7 +324,9 @@ def _ws_url(cdp_url: str) -> str:
 	if not cdp_url.startswith('http'):
 		return cdp_url
 	u = urllib.parse.urlsplit(cdp_url)  # a token in the query stays after /json/version
-	with urllib.request.urlopen(u._replace(path=u.path.rstrip('/') + '/json/version').geturl(), timeout=30) as r:
+	with urllib.request.urlopen(
+		u._replace(path=u.path.rstrip('/') + '/json/version').geturl(), timeout=30, context=tls_context()
+	) as r:
 		return json.load(r)['webSocketDebuggerUrl']
 
 
@@ -1098,17 +1100,31 @@ class Browser:
 
 	async def _finish_downloads(self) -> int:
 		"""Wait, up to DOWNLOADS_TIMEOUT_S, for downloads still running, which the stop would lose (cloud: never listed;
-		local: a .crdownload). Their state: the REPL workers' logs, then the daemon's download progress events
-		since. Returns how many downloads of the session completed."""
-		for log in list(self._download_lines):  # what a worker logged after its run's note_downloads, before it closed
-			self.note_downloads(log)
-		state: dict[str, str | None] = {r['guid']: 'inProgress' for r in self._download_records if r.get('guid')}
-		state |= {r['done']: r.get('state') for r in self._download_records if r.get('done')}
-		names = {r['guid']: r.get('name') for r in self._download_records if r.get('guid')}
-		deadline, waiting = time.monotonic() + DOWNLOADS_TIMEOUT_S, False
+		local: a .crdownload). Their state: the REPL workers' logs and the daemon's download progress events, both
+		read on every poll. Returns how many downloads of the session completed."""
+		state: dict[str, str | None] = {}
+		names: dict[str, str | None] = {}
+		logged: set[str] = set()  # downloads a worker announced: it knows their names and renames them itself
+		read, deadline, waiting = 0, time.monotonic() + DOWNLOADS_TIMEOUT_S, False
 		try:
 			while True:
 				r = await asyncio.to_thread(_daemon_request, self._daemon_name(), {'meta': 'drain_events'})
+				# then the workers' logs: what they logged after their run's note_downloads. A keep_alive Agent's worker
+				# still runs and drains the daemon's events, so it, not the read above, may take a download's events (read
+				# after it: an event the worker took before that read is in its log by now)
+				for log in list(self._download_lines):
+					self.note_downloads(log)
+				finished = []  # downloads a worker saw complete
+				for rec in self._download_records[read:]:
+					if rec.get('guid'):
+						logged.add(rec['guid'])
+						names.setdefault(rec['guid'], rec.get('name'))
+						state.setdefault(rec['guid'], 'inProgress')
+					if rec.get('done'):
+						state[rec['done']] = rec.get('state')
+						if rec.get('state') == 'completed':
+							finished.append(rec['done'])
+				read = len(self._download_records)
 				for e in r.get('events', []):
 					method, p = e.get('method'), e.get('params') or {}
 					if not p.get('guid'):
@@ -1125,6 +1141,9 @@ class Browser:
 						path = Path(p['filePath']) if p.get('filePath') else (self._downloads_dir or Path()) / p['guid']
 						if self._local is not None and path.name == p['guid']:  # a cloud browser's files are remote
 							name_download(path, names.get(p['guid']))
+				for guid in finished:  # a worker that never saw its downloadWillBegin (this read took it) cannot name it
+					if guid not in logged and self._local is not None:
+						name_download((self._downloads_dir or Path()) / guid, names.get(guid))
 				if not (running := sum(s == 'inProgress' for s in state.values())):
 					break
 				if time.monotonic() > deadline:
@@ -1143,7 +1162,8 @@ class Browser:
 		json_page_copies. Agents use a Browser one at a time, so appending keeps the session's order."""
 		try:  # complete lines only: downloads() reads it while the worker may be writing one
 			lines = log.read_text(encoding='utf-8').split('\n')[:-1]
-		except OSError:
+		except OSError:  # none yet: _finish_downloads still reads what the worker of a keep_alive run logs later
+			self._download_lines.setdefault(log, 0)
 			return
 		seen, self._download_lines[log] = self._download_lines.get(log, 0), len(lines)
 		self._download_records += download_records(lines[seen:])

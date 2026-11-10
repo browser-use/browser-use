@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 BROWSER_USE_REPO_SKILL_URL = 'https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md'
 EXPECTED_SKILL_INSTALL_PATHS = (
@@ -38,6 +40,7 @@ def _fake_browser_harness_tools(tmp_path: Path, skill_text: str) -> Path:
 		bin_dir,
 		'uv',
 		'import os, pathlib, sys\n'
+		f'if sys.argv[1:] == ["tool", "dir"]: sys.exit(print({str(tmp_path / "uv-tools")!r}))\n'
 		'pathlib.Path(os.environ["UV_TOOL_INSTALL_ARGS_FILE"]).write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n',
 	)
 	_fake_command(  # another program called browser-harness on PATH: never run, never the skill's source
@@ -174,7 +177,54 @@ def test_skill_install_reinstalls_the_cli_only_when_asked(tmp_path):
 		assert uv_args.exists() is installs
 	# Pinned: unpinned, uv installs the latest stable (0.x) over a 1.0 rc install
 	version = importlib.metadata.version('browser-use')
-	assert uv_args.read_text(encoding='utf-8') == f'tool install --python 3.12 --upgrade --force browser-use=={version}'
+	python = f'{sys.version_info[0]}.{sys.version_info[1]}'
+	assert uv_args.read_text(encoding='utf-8') == f'tool install --python {python} --upgrade --force browser-use=={version}'
+
+
+def test_install_cli_never_replaces_the_uv_tool_it_runs_from(monkeypatch, tmp_path, capsys):
+	"""win-cli-2: `browser-use skill install --install-cli` from `uv tool install browser-use` ran `uv tool install
+	--force` over its own tool env. Windows locks the running exe: uv deleted browser_use, failed on Scripts, and left the
+	CLI broken (ModuleNotFoundError) with no skill written. Run from that tool, this version is installed already."""
+	from browser_use.skills import install
+
+	tool_dir = tmp_path / 'uv-tools'
+	calls = []
+
+	def run(args, **kwargs):
+		calls.append(args[1:])
+		return subprocess.CompletedProcess(args, 0, stdout=f'{tool_dir}\n' if args[1:] == ['tool', 'dir'] else '')
+
+	monkeypatch.setattr(install.shutil, 'which', lambda name: 'uv')
+	monkeypatch.setattr(install.subprocess, 'run', run)
+	monkeypatch.setattr(install.sys, 'prefix', str(tool_dir / 'browser-use'))
+	assert install.handle(['install', '--install-cli', '--path', str(tmp_path / 'skill')]) == 0
+	assert [c for c in calls if c[:2] == ['tool', 'install']] == []
+	assert (tmp_path / 'skill' / 'SKILL.md').is_file()
+	assert 'already installed as a uv tool' in capsys.readouterr().out
+
+	calls.clear()  # from another environment (a venv, uvx) it still installs the tool
+	monkeypatch.setattr(install.sys, 'prefix', str(tmp_path / 'venv'))
+	assert install.handle(['install', '--install-cli', '--path', str(tmp_path / 'skill')]) == 0
+	assert [c[:2] for c in calls] == [['tool', 'dir'], ['tool', 'install']]
+
+
+@pytest.mark.parametrize('probe', [(2, ''), (0, '')])
+def test_install_cli_never_reinstalls_when_uv_cannot_say_where_its_tools_are(monkeypatch, tmp_path, probe):
+	"""cubic: a failed `uv tool dir` fell through to `uv tool install --force`, so the uv tool this CLI runs from could
+	still replace its own env (win-cli-2). Without the tool dir it cannot tell, so it installs nothing."""
+	from browser_use.skills import install
+
+	calls = []
+
+	def run(args, **kwargs):
+		calls.append(args[1:])
+		return subprocess.CompletedProcess(args, probe[0], stdout=probe[1])
+
+	monkeypatch.setattr(install.shutil, 'which', lambda name: 'uv')
+	monkeypatch.setattr(install.subprocess, 'run', run)
+	with pytest.raises(RuntimeError, match='uv tool dir'):
+		install._install_browser_use_tool()
+	assert calls == [['tool', 'dir']]
 
 
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):
@@ -369,3 +419,24 @@ def test_skill_gate_refuses_a_harness_that_is_not_the_pinned_version(monkeypatch
 	monkeypatch.setattr(script.importlib.metadata, 'version', lambda name: '0.0.1')
 	assert script.main(['--check']) == 2
 	assert 'browser-harness 0.0.1 is installed' in capsys.readouterr().err
+
+
+def test_install_cli_keeps_the_python_the_cli_runs_on(monkeypatch, tmp_path):
+	"""rc5 cli-1: --install-cli ran `uv tool install --python 3.12 --force`. A tool env on 3.13 was rebuilt as 3.12,
+	deleting the lib/python3.13 files the running CLI then read the skill from: no SKILL.md written, exit 1, and the
+	user's tool silently moved to 3.12."""
+	from browser_use.skills import install
+
+	calls = []
+
+	def run(args, **kwargs):
+		calls.append(args[1:])
+		return subprocess.CompletedProcess(args, 0, stdout=f'{tmp_path / "uv-tools"}\n' if args[1:] == ['tool', 'dir'] else '')
+
+	monkeypatch.setattr(install.shutil, 'which', lambda name: 'uv')
+	monkeypatch.setattr(install.subprocess, 'run', run)
+	with monkeypatch.context() as m:
+		m.setattr(install.sys, 'version_info', (3, 13, 5, 'final', 0))
+		install._install_browser_use_tool()
+	installs = [c for c in calls if c[:2] == ['tool', 'install']]
+	assert len(installs) == 1 and installs[0][2:4] == ['--python', '3.13'], installs

@@ -63,8 +63,20 @@ def _install_browser_use_tool() -> None:
 	version = get_browser_use_version()
 	if version == 'unknown':
 		raise RuntimeError('Cannot tell which browser-use version is running; rerun without --install-cli.')
+	# Run from the uv tool itself, this version is the installed tool: --force would delete the env this process runs
+	# from. On Windows the running exe is locked, so uv got halfway and left no browser_use module (win-cli-2).
+	# A failed probe could be that tool too: never --force it unchecked
+	probe = subprocess.run([uv, 'tool', 'dir'], capture_output=True, text=True)
+	tool_dir = probe.stdout.strip()
+	if probe.returncode != 0 or not tool_dir:
+		raise RuntimeError('Cannot tell where uv keeps its tools (`uv tool dir` failed); rerun without --install-cli.')
+	if Path(sys.prefix).resolve() == (Path(tool_dir) / 'browser-use').resolve():
+		print(f'browser-use {version} is already installed as a uv tool (this one); not reinstalling it.')
+		return
 	# Pinned to the running version: unpinned, uv picks the latest stable, which replaces a 1.0 rc install with 0.x.
-	args = ['tool', 'install', '--python', '3.12', '--upgrade', '--force', f'browser-use=={version}']
+	# The running Python: a forced 3.12 rebuilt a 3.13 tool env as 3.12, deleting the files this process still reads
+	python = f'{sys.version_info[0]}.{sys.version_info[1]}'
+	args = ['tool', 'install', '--python', python, '--upgrade', '--force', f'browser-use=={version}']
 	result = subprocess.run([uv, *args])
 	if result.returncode != 0:
 		raise RuntimeError(f'Failed to install browser-use with `uv {" ".join(args)}`.')
