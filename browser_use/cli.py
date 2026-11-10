@@ -480,6 +480,7 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	from browser_harness import helpers, run
 
 	from browser_use.browser.browser import _name_daemon_files
+	from browser_use.repl.capture import install as install_capture
 	from browser_use.repl.page_info import install as install_page_info
 
 	global _delegated_to_harness
@@ -494,6 +495,8 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	_guard_cloud_browsers(run, code)
 	install_page_info()  # cli-1: run.py star-imported the helpers already, so rebind its name too
 	run.page_info = helpers.page_info
+	install_capture()  # win-cli-5: a hidden tab's screenshot gets the Agent's activate fallback
+	run.cdp = helpers.cdp
 	args = sys.argv[1:]
 	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
 		from browser_use import harness_cloud
@@ -708,6 +711,24 @@ def _command_name(args: list[str]) -> str:
 	return args[0] if args else 'run'
 
 
+def _stdin_is_terminal() -> bool:
+	"""On Windows isatty() is True for every character device, NUL too: `browser-use < NUL` and a subprocess started
+	with stdin=DEVNULL got the quickstart and exit 0, not the empty-stdin error (win-cli-8). Only a console is a terminal."""
+	if not sys.stdin.isatty():
+		return False
+	if sys.platform != 'win32':
+		return True
+	import ctypes
+	import msvcrt
+
+	try:
+		handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+	except (OSError, ValueError):  # no file descriptor: trust isatty()
+		return True
+	console = ctypes.c_void_p(handle)  # a HANDLE is pointer-sized; ctypes passes a bare int as a 32-bit C int
+	return bool(ctypes.windll.kernel32.GetConsoleMode(console, ctypes.byref(ctypes.c_ulong())))
+
+
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	if args in (['--help'], ['-h'], ['help']):  # browser-harness's own help named its commands and flags, not ours
 		print(HELP)
@@ -752,7 +773,7 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 
 	code = None
 	if not args:
-		if sys.stdin.isatty():
+		if _stdin_is_terminal():
 			print(_QUICKSTART.replace('{version}', _browser_use_version()))
 			return 0, 'quickstart'
 		code = sys.stdin.read()

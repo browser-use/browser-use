@@ -63,6 +63,12 @@ def _install_browser_use_tool() -> None:
 	version = get_browser_use_version()
 	if version == 'unknown':
 		raise RuntimeError('Cannot tell which browser-use version is running; rerun without --install-cli.')
+	# Run from the uv tool itself, this version is the installed tool: --force would delete the env this process runs
+	# from. On Windows the running exe is locked, so uv got halfway and left no browser_use module (win-cli-2).
+	tool_dir = subprocess.run([uv, 'tool', 'dir'], capture_output=True, text=True).stdout.strip()
+	if tool_dir and Path(sys.prefix).resolve() == (Path(tool_dir) / 'browser-use').resolve():
+		print(f'browser-use {version} is already installed as a uv tool (this one); not reinstalling it.')
+		return
 	# Pinned to the running version: unpinned, uv picks the latest stable, which replaces a 1.0 rc install with 0.x.
 	args = ['tool', 'install', '--python', '3.12', '--upgrade', '--force', f'browser-use=={version}']
 	result = subprocess.run([uv, *args])

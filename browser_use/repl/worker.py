@@ -42,6 +42,7 @@ from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
 from browser_use.remote_upload import set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
+from browser_use.repl.capture import SCREENSHOT_TIMEOUT_S, capture
 from browser_use.repl.highlight import Highlighter
 from browser_use.repl.network_idle import wait_for_network_idle
 from browser_use.repl.page_info import install as install_page_info
@@ -60,7 +61,6 @@ from browser_use.utils import TLSHandler, install_tls_opener, name_download
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
 CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
-SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
 DIALOG_PROBE_S = 2.0  # while the daemon saw a JS dialog open: how long a page call may take before it is blamed
 DIALOG_POLL_S = 0.25  # while a navigation runs: how often to ask whether a beforeunload prompt holds it
 # What a page frozen by an alert/confirm/prompt never answers (Page.handleJavaScriptDialog is what unfreezes it)
@@ -74,7 +74,6 @@ FROZEN_BY_DIALOG = (
 )
 # Of those, the calls that can open a dialog themselves and are then held until it is handled (plus Input.*)
 HELD_BY_DIALOG = tuple(m for m in FROZEN_BY_DIALOG if m != 'Page.captureScreenshot')
-HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
 # browser-harness's daemon reads each request as one JSON line with asyncio's default 64 KiB limit; a longer one broke
 # the connection (BrokenPipeError). Characters of JSON (ASCII), less a margin for the token Windows adds.
 MAX_IPC_REQUEST = 65_536 - 128
@@ -96,32 +95,6 @@ INSTALLED = tuple(
 	{'File "' + sysconfig.get_path(p) for p in ('stdlib', 'platstdlib', 'purelib', 'platlib')}
 	| {'File "' + str(Path(ax.__file__).parent)}
 )
-
-
-def capture(raw_cdp, current_tab, session_id=None, *, activate=False, frozen=False, **params):
-	"""Page.captureScreenshot. new_tab()/switch_tab() never activate a tab, and on Linux headless a hidden tab renders
-	no frames, so its capture hangs. A hidden attached tab gets a short first try; only when that times out is it
-	activated (made Chrome's visible tab) and captured again. A hidden tab that captures (macOS, headful Chrome) is
-	never activated: local mode does not switch the user's visible tab. activate=True (a cloud browser: ours, and it
-	never answers a hidden tab's capture) activates a hidden tab without the first try. frozen: a JS dialog is open (cdp()),
-	so the page answers no visibility probe either (its 5 s took screenshot() to 7 s): capture as is."""
-	timeout = params.pop('_response_timeout', SCREENSHOT_TIMEOUT_S)
-	hidden = False
-	if session_id is None and not frozen:  # the attached tab; another session's target is unknown here
-		try:
-			r = raw_cdp('Runtime.evaluate', expression='document.visibilityState', returnByValue=True, _response_timeout=5)
-			hidden = r['result'].get('value') == 'hidden'
-		except Exception:  # unknown: capture as for a visible tab
-			pass
-	if not hidden:
-		return raw_cdp('Page.captureScreenshot', session_id, _response_timeout=timeout, **params)
-	if not activate:
-		try:
-			return raw_cdp('Page.captureScreenshot', _response_timeout=min(timeout, HIDDEN_CAPTURE_TRY_S), **params)
-		except TimeoutError:
-			pass
-	raw_cdp('Target.activateTarget', targetId=current_tab()['targetId'])
-	return raw_cdp('Page.captureScreenshot', _response_timeout=timeout, **params)
 
 
 def totp(seed: str, now: float | None = None) -> str:

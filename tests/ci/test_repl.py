@@ -740,7 +740,7 @@ def _tab(capture_hangs: bool):
 def test_hidden_tab_that_captures_is_never_activated():
 	"""Roast r7 F1: screenshot() activated every hidden tab, switching the user's visible tab in local mode, although
 	only Linux headless needs it (a hidden tab captures fine on macOS and in headful Chrome)."""
-	from browser_use.repl.worker import capture
+	from browser_use.repl.capture import capture
 
 	raw_cdp, calls, state = _tab(capture_hangs=False)
 	assert capture(raw_cdp, lambda: {'targetId': 'T'}, format='jpeg')['data']
@@ -750,7 +750,7 @@ def test_hidden_tab_that_captures_is_never_activated():
 
 def test_hidden_tab_is_activated_only_after_its_capture_times_out():
 	"""Linux headless renders no frames for a hidden tab: its capture hung 60s. A short try first, then activate."""
-	from browser_use.repl.worker import HIDDEN_CAPTURE_TRY_S, SCREENSHOT_TIMEOUT_S, capture
+	from browser_use.repl.capture import HIDDEN_CAPTURE_TRY_S, SCREENSHOT_TIMEOUT_S, capture
 
 	raw_cdp, calls, state = _tab(capture_hangs=True)
 	activated = []
@@ -767,7 +767,7 @@ def test_hidden_tab_is_activated_only_after_its_capture_times_out():
 def test_hidden_cloud_tab_is_activated_before_its_capture():
 	"""browser-features #3: a cloud browser never answers a hidden tab's capture, so every first screenshot and every
 	one after switch_tab() waited the full 10 s first try. Ours and hidden: activate, then capture."""
-	from browser_use.repl.worker import SCREENSHOT_TIMEOUT_S, capture
+	from browser_use.repl.capture import SCREENSHOT_TIMEOUT_S, capture
 
 	raw_cdp, calls, state = _tab(capture_hangs=True)
 	assert capture(raw_cdp, lambda: {'targetId': 'T'}, activate=True, format='jpeg')['data']
@@ -775,6 +775,27 @@ def test_hidden_cloud_tab_is_activated_before_its_capture():
 	calls.clear()
 	assert capture(raw_cdp, lambda: {'targetId': 'T'}, activate=True, format='jpeg')['data']  # visible now: no activate
 	assert [m for m, _ in calls] == ['Runtime.evaluate', 'Page.captureScreenshot']
+
+
+@pytest.mark.parametrize('kind', ['cdp', 'cloud'])
+def test_cli_mcp_screenshot_activates_a_hidden_tab_whose_capture_hangs(monkeypatch, tmp_path, kind):
+	"""win-cli-5: the CLI and --cli-mcp called browser-harness's bare capture_screenshot(): a background tab of a
+	headless Chromium stalled 10 s or timed out at 60 s, where the Agent's screenshot() activates it after a short try.
+	A cloud browser's hidden tab is activated without the 10 s try, as the Agent's is (cloud CLI: 10.6 s -> 0.4 s)."""
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+
+	raw_cdp, calls, state = _tab(capture_hangs=True)
+	monkeypatch.setattr(helpers, 'cdp', raw_cdp)
+	monkeypatch.setattr(helpers, 'current_tab', lambda: {'targetId': 'T'})
+	monkeypatch.setattr(admin, 'daemon_browser_kind', lambda name=None: kind)
+	ns = cli_mcp.CLIMCPServer()._ensure_namespace()
+	path = ns['capture_screenshot'](str(tmp_path / 'shot.png'))
+	assert Path(path).read_bytes() == b'\x00\x00\x00'  # base64 'AAAA'
+	assert state['visibility'] == 'visible'
+	first_try = ['Page.captureScreenshot'] if kind != 'cloud' else []
+	assert [m for m, _ in calls] == ['Runtime.evaluate', *first_try, 'Target.activateTarget', 'Page.captureScreenshot']
 
 
 PARENT = """

@@ -177,6 +177,33 @@ def test_skill_install_reinstalls_the_cli_only_when_asked(tmp_path):
 	assert uv_args.read_text(encoding='utf-8') == f'tool install --python 3.12 --upgrade --force browser-use=={version}'
 
 
+def test_install_cli_never_replaces_the_uv_tool_it_runs_from(monkeypatch, tmp_path, capsys):
+	"""win-cli-2: `browser-use skill install --install-cli` from `uv tool install browser-use` ran `uv tool install
+	--force` over its own tool env. Windows locks the running exe: uv deleted browser_use, failed on Scripts, and left the
+	CLI broken (ModuleNotFoundError) with no skill written. Run from that tool, this version is installed already."""
+	from browser_use.skills import install
+
+	tool_dir = tmp_path / 'uv-tools'
+	calls = []
+
+	def run(args, **kwargs):
+		calls.append(args[1:])
+		return subprocess.CompletedProcess(args, 0, stdout=f'{tool_dir}\n' if args[1:] == ['tool', 'dir'] else '')
+
+	monkeypatch.setattr(install.shutil, 'which', lambda name: 'uv')
+	monkeypatch.setattr(install.subprocess, 'run', run)
+	monkeypatch.setattr(install.sys, 'prefix', str(tool_dir / 'browser-use'))
+	assert install.handle(['install', '--install-cli', '--path', str(tmp_path / 'skill')]) == 0
+	assert [c for c in calls if c[:2] == ['tool', 'install']] == []
+	assert (tmp_path / 'skill' / 'SKILL.md').is_file()
+	assert 'already installed as a uv tool' in capsys.readouterr().out
+
+	calls.clear()  # from another environment (a venv, uvx) it still installs the tool
+	monkeypatch.setattr(install.sys, 'prefix', str(tmp_path / 'venv'))
+	assert install.handle(['install', '--install-cli', '--path', str(tmp_path / 'skill')]) == 0
+	assert [c[:2] for c in calls] == [['tool', 'dir'], ['tool', 'install']]
+
+
 def test_browser_use_cli_validates_destination_before_installing_harness(tmp_path):
 	bin_dir = _fake_browser_harness_tools(tmp_path, '---\nname: browser-harness\n---\n\n# Browser Harness\n')
 	blocking_file = tmp_path / 'not-a-directory'
