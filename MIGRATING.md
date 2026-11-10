@@ -252,7 +252,9 @@ Domain-scoped `sensitive_data` still limits where each secret is typed, independ
 
 Every 0.x module path (0.1 to 0.13) 1.0 does not have, and every public name of a 0.x module 1.0 kept, raises the
 removed error naming its replacement (`ModuleNotFoundError` for a module, `ImportError` for a name; both are
-`ImportError`, so `except ImportError` fallbacks still work). Import from the top level: `from browser_use import Agent, Browser, Tools,
+`ImportError`, so `except ImportError` fallbacks still work). Read as an attribute (`browser_use.BrowserSession`), the
+same text is an `AttributeError`, so `hasattr()` and `getattr(module, name, default)` feature detection takes its
+fallback. Import from the top level: `from browser_use import Agent, Browser, Tools,
 ActionResult, ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle`.
 
 | 0.x | 1.0 |
@@ -298,9 +300,16 @@ MCP tool that opens the browser to approve and stores the same key. The old `bro
 `browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
 `--cli-mcp` tools (`browser_exec`, `browser_screenshot`). Calls to the old tool names return the removed error with the
 `browser_exec` alternative; switch those clients to `--cli-mcp`. Locally `--mcp` still runs its own Chromium on a temp
-profile, as 0.x did, while `--cli-mcp` drives your own Chrome with your logins. `--mcp` (and `python -m browser_use.mcp`)
+profile, as 0.x did, while `--cli-mcp` drives your own Chrome (or Brave, Arc, Edge) with your logins. Where that cannot
+work (Linux with no display, or no Chromium-family browser installed) `--cli-mcp` 1.0.1 also runs its own Chromium for
+the rest of that server process. Both install Playwright's Chromium in the first `browser_exec` call when none is there
+and the machine has no display (as root on Linux also its system libraries, with `apt-get install libatomic1`). The first
+`browser_exec` result that attaches a local browser names it in a second text block, after the code's output (a
+cloud browser's `start_remote_daemon()` result names it itself). `http_get()` in the CLI and
+`--cli-mcp` is plain HTTP from this machine, as in the Agent: it no longer goes through the fetch-use proxy when
+`BROWSER_USE_API_KEY` is set (URLs and headers stay local; localhost and intranet URLs work). `--mcp` (and `python -m browser_use.mcp`)
 keeps the `allowed_domains` / `prohibited_domains` of the default `browser_profile` in the 0.x `config.json` and
-`BROWSER_USE_ALLOWED_DOMAINS`; a configured proxy (`proxy`, `BROWSER_USE_PROXY_*`) exits 2 instead of being dropped. `browser-use init` templates were removed.
+`BROWSER_USE_ALLOWED_DOMAINS` (with either set, `start_remote_daemon()` is off: a cloud browser would open any site); a configured proxy (`proxy`, `BROWSER_USE_PROXY_*`) exits 2 instead of being dropped. `browser-use init` templates were removed.
 
 The `bu` and `browser` command aliases were removed (`uv tool install` aborts when another tool already owns a name):
 run `browser-use` or `browseruse`. Extras: `browser-use[cli]`, `[mcp]`, `[anthropic]`, `[google]` and `[all]` still
@@ -326,6 +335,9 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
   password a proxy URL holds). Variables whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH`
   are not in its environment. That is all the allowlist does: see the last bullets below for how the worker can still
   reach your keys.
+- It gets its own browser-harness agent workspace (`workspace/.browser-use/agent-workspace`): the global
+  `agent_helpers.py` and domain skills (`~/.config/browser-harness/agent-workspace`, or `BH_AGENT_WORKSPACE` when set)
+  are not loaded into it, including one a cell of an earlier run wrote there. The CLI and `--cli-mcp` still load them.
 - `search()` (`web_search`) and `downloads()` ask the parent over the control channel; the parent sends the request,
   so the Browser Use key never enters the worker.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
@@ -347,7 +359,12 @@ longer word or number; `Agent` warns about such values):
 - results and retry messages of your own `Tools` actions
 - the task, follow-up tasks (`add_new_task`) and `extend_system_message`, before the model sees them
 - `result.final_result()`, `result.output` / `result.structured_output` (field by field), `result.partial`,
-  `result.error`, and the error `Agent.run` logs. Telemetry never sends these texts at all
+  `result.error`, and the error `Agent.run` logs
+- anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited in the agent's own tabs
+  (without ports, query strings or path tokens such as a reset or invite link's), error messages (only the class of an
+  error the model's own code raised: its message quotes the page) and the final result, also with emails, API keys, bearer
+  tokens, `password=...` values and runs of 6+ digits (phone, card, account numbers, one-time codes) replaced. Never
+  the task text, typed text, code or secrets. `ANONYMIZED_TELEMETRY=false` turns it off
 - `result.messages`: the model's text, thinking and tool-call arguments, and the retry messages that quote them back (a follow-up task continues the unredacted
   transcript, since providers reject edited signed thinking; screenshots in it stay unredacted)
 

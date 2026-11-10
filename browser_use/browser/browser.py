@@ -34,7 +34,7 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from browser_use.auth import browser_use_api_key, cloud_error_text
+from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting
 from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
@@ -409,6 +409,20 @@ def _name_daemon_files() -> None:
 	if os.environ.get('BH_RUNTIME_DIR') or os.environ.get('BH_TMP_DIR'):
 		os.environ['BH_RUNTIME_DIR_SHARED'] = os.environ['BH_TMP_DIR_SHARED'] = '1'
 		ipc.BH_RUNTIME_DIR_SHARED = ipc.BH_TMP_DIR_SHARED = True
+
+
+def require_harness_dirs() -> None:
+	"""browser-harness creates its dirs (~/.config/browser-harness: config, runtime, tmp, agent-workspace) when imported.
+	With HOME unwritable (read-only container fs, `docker run -u` without a home, Lambda) that raised a bare
+	PermissionError naming neither browser-use nor the fix. BH_RUNTIME_DIR and BH_TMP_DIR alone are not one: admin
+	creates the config dir too."""
+	try:
+		from browser_harness import admin  # noqa: F401
+	except OSError as e:
+		raise BrowserConfigError(
+			f'browser-use cannot create its browser-harness dir {e.filename or ""} ({e.strerror or e}). Set '
+			f'{harness_dir_setting(e.filename)} to a writable dir only this user can write to.'
+		) from None
 
 
 def _check_runtime_dir() -> None:
@@ -844,6 +858,7 @@ class Browser:
 			self._stopping = None
 
 	async def _start(self) -> dict[str, str]:
+		require_harness_dirs()
 		from browser_harness import admin
 
 		if self.kind == 'chrome' and self.chrome_profile is None:

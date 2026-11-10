@@ -1,6 +1,7 @@
-"""Telemetry v3: counts, names, timings, hostnames and classes are sent; task text, results, code, typed
-text, secrets, page content, URL paths/queries/fragments and error messages never are. Recording costs microseconds,
-sending happens off the agent path, ANONYMIZED_TELEMETRY=false sends and writes nothing."""
+"""Telemetry v4: counts, names, timings, hostnames and classes, the URLs visited without query strings, error messages
+and the final result are sent, scrubbed of secrets, emails and credentials; the task text, typed text, code, secrets,
+query strings and fragments never are. Recording costs microseconds, sending happens off the agent path,
+ANONYMIZED_TELEMETRY=false sends and writes nothing."""
 
 import atexit
 import gzip
@@ -26,13 +27,37 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from conftest import script
 
+import browser_use
 from browser_use import Agent, Browser
 from browser_use.repl import Repl
-from browser_use.telemetry.stats import RunStats, cdp_category, error_class, host, imported_modules, scrub_cli_event
+from browser_use.telemetry.stats import (
+	RunStats,
+	cdp_category,
+	error_class,
+	host,
+	imported_modules,
+	page_url,
+	scrub,
+	scrub_cli_event,
+)
 
 
 def rand(rng: random.Random, n: int = 16) -> str:
 	return 'q' + ''.join(rng.choices(string.ascii_letters + string.digits, k=n))
+
+
+def slug(rng: random.Random, n: int = 10) -> str:
+	"""An ordinary URL path segment: letters and digits mixed, 12 or more, are a token (sent as <token>)."""
+	return 'q' + ''.join(rng.choices(string.ascii_lowercase, k=n))
+
+
+HELPER_FILE = str(Path(browser_use.__file__).resolve().parent / 'helper_sim.py')
+
+
+def lib_raise(exception: str) -> str:
+	"""Cell code whose exception a browser-use helper raises: its message is sent, scrubbed. What the cell's own code
+	or any other library raises is sent as its class only (stats.raised_by_cell)."""
+	return f'exec(compile({"raise " + exception!r}, {HELPER_FILE!r}, "exec"))'
 
 
 class Page(BaseHTTPRequestHandler):
@@ -166,10 +191,13 @@ def assert_absent(props: dict, *values: str) -> None:
 
 
 @pytest.mark.parametrize('seed', [1, 2])
-async def test_agent_event_never_has_task_secrets_typed_text_code_or_url_paths(seed, chrome, site, sent, tmp_path):
+async def test_agent_event_sends_urls_errors_and_result_never_task_secrets_typed_text_code_or_queries(
+	seed, chrome, site, sent, tmp_path
+):
 	rng = random.Random(seed)
 	task, secret, typed, result, error = (rand(rng) for _ in range(5))
-	path, query, value, fragment, other_host = (rand(rng, 10).lower() for _ in range(5))
+	query, value, fragment, other_host = (rand(rng, 10).lower() for _ in range(4))
+	path = slug(rng, 8)  # {path}2 stays under 12 letters and digits
 	url = f'{site}/{path}/{path}2?{query}={value}#{fragment}'
 	unresolvable = f'http://{other_host}.invalid/{path}3?{query}=1'
 	code = (
@@ -184,7 +212,7 @@ async def test_agent_event_never_has_task_secrets_typed_text_code_or_url_paths(s
 	model, _ = script(
 		('python', {'code': code}),
 		('python', {'code': f'raise ValueError({error!r})'}),
-		('finish', {'success': True, 'result': f'{result} {task} {secret}'}),
+		('finish', {'success': True, 'result': f'{result} {task} with {secret}'}),
 	)
 	agent = Agent(
 		f'{task} with {secret}',
@@ -196,9 +224,12 @@ async def test_agent_event_never_has_task_secrets_typed_text_code_or_url_paths(s
 	r = await agent.run()
 	assert r.status == 'completed', r.error
 	(props,) = sent
-	assert_absent(props, task, secret, typed, result, error, path, query, value, fragment, 'type_text(', 'wait_for_load()')
-	assert props['schema_version'] == 3 and props['agent_type'] == 'pydantic' and props['os']
-	assert 'task' not in props and 'final_result_response' not in props and 'error_message' not in props
+	assert_absent(props, task, secret, typed, query, value, fragment, error, 'type_text(', 'wait_for_load()')
+	assert props['schema_version'] == 4 and props['agent_type'] == 'pydantic' and props['os']
+	assert 'task' not in props and 'final_result_response' not in props
+	assert props['urls_visited'] == [f'http://127.0.0.1/{path}/{path}2', f'http://{other_host}.invalid/{path}3']  # no port
+	assert props['error_messages'] == ['ValueError']  # the cell raised it with what it read: its class, never the message
+	assert props['final_result'] == f'{result} <task>'  # the result quoted the task, its secret redacted
 	assert set(props['domains']) == {'127.0.0.1', f'{other_host}.invalid'} and props['domain_count'] == 2
 	h = props['helper_counts']
 	assert h['new_tab'] == 1 and h['type_text'] == 1 and h['type_secret'] == 1 and h['page_info'] == 1 and h['goto_url'] == 1
@@ -229,7 +260,7 @@ async def test_a_made_up_tool_name_is_sent_as_invalid(sent, chrome, tmp_path):
 	assert_absent(props, 'ssn', 'payroll')
 
 
-async def test_failed_run_sends_the_error_class_not_its_message(sent, tmp_path, monkeypatch):
+async def test_failed_run_sends_the_error_class_and_its_message_with_secrets_redacted(sent, tmp_path, monkeypatch):
 	secret = 'Zq9-unreachable-token-77'
 
 	async def boom():
@@ -237,10 +268,12 @@ async def test_failed_run_sends_the_error_class_not_its_message(sent, tmp_path, 
 
 	browser = Browser(local=True)
 	monkeypatch.setattr(browser, 'start', boom)
-	result = await Agent(f'task {secret}', script()[0], browser=browser, workspace=tmp_path).run()
+	agent = Agent(f'task {secret}', script()[0], browser=browser, sensitive_data={'tok': secret}, workspace=tmp_path)
+	result = await agent.run()
 	assert result.status == 'error'  # a failed browser start is a result, never raised (error contract)
 	(props,) = sent
-	assert_absent(props, secret, 'intranet', 'cannot reach')
+	assert_absent(props, secret)
+	assert props['error_messages'] == ['cannot reach https://intranet.example/<secret:tok>']  # no query
 	assert (props['status'], props['error_type'], props['browser_mode'], props['cells']) == (
 		'error',
 		'ConnectionError',
@@ -256,7 +289,8 @@ async def test_a_rejected_key_sends_preflight_error_not_none(sent, tmp_path, mon
 	result = await Agent('t', script()[0], browser=Browser(local=True), workspace=tmp_path).run()
 	(props,) = sent
 	assert result.status == 'error' and (props['status'], props['error_type']) == ('error', 'PreflightError')
-	assert_absent(props, secret, 'rejected')
+	assert props['error_messages'] == ['rejected the API key: <credential>']  # a key in a message is a credential
+	assert_absent(props, secret)
 
 
 async def test_ultrafast_counts_the_agents_bu_calls_not_the_workers_state_print(daemon, tmp_path):
@@ -513,9 +547,10 @@ def test_imports_of_a_cell_with_an_invalid_escape_print_nothing_on_the_users_std
 
 
 @pytest.mark.parametrize('seed', range(5))
-def test_cli_event_drops_piped_code_output_step_args_and_errors(seed):
+def test_cli_event_drops_piped_code_output_and_step_args_and_sends_the_error_line(seed):
 	rng = random.Random(seed)
-	code, out, arg, err = (rand(rng) for _ in range(4))
+	code, out, arg, err, frame = (rand(rng) for _ in range(5))
+	traceback = f'Traceback (most recent call last):\n  File "<stdin>", line 1, in <module>\n    {frame}()\n'
 	payload = {
 		'event': 'cli_event',
 		'properties': {
@@ -529,13 +564,14 @@ def test_cli_event_drops_piped_code_output_step_args_and_errors(seed):
 				{'helper': 'goto_url', 'args': arg},
 			],
 			'step_count': 3,
-			'error_message': err,
+			'error_message': f'{traceback}ValueError: {err} key sk-{arg}\n',
 		},
 	}
 	props = scrub_cli_event(payload)['properties']
-	assert_absent(props, code, out, arg, err)
+	assert_absent(props, code, out, arg, frame)
+	assert props['error_message'] == f'ValueError: {err} key <credential>'
 	assert props['helper_counts'] == {'goto_url': 2, 'type_text': 1} and props['helper_errors'] == 1
-	assert (props['task_length'], props['step_count'], props['command'], props['schema_version']) == (20, 3, 'script', 2)
+	assert (props['task_length'], props['step_count'], props['command'], props['schema_version']) == (20, 3, 'script', 3)
 
 
 def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch, sent):
@@ -556,6 +592,28 @@ def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch, sent):
 	assert_absent(props, 'Zq9-typed', 'Zq9-out')
 	assert props['task_length'] == len('type_text("Zq9-typed")')
 	assert props['helper_counts'] == {'js': 1}
+
+
+def test_cli_event_sends_only_the_class_of_an_error_the_piped_code_raised(monkeypatch, sent):
+	"""Retest 1.0.1: the CLI sent the message the piped code's own raise wrote (`assert 'Paid' in text, text[:300]`),
+	page text no scrub knows; --cli-mcp sent only its class. A library the code called can quote it too (json, strptime):
+	class only. Only browser-use's and browser-harness's own errors keep their scrubbed message."""
+	from browser_harness import telemetry as harness
+
+	import browser_use.cli as cli
+
+	monkeypatch.setattr(harness, '_send_detached', harness._send_detached)  # restored after the test, wrapper and all
+	monkeypatch.setattr(harness, 'is_enabled', lambda: True)
+	monkeypatch.setattr(harness, '_install_id', lambda *a, **k: 'test-install')
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	cli._scrub_harness_telemetry()
+	for code in ('text = "Zq9 Jane Doe"\nassert "Paid" in text, text', 'import json\njson.loads("{Zq9")'):
+		try:
+			exec(code, {})  # as browser-harness's run.py runs the piped code
+		except Exception as exc:  # and sends its event while it handles the error (run.main)
+			harness.capture_cli_event(action='error', command='script', exit_code=1, error_message=str(exc))
+	assert_absent({'events': sent}, 'Zq9')
+	assert [p['error_message'] for p in sent] == ['AssertionError', 'JSONDecodeError']
 
 
 def test_cli_event_goes_to_the_library_project_under_the_device_id(posthog, monkeypatch, tmp_path, caplog):
@@ -588,7 +646,28 @@ def test_cli_event_goes_to_the_library_project_under_the_device_id(posthog, monk
 	)
 	assert_absent(props, 'Zq9-code')
 	assert not [p for p in tmp_path.joinpath('bh').rglob('*') if p.is_file()]  # nor a browser-harness install id
-	assert 'anonymized telemetry' not in caplog.text  # the CLI's stderr: no notice on every command
+	assert 'anonymized usage telemetry' not in caplog.text  # the CLI's stderr: no notice on every command
+
+
+def test_a_failed_cli_command_sends_its_error_message(monkeypatch, sent):
+	"""cli_event's error_message is what tells a failing CLI call apart in production: a command that fails before
+	browser-harness runs sends its error line too, not only the exit code."""
+	from browser_harness import telemetry as harness
+
+	import browser_use.cli as cli
+
+	for attr in ('_send_detached', '_install_id', 'is_enabled', 'status'):  # restored after the test, wrappers and all
+		monkeypatch.setattr(harness, attr, getattr(harness, attr))
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	monkeypatch.setenv('BROWSER_USE_DEVICE_ID', 'bu-test-device')
+	monkeypatch.setattr(sys, 'argv', ['browser-use', '--update'])
+	assert cli.main() == 2
+	(props,) = sent
+	assert (props['command'], props['action'], props['exit_code']) == ('update', 'error', 2)
+	assert (
+		props['error_message']
+		== 'browser-use does not update itself: uv tool upgrade browser-use (or pip install -U browser-use).'
+	)
 
 
 async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
@@ -606,7 +685,8 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 	handler = mcp.server._request_handlers['tools/call'].handler
 	calls = [
 		('browser_exec', {'code': 'print("Zq9-out")'}),
-		('browser_exec', {'code': 'raise KeyError("Zq9-secret")'}),
+		('browser_exec', {'code': 'raise KeyError("sent zq7 sk-ant-Zq9secretkey123")'}),
+		('browser_exec', {'code': 'import json\njson.loads("{Zq9")'}),
 		('browser_exec', {'code': ''}),
 		('browser_navigate', {'url': 'https://zq9.test/'}),
 		('Zq9-made-up', {}),
@@ -614,13 +694,18 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 	for name, arguments in calls:
 		await handler(None, types.CallToolRequestParams(name=name, arguments=arguments))  # pyright: ignore[reportArgumentType]
 	assert_absent({'events': sent}, 'Zq9')
+	# what the cell's code or a library it called raised is its class only: it can quote what Claude typed or read from
+	# the page. A rejected call has no exception: its error is the server's own text; an unknown tool's name is never sent
+	errors = [e['error_message'] for e in sent]
+	assert errors == [None, None, None, "'code' must be a non-empty string", None, None]
 	got = [(e['event'], e['action'], e['tool_name'], e['ok'], e['error_type'], e['call_n']) for e in sent]
 	assert got == [
 		('mcp_server_event', 'tool_call', 'browser_exec', True, None, 1),
 		('mcp_server_event', 'tool_call', 'browser_exec', False, 'KeyError', 2),
-		('mcp_server_event', 'tool_call', 'browser_exec', False, None, 3),
-		('mcp_server_event', 'tool_call', 'browser_navigate', False, None, 4),
-		('mcp_server_event', 'tool_call', 'invalid', False, None, 5),
+		('mcp_server_event', 'tool_call', 'browser_exec', False, 'JSONDecodeError', 3),
+		('mcp_server_event', 'tool_call', 'browser_exec', False, 'invalid_arguments', 4),
+		('mcp_server_event', 'tool_call', 'browser_navigate', False, 'unknown_tool', 5),
+		('mcp_server_event', 'tool_call', 'invalid', False, 'unknown_tool', 6),
 	]
 	first = sent[0]
 	assert (first['server'], first['browser'], first['agent_client'], first['is_internal']) == (
@@ -806,17 +891,18 @@ async def test_a_browser_harness_cli_call_from_a_cell_sends_no_telemetry(tmp_pat
 
 
 async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, site, posthog, tmp_path):
-	"""Every text the task, the code, a typed value, a secret, a page title, a URL path or query, an error message, a
-	class, module or cdp() method name the model's code chose, a made-up tool name and the result carry is a canary;
-	none may appear anywhere in what reaches PostHog (the gzip body as received). The v3 fields say what happened."""
+	"""Every text the task, the code, a typed value, a secret, a page title, a URL query or fragment, a class or cdp()
+	method name the model's code chose and a made-up tool name and its arguments carry is a canary; none may appear anywhere in what reaches PostHog (the gzip body as received). The URL path and the result
+	are sent, scrubbed; the errors the cells raised themselves as their class. The v3 fields say what happened."""
 	rng = random.Random(7)
 	c = SimpleNamespace(
 		**{
 			k: rand(rng, 12).lower()
-			for k in 'task secret typed result error error2 path query title var js cdp cls mod tool'.split()
+			for k in 'task secret typed result error error2 path query frag title var js cdp cls mod tool'.split()
 		}
 	)
-	url = f'{site}/{c.path}?{c.query}=1&t={c.title}'
+	c.path = slug(rng, 12)
+	url = f'{site}/{c.path}?{c.query}=1&t={c.title}#{c.frag}'
 	code = (
 		f'{c.var} = 1\n'
 		f'new_tab({url!r}); wait_for_load()\n'
@@ -831,7 +917,7 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 		('python', {'code': f'class {c.cls}(Exception): pass\nraise {c.cls}({c.error!r})'}),
 		('python', {'code': f'import {c.mod}'}),
 		(c.tool, {'x': c.error2}),
-		('finish', {'success': True, 'result': f'{c.result} {c.task} {c.secret} {c.title}'}),
+		('finish', {'success': True, 'result': f'{c.result} {c.task} with {c.secret}'}),
 	)
 	agent = Agent(
 		f'{c.task} with {c.secret}',
@@ -844,13 +930,18 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 	assert r.status == 'completed', r.error
 	(event,) = posthog.events()
 	raw = '\n'.join(posthog.bodies)
-	leaked = [k for k, v in vars(c).items() if v in raw]
+	sent = ('path', 'result')  # the URL path and the result are sent
+	leaked = [name for name, v in vars(c).items() if v in raw and name not in sent]
 	assert not leaked, f'leaked {leaked}'
 	assert 'type_text(' not in raw and 'Runtime.evaluate' in raw
 	p = event['properties']
+	assert p['urls_visited'] == [f'http://127.0.0.1/{c.path}']
+	# the cell's own raise and import (importlib drops its frames): the class only, never the text or module it named
+	assert p['error_messages'] == ['custom', 'ModuleNotFoundError']
+	assert p['final_result'] == f'{c.result} <task>'  # the task, quoted whole (and with its secret redacted)
 	assert (event['event'], event['distinct_id'], event['uuid']) == ('agent_event', 'bu-test-device', str(uuid.UUID(p['run_id'])))
 	assert (p['schema_version'], p['status'], p['steps'], p['is_internal'], p['$lib']) == (
-		3,
+		4,
 		'completed',
 		5,
 		True,  # conftest: every test event is internal
@@ -932,6 +1023,385 @@ async def test_telemetry_off_sends_fetches_and_writes_nothing(tmp_path, monkeypa
 	assert 'browser-use-telemetry' not in {t.name for t in threading.enumerate()} - threads
 	assert instance._thread is None and not instance._pending
 	assert not [p for p in config.rglob('*') if p.is_file()]
+
+
+def _telemetry_cli(env: dict, *argv: str) -> dict:
+	r = subprocess.run(
+		[sys.executable, '-m', 'browser_use.cli', 'telemetry', *argv], env=env, capture_output=True, text=True, timeout=60
+	)
+	assert r.returncode == 0, r.stderr
+	return json.loads(r.stdout)
+
+
+async def test_browser_use_telemetry_disable_stops_agent_and_mcp_events(posthog, tmp_path, monkeypatch):
+	"""Review of 1.0.0: `browser-use telemetry disable` wrote browser-harness's telemetry.json and printed enabled: false,
+	but every Agent.run() still sent agent_event and every MCP tool call mcp_server_event: the library only read
+	ANONYMIZED_TELEMETRY. Disabled: no event, no thread, no file. `telemetry enable` turns them back on."""
+	from mcp import types
+
+	import browser_use.telemetry.service as service
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'bh'))
+	for name in ('BH_TELEMETRY', 'BROWSER_HARNESS_TELEMETRY'):
+		monkeypatch.delenv(name, raising=False)
+	env = {**os.environ, 'BROWSER_USE_CONFIG_DIR': str(tmp_path / 'cli-config')}
+	assert _telemetry_cli(env, 'disable')['enabled'] is False
+	status = _telemetry_cli(env, 'status')
+	assert (status['enabled'], status['disabled_by_config'], status['install_id']) == (False, True, None)
+
+	monkeypatch.setattr(service, '_harness_config_disabled', None)  # this process reads the file as a new one would
+	no_browser(monkeypatch)
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path / 'ws').run()).status == 'completed'
+	mcp = cli_mcp.CLIMCPServer()
+	mcp._ensure_daemon = lambda code: None  # the cell needs no browser
+	handler = mcp.server._request_handlers['tools/call'].handler
+	call = types.CallToolRequestParams(name='browser_exec', arguments={'code': 'raise KeyError(1)'})
+	await handler(None, call)  # pyright: ignore[reportArgumentType]
+	assert posthog.telemetry._thread is None and not posthog.telemetry._pending and not posthog.state.attempts
+	assert not [p for p in posthog.config.rglob('*') if p.is_file()]
+
+	status = _telemetry_cli(env, 'enable')
+	assert (status['enabled'], status['disabled_by_config'], status['install_id']) == (True, False, 'bu-test-device')
+	monkeypatch.setattr(service, '_harness_config_disabled', None)
+	await handler(None, call)  # pyright: ignore[reportArgumentType]
+	(event,) = posthog.events()
+	assert (event['event'], event['properties']['error_type']) == ('mcp_server_event', 'KeyError')
+
+
+@pytest.mark.parametrize(
+	'name, value', [('ANONYMIZED_TELEMETRY', 'n'), ('ANONYMIZED_TELEMETRY', 'disable'), ('BH_TELEMETRY', '0')]
+)
+def test_telemetry_status_reports_what_browser_use_sends(tmp_path, monkeypatch, name, value):
+	"""Review of 1.0.0: ANONYMIZED_TELEMETRY=n or =disable turned the library off, but `browser-use telemetry status`
+	printed enabled: true (browser-harness alone only knows 0, false, no and off). And BH_TELEMETRY=0, which status
+	showed as off, left agent_event on. Status and every event now agree."""
+	import browser_use.telemetry.service as service
+
+	for var in ('BH_TELEMETRY', 'BROWSER_HARNESS_TELEMETRY'):
+		monkeypatch.delenv(var, raising=False)
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	monkeypatch.setenv(name, value)
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'bh'))
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path / 'bu'))
+	status = _telemetry_cli(dict(os.environ), 'status')
+	assert (status['enabled'], status['disabled_by_env'], status['install_id']) == (False, True, None)
+	assert service.ProductTelemetry().enabled is False
+	assert not [p for p in tmp_path.rglob('*') if p.is_file()]
+
+
+def test_a_device_id_that_cannot_be_stored_is_random_per_process(tmp_path, monkeypatch):
+	"""Review of 1.0.0: with no writable config dir the device id was a hash of the MAC address and hostname: the same
+	for every user, venv and reinstall on the machine, and not removed by deleting browser-use's files."""
+	import browser_use.telemetry.service as service
+
+	(tmp_path / 'file').write_text('')
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path / 'file' / 'config'))  # under a file: never created
+	monkeypatch.delenv('BROWSER_USE_DEVICE_ID', raising=False)
+	monkeypatch.setattr(uuid, 'getnode', lambda: 0x00163E5A7B9C)  # a real (unicast) MAC address
+	ids = set()
+	for _ in range(2):
+		monkeypatch.setattr(service, '_device_id', None)  # a new process
+		first = service.get_or_create_device_id()
+		assert service.get_or_create_device_id() == first  # one id for the whole process
+		ids.add(first)
+	assert len(ids) == 2 and all(re.fullmatch(r'[0-9a-f]{32}', i) for i in ids), ids
+
+
+# --- v4: URLs, error messages and the final result ---
+
+
+async def test_planted_secrets_and_credentials_never_reach_posthog(chrome, site, posthog, tmp_path):
+	"""The URL path, error messages and the final result are sent. A sensitive_data value, an API key, a bearer token,
+	a password=, a JWT, an email, a query string, the task and typed text planted in them are replaced or dropped
+	before they leave the machine: any planted value anywhere in the body as received fails."""
+	rng = random.Random(13)
+	p = SimpleNamespace(
+		secret=rand(rng, 14),
+		openai='sk-proj-' + rand(rng, 24),
+		anthropic='sk-ant-api03-' + rand(rng, 24),
+		google='AIza' + rand(rng, 30),
+		bu='bu_' + rand(rng, 24),
+		bearer=rand(rng, 20) + '7',
+		password=rand(rng, 12),
+		email=rand(rng, 8) + '@zqmail.example',
+		jwt='eyJ' + rand(rng, 16) + '.' + rand(rng, 16) + '.' + rand(rng, 16),
+		path_email=rand(rng, 8) + '@zqpath.example',
+		query=rand(rng, 12),
+		frag=rand(rng, 12),
+		task=rand(rng, 12),
+		typed=rand(rng, 12),
+	)
+	creds = f'{p.openai} {p.anthropic} {p.google} {p.bu} Authorization: Bearer {p.bearer} password={p.password} {p.email}'
+	url = f'{site}/{p.path_email}/{p.secret}/{p.bu}?key={p.query}#{p.frag}'
+	task = f'find {p.task}'
+	model, _ = script(
+		('python', {'code': f'new_tab({url!r}); wait_for_load(); type_text({p.typed!r}); print(page_info())'}),
+		('python', {'code': lib_raise(f'ValueError({f"auth failed: {creds} {p.jwt} {p.secret}"!r})')}),
+		('finish', {'success': True, 'result': f'{task}: {creds} {p.secret}'}),
+	)
+	agent = Agent(
+		task, model, browser=Browser(cdp_url=chrome['http']), sensitive_data={'pw': p.secret}, workspace=tmp_path / 'ws'
+	)
+	assert (await agent.run()).status == 'completed'
+	(event,) = posthog.events()
+	raw = '\n'.join(posthog.bodies)
+	leaked = [name for name, v in vars(p).items() if v in raw]
+	assert not leaked, f'leaked {leaked}: {raw}'
+	props = event['properties']
+	cred = '<credential> <credential> <credential> <credential> Authorization: Bearer <credential> password=<credential>'
+	assert props['urls_visited'] == ['http://127.0.0.1/<email>/<secret:pw>/<token>']  # a key in a path is a path token
+	assert props['error_messages'] == [f'ValueError: auth failed: {cred} <email> <credential> <secret:pw>']
+	assert props['final_result'] == f'<task>: {cred} <email> <secret:pw>'
+
+
+async def test_typed_text_and_quoted_task_words_are_never_sent_also_after_a_follow_up(chrome, site, sent, tmp_path):
+	"""The task was replaced only when quoted whole, and text the agent typed not at all: an error message or a result
+	that quoted part of the task, or what was typed into a page, reached PostHog."""
+	rng = random.Random(7)
+	words = [rand(rng, 6) for _ in range(8)]
+	typed, filled, follow_up = rand(rng, 10), rand(rng, 10), rand(rng, 12)
+	code = (
+		f'new_tab({site + "/"!r}); wait_for_load()\n'
+		'js(\'document.getElementById("f").focus()\')\n'
+		f'type_text({typed!r}); fill_input("#f", {filled!r})\n' + lib_raise(f'ValueError("the field rejected " + {typed!r})')
+	)
+	model, _ = script(
+		('python', {'code': code}),
+		('finish', {'success': True, 'result': f'Done {" ".join(words[1:7])}: typed {typed} and {filled}'}),
+		('finish', {'success': True, 'result': f'again {" ".join(words[:6])}'}),  # the follow-up quotes the first task
+	)
+	agent = Agent(' '.join(words), model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path)
+	assert (await agent.run()).status == 'completed'
+	agent.add_new_task(f'and now {follow_up}')
+	assert (await agent.run()).status == 'completed'
+	first, second = sent
+	for props in sent:
+		assert_absent(props, typed, filled, *(' '.join(words[i : i + 5]) for i in range(4)))
+	assert first['error_messages'] == ['ValueError: the field rejected <typed>']
+	assert first['final_result'] == 'Done <task> typed <typed> and <typed>'  # the run takes its last word's colon
+	assert second['final_result'] == 'again <task>'
+
+
+async def test_urls_errors_and_the_result_are_cut_and_capped(sent, tmp_path, monkeypatch):
+	"""urls_visited: 50 at most, 200 characters each, without the query; error_messages: 20 at most, 300 characters
+	each (the class counters still count every failed cell); final_result: 500 characters."""
+	no_browser(monkeypatch)
+	visit = (  # the worker's own record of a navigation (CellStats.url), as cdp('Page.navigate') makes it
+		'import sys\n'
+		'for i in range(60):\n'
+		"    sys.modules['__main__'].stats.url(f'https://zq{i}.example/' + 'p' * 300 + f'?q={i}', navigation=True)"
+	)
+	fails = [('python', {'code': lib_raise(f'ValueError("{i} " + "e" * 400)')}) for i in range(25)]
+	model, _ = script(('python', {'code': visit}), *fails, ('finish', {'success': True, 'result': 'r' * 1000}))
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()).status == 'completed'
+	(props,) = sent
+	assert props['urls_visited'] == [(f'https://zq{i}.example/' + 'p' * 300)[:200] for i in range(50)]
+	assert props['error_messages'] == [(f'ValueError: {i} ' + 'e' * 400)[:300] for i in range(20)]
+	assert (props['cell_errors'], props['cell_error_types']) == (25, {'ValueError': 25})
+	assert props['final_result'] == 'r' * 500
+
+
+async def test_the_runs_error_comes_first_and_repeated_messages_are_sent_once(sent, tmp_path, monkeypatch):
+	no_browser(monkeypatch)
+	model, _ = script(*[('python', {'code': lib_raise('KeyError("same")')})] * 3, ('finish', {'success': False, 'result': 'no'}))
+	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()
+	(props,) = sent
+	assert props['error_messages'] == ["KeyError: 'same'"] and props['cell_error_types'] == {'KeyError': 3}
+	sent.clear()
+	model, _ = script(('python', {'code': 'data = {}\ndata["Zq9 from the page"]'}))  # then the model fails: the run's error
+	await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()
+	(props,) = sent
+	assert props['status'] == 'error' and props['error_messages'][1:] == ['KeyError']  # the cell's own lookup: class only
+	assert props['error_messages'][0].startswith('AssertionError: unexpected model call 2')
+
+
+@pytest.mark.parametrize(
+	'text, out',
+	[
+		('Authorization: Bearer example-token-1', 'Authorization: Bearer <credential>'),
+		('authorization: bearer abcdefghijklmnopqrst', 'authorization: bearer <credential>'),  # lowercase, no digit
+		('curl -H "Authorization: Basic dXNlcjpwYXNzMTIz"', 'curl -H "Authorization: Basic <credential>"'),
+		('login?password=hunter2&user=x', 'login?password=<credential>&user=x'),
+		('password=Tr0ub4dor&3 next', 'password=<credential> next'),
+		('{"api_key": "zz1234", "access_token": \'t0k\'}', '{"api_key": <credential>, "access_token": <credential>}'),
+		('client_secret=abc refresh_token: xyz', 'client_secret=<credential> refresh_token: <credential>'),
+		('keys sk-proj-abcdefgh12 sk-ant-api03-abcdefgh AIza' + 'x' * 30, 'keys <credential> <credential> <credential>'),
+		('bu_abcdef123456 ghp_abcdefgh1234 phc_abcdefgh123', '<credential> <credential> <credential>'),
+		('jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig', 'jwt <credential>'),
+		('commit 0123456789abcdef0123456789abcdef01234567', 'commit <credential>'),
+		('mail Jane.Doe+x@Example.co.uk or jane%40example.com', 'mail <email> or <email>'),
+		('ValueError: <secret:pw> was rejected', 'ValueError: <secret:pw> was rejected'),
+		("NameError: name 'basic_task' is not defined", "NameError: name 'basic_task' is not defined"),
+		('the basic plan; a token expired; disk-usage-report', 'the basic plan; a token expired; disk-usage-report'),
+		('net::ERR at https://admin:Pw1@intranet:8080/a?token=x&q=y#f', 'net::ERR at https://<credential>@intranet/a'),
+		# the host as urls_visited sends it: no port, a tunnel or preview deploy as its provider
+		('Timeout at https://zq-quiet-river.trycloudflare.com:443/admin', 'Timeout at https://*.trycloudflare.com/admin'),
+		(
+			'see https://myapp-git-zq-branch-acme.vercel.app and https://Shop.Example',
+			'see https://*.vercel.app and https://shop.example',
+		),
+		('done: https://shop.example/home/deals?ref=zq#top', 'done: https://shop.example/home/deals'),
+		(
+			r"No file '/Users/jane/a.pdf', C:\Users\jane\a, file:///home/jane/x",
+			r"No file '/Users/<user>/a.pdf', C:\Users\<user>\a, file:///home/<user>/x",
+		),
+		('Cookie: sid=abc123; csrftoken=xyz', 'Cookie: <credential>'),
+		('aws AKIAIOSFODNN7EXAMPLE', 'aws <credential>'),
+		('at http://admin:<secret:pw>@intranet/x?k=<secret:pw>', 'at http://<credential>@intranet/x'),  # redacted first
+		(
+			"RuntimeError: JavaScript evaluation failed: TypeError: x; expression: fill('zq')",
+			'RuntimeError: JavaScript evaluation failed: TypeError: x; expression: <code>',
+		),
+		# a reset, invite or magic link's path is its credential, as a query string is; a product slug is not
+		('https://app.example.com/reset-password/a3f9b2c1d4e5f6a7', 'https://app.example.com/reset-password/<token>'),
+		('https://a.example/invite/3f2a9c1e-8b7d-4e6f-9a0b-1c2d3e4f5a6b', 'https://a.example/invite/<token>'),
+		('https://slack.com/magic-link/8XqZ4Kp9LmN2vB7wR3tY6uA1', 'https://slack.com/magic-link/<token>'),
+		(
+			'https://docs.google.com/d/1BxiMVs0XRA5n-FMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
+			'https://docs.google.com/d/<token>/edit',
+		),
+		('https://www.apple.com/shop/iphone-15-pro-max-256gb', 'https://www.apple.com/shop/iphone-15-pro-max-256gb'),
+		('at https://shop.example/cart;jsessionid=AB12CD34EF56?x=1', 'at https://shop.example/cart'),
+		('Failed loading /login?next=/account&sid=abc123def456', 'Failed loading /login'),
+		# third-party data an extraction result or a page-quoting error carries
+		(
+			'John, +1 (415) 555-0137, card 4111 1111 1111 1111, IBAN DE89370400440532013000, SSN 123-45-6789',
+			'John, <number>, card <number>, IBAN DE<number>, SSN <number>',
+		),
+		('Your verification code is 482913', 'Your verification code is <number>'),
+		('Timeout 30000ms at http://127.0.0.1:9222/json', 'Timeout 30000ms at http://127.0.0.1/json'),
+	],
+)
+def test_scrub_replaces_credentials_and_emails_and_keeps_ordinary_text(text, out):
+	assert scrub(text, [], 300) == out
+
+
+def test_scrub_redacts_the_runs_secrets_and_the_task_before_it_cuts():
+	from browser_use.repl.session import secret_forms
+
+	forms = secret_forms({'pw': 'Zq9 hunter-2'})
+	assert scrub('x' * 295 + 'Zq9 hunter-2', forms, 300) == 'x' * 295 + '<secr'  # never 'Zq9 h'
+	assert scrub('/a/Zq9%20hunter-2/b/Zq9 hunter-2', forms, 300) == '/a/<secret:pw>/b/<secret:pw>'
+	assert scrub('I booked: find flights to Paris', [], 300, task='find flights to Paris') == 'I booked: <task>'
+	assert scrub('do Zq9 hunter-2 now', forms, 300, task='do Zq9 hunter-2 now') == '<task>'  # as typed
+	assert scrub('ok: do <secret:pw> now', forms, 300, task='do Zq9 hunter-2 now') == 'ok: <task>'  # as redacted
+	assert scrub('ok', [], 300, task='ok') == 'ok'  # a short task is ordinary text
+	assert scrub(None, forms, 300) is None
+	big = ('Zq9 hunter-2 jane@zq.example ' * 40_000)[:1_000_000]  # a 1 MB result: a window is scrubbed, not all of it
+	started = time.perf_counter()
+	assert scrub(big, forms, 500) == ('<secret:pw> <email> ' * 30)[:500]
+	assert time.perf_counter() - started < 0.1
+	short = '<secret:pw> ' * 3000 + 'end'  # scrubbed shorter than its window: scrubbed whole
+	assert scrub(short.replace('<secret:pw>', 'Zq9 hunter-2') + 'x' * 50_000, forms, 300) == short[:300]
+
+
+@pytest.mark.parametrize(
+	'run',
+	['a' * 40_000, 'a.' * 20_000, '%' * 40_000, '-' * 40_000, 'http://' + 'a' * 40_000],
+	ids=['letters', 'dotted', 'percent', 'dashes', 'url'],  # Windows caps PYTEST_CURRENT_TEST at 32,767 chars
+)
+def test_scrub_is_linear_in_a_long_run_of_one_kind_of_character(run):
+	"""EMAIL started a match at every character of a run and scanned to its end: a 32k run of letters (hex, base64) in
+	a result or an error message took 2.5 s in the telemetry thread, holding the GIL."""
+	started = time.perf_counter()
+	scrub(run, [], 500, task='zq ' * 100)
+	assert time.perf_counter() - started < 0.1
+
+
+def test_scrub_sends_a_credential_from_this_processs_environment_in_any_format_as_credential(monkeypatch):
+	monkeypatch.setenv('ZQ_ACME_API_KEY', 'zq.weird+format.key')
+	assert scrub('upstream 401 for key zq.weird+format.key', [], 300) == 'upstream 401 for key <credential>'
+
+
+def test_scrub_sends_five_task_words_in_a_row_and_typed_text_as_placeholders():
+	task = 'Log into the Acme portal as alice, then download the March invoice'
+	out = scrub('Done: logged in. log into the acme portal as Alice and downloaded it', [], 300, task=task)
+	assert out == 'Done: logged in. <task> and downloaded it'
+	assert scrub('the Acme portal is up', [], 300, task=task) == 'the Acme portal is up'  # four words: ordinary text
+	assert scrub('searched Paris Hilton; Parisian', [], 300, typed=['Paris Hilton', 'Parisian x']) == 'searched <typed>; Parisian'
+	assert scrub('searched for cheap flights paris', [], 300, typed=['cheap flights paris\n']) == 'searched for <typed>'
+	# a long message the agent wrote: its end (past 4096 characters) or any five words of it in a row
+	message = ' '.join(f'zq{i}' for i in range(2000))
+	tail = ' '.join(message.split()[-15:])
+	assert len(message) > 4096 and scrub(f'sent: {tail}', [], 300, typed=[message]) == 'sent: <typed>'
+	assert scrub('sent: zq10 zq11 zq12 zq13 zq14 ok', [], 300, typed=[message]) == 'sent: <typed> ok'
+	# sites put the query in the path: Zillow, Maps, Wikipedia
+	for url, typed, out in (
+		('https://www.zillow.com/homes/123-Main-St-Springfield-IL_rb/', '123 Main St, Springfield, IL', '/homes/<typed>_rb/'),
+		('https://www.google.com/maps/search/pizza+near+me/', 'pizza near me', '/maps/search/<typed>/'),
+		('https://en.wikipedia.org/wiki/Albert_Einstein', 'Albert Einstein', '/wiki/<typed>'),
+		('https://www.airbnb.com/s/Lisbon%20Portugal/homes', 'Lisbon Portugal', '/s/<typed>/homes'),
+	):
+		assert scrub(url, [], 200, typed=[typed]).endswith(out), url
+
+
+@pytest.mark.parametrize(
+	'url, out',
+	[
+		('https://user:pw@Shop.Example.com:8443/cart/42?token=abc#x', 'https://shop.example.com/cart/42'),
+		('http://127.0.0.1:9222/json/version?x=1', 'http://127.0.0.1/json/version'),
+		('http://[::1]:9222/json', 'http://[::1]/json'),
+		('https://example.com', 'https://example.com/'),
+		('https://example.com/a/./b/../c#top', 'https://example.com/a/c'),
+		('https://zq-quiet-river.trycloudflare.com/admin?k=1', 'https://*.trycloudflare.com/admin'),
+		('https://shop.example/cart;jsessionid=AB12CD?x=1', 'https://shop.example/cart'),
+		('about:blank', None),
+		('file:///Users/jane/secret.pdf', None),
+		('data:text/html,<p>hi</p>', None),
+		('chrome://settings', None),
+		('https://zq best flights for jane doe/', None),
+	],
+)
+def test_page_url_keeps_scheme_host_and_path_only(url, out):
+	assert page_url(url) == out
+
+
+def test_text_typed_one_key_at_a_time_is_one_typed_text():
+	"""press_key('h'), press_key('i') or the agent's own cdp('Input.dispatchKeyEvent', type='char', text='h') typed
+	text that scrub never knew: each key alone is shorter than MIN_TYPED, so an error or result quoting it sent it."""
+	from browser_use.repl import worker
+
+	press = worker._counted('press_key', lambda key, modifiers=0: None)
+	click = worker._counted('click_at_xy', lambda x, y: None)
+	worker.stats.take()
+	for c in 'alice smith':
+		press(c)
+	press('Tab')
+	for c in 'Zq9pass':
+		press(c)
+	press('a', modifiers=2)  # Ctrl+A selects, types nothing
+	for c in 'acme':
+		press(c)
+	click(1, 2)
+	for c in 'Paris':  # key events the agent sent itself
+		worker.stats.record_key(c)
+	assert worker.stats.take()['typed'] == ['alice smith', 'Zq9pass', 'acme', 'Paris']
+	assert scrub('ValueError: no user alice smith', [], 300, typed=['alice smith']) == 'ValueError: no user <typed>'
+
+
+def test_cell_stats_list_each_url_once_in_order_after_the_agent_navigated():
+	"""A page read lists its URL only in a tab the agent navigated: Browser('chrome') reaches the user's other tabs
+	(their mail), whose hostname alone counts."""
+	from browser_use.repl.worker import CellStats
+
+	s = CellStats()
+	s.url('https://mail.example.com/inbox/42', tab='T1')  # the user's own tab, before the agent navigated
+	s.url('https://shop.example.com/a?x=1', navigation=True, tab='T1')
+	s.url('https://shop.example.com/a?x=2#f', tab='T1')  # the same page with another query
+	s.url('https://pay.example.com/checkout', tab='T1')  # a link the agent clicked there
+	s.url('https://mail.example.com/mail/u/0/zq-thread', tab='T2')  # switch_tab() to the user's mail: its host only
+	s.url('https://docs.example.com/d/zq-doc')  # no tab known
+	out = s.take()
+	assert out['urls'] == ['https://shop.example.com/a', 'https://pay.example.com/checkout']
+	assert out['hosts'] == ['docs.example.com', 'mail.example.com', 'pay.example.com', 'shop.example.com']
+	s.url('https://shop.example.com/a', navigation=True)  # a revisit in a later cell
+	assert s.take()['urls'] == []
+	stats = RunStats()
+	for urls in (['https://a.example/1', 'https://a.example/2'], ['https://a.example/2', 'https://a.example/3']):
+		stats.add_cell({'stats': {'urls': urls}}, '', 0.1)  # a restarted worker reports a URL again
+	assert stats.urls == ['https://a.example/1', 'https://a.example/2', 'https://a.example/3']
 
 
 # --- performance ---
@@ -1495,8 +1965,8 @@ async def test_a_queued_event_does_not_keep_the_runs_messages_alive(dead_posthog
 
 async def test_a_failed_navigation_counts_on_the_host_that_failed_not_on_chromes_error_page(chrome, sent, tmp_path):
 	"""Live run 4 went to an unresolvable host: goto_url returned, no error showed anywhere, and both steps were booked
-	on 'chromewebdata', the host of Chrome's error page. The failed navigation now counts, with Chrome's net error code
-	and never the URL, on the host that failed."""
+	on 'chromewebdata', the host of Chrome's error page. The failed navigation now counts, with Chrome's net error code,
+	on the host that failed; the URL is the one requested, without its query, never the error page's."""
 	model, _ = script(
 		('python', {'code': "goto_url('http://zq-nowhere.invalid/zqpath?zq=1'); print(page_info())"}),
 		('finish', {'success': False, 'result': 'unreachable'}),
@@ -1506,7 +1976,8 @@ async def test_a_failed_navigation_counts_on_the_host_that_failed_not_on_chromes
 	assert props['nav_failures'] == 1 and props['nav_errors'] == {'ERR_NAME_NOT_RESOLVED': 1}
 	assert 'chromewebdata' not in props['domains'] + props['s_host'] and 'chromewebdata' not in props['host_stats']
 	assert props['host_stats']['zq-nowhere.invalid'][5:] == [1, 1] and props['s_ev'][0] & 1024
-	assert_absent(props, 'zqpath')
+	assert props['urls_visited'] == ['http://zq-nowhere.invalid/zqpath']
+	assert_absent(props, 'zq=1', 'chromewebdata')
 
 
 def test_a_step_whose_navigation_failed_is_not_progress():
@@ -1694,3 +2165,44 @@ def test_an_event_the_exit_handler_could_not_write_is_still_written_by_the_threa
 	monkeypatch.setattr(t, '_to_outbox', write)
 	t._send(job)  # the thread, mid-send as the process exits
 	assert [p.name for p in (posthog.config / 'telemetry' / 'outbox').iterdir()] == [f'{job.run_id}.gz']
+
+
+def test_a_library_error_quoting_page_text_is_sent_as_its_class_only():
+	"""datetime.strptime(text, fmt), urlopen(href), Path(x).read_text() quote their argument: page text. Only errors
+	browser-use or browser-harness raised keep their message."""
+	from datetime import datetime
+
+	from browser_use.telemetry.stats import raised_by_cell
+
+	page_text = 'Jane Doe owes 4,200 on account'
+	try:
+		datetime.strptime(page_text, '%Y-%m-%d')
+	except ValueError as e:
+		assert page_text in str(e) and raised_by_cell(e)
+	try:
+		exec(compile('raise RuntimeError("no Chrome to attach")', HELPER_FILE, 'exec'))
+	except RuntimeError as e:
+		assert not raised_by_cell(e)
+	try:
+		exec(compile('raise ValueError(x)', '<cell 3>', 'exec'), {'x': page_text})
+	except ValueError as e:
+		assert raised_by_cell(e)
+
+
+def test_long_typed_texts_are_matched_in_bounded_memory_and_time():
+	"""Retest 1.0.1 review: 50 typed texts of 64k characters held every five-word run as a tuple (~600k runs, ~100 MB)
+	and compiled a regex per 64k-character form on every scrub (minutes). Every typed text is still matched, the last too."""
+	import tracemalloc
+
+	from browser_use.telemetry.stats import _task_grams, scrub
+
+	rng = random.Random(7)
+	typed = tuple(' '.join(rng.choice(string.ascii_lowercase) * 6 + str(i) for i in range(9000))[:65536] for _ in range(50))
+	_task_grams.cache_clear()
+	tracemalloc.start()
+	started = time.perf_counter()
+	out = scrub('result: ' + typed[-1][30_000:30_400], [], 500, typed=typed)
+	_, peak = tracemalloc.get_traced_memory()
+	tracemalloc.stop()
+	assert '<typed>' in out and len(out) < 40 and time.perf_counter() - started < 10 and peak < 120_000_000  # cut words stay
+	assert scrub('İstanbul Kadıköy', [], 500, typed=('İstanbul Kadıköy',)) == '<typed>'

@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 import sys
 from importlib.machinery import ModuleSpec, PathFinder
+from opcode import opmap
 
 _LLM = (
 	'from browser_use import ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle, or a Pydantic AI model string such as '
@@ -499,10 +500,19 @@ _LLM_INSTANCE_ANSWER = {
 }
 
 
-def removed_name(module: str, name: str) -> ImportError | AttributeError:
-	"""For a module's __getattr__: the removed error for a 0.x name (ImportError, so `from module import name` shows
-	it), else the plain AttributeError."""
-	if name in (names := _NAMES.get(module, {})):
+def removed_name(module: str, name: str, names: dict[str, str] | None = None) -> ImportError | AttributeError:
+	"""For a module's __getattr__: the removed error for a 0.x name (in _NAMES or names), else the plain AttributeError.
+	An ImportError only for a from-import, where an AttributeError reads as a bare "cannot import name". Elsewhere an
+	AttributeError with the same text: hasattr() and getattr(module, name, default) catch only that, and feature
+	detection of a 0.x name (getattr(browser_use, 'BrowserSession', None)) raised instead of taking its fallback."""
+	error = _removed_name(module, name, names)
+	if isinstance(error, ImportError) and not _from_import():
+		return AttributeError(str(error), name=name, obj=sys.modules.get(module))
+	return error
+
+
+def _removed_name(module: str, name: str, names: dict[str, str] | None) -> ImportError | AttributeError:
+	if name in (names := {**_NAMES.get(module, {}), **(names or {})}):
 		from browser_use.exceptions import removed  # here: this module is imported from modules exceptions imports
 
 		return ImportError(removed(f'{module}.{name}', names[name]), name=module)
@@ -518,6 +528,25 @@ def removed_name(module: str, name: str) -> ImportError | AttributeError:
 	if not name.startswith('_') and (message := _removed_submodule(module, name)):
 		return ModuleNotFoundError(message, name=f'{module}.{name}')
 	return AttributeError(f'module {module!r} has no attribute {name!r}')
+
+
+def _from_import() -> bool:
+	"""Whether the module attribute being looked up is read by a from-import: `from package import name` (importlib's
+	_handle_fromlist asks hasattr(package, name)) or `from module import name` (the IMPORT_FROM instruction)."""
+	frame = sys._getframe(1)
+	# past removed_name and the module's __getattr__: the frame before them read the attribute
+	while frame is not None and frame.f_code.co_name in ('removed_name', '__getattr__'):
+		if not frame.f_globals.get('__name__', '').startswith('browser_use'):
+			break
+		frame = frame.f_back
+	if frame is None:
+		return False
+	if frame.f_code.co_name == '_handle_fromlist' and frame.f_globals.get('__name__') == 'importlib._bootstrap':
+		return True
+	return frame.f_lasti >= 0 and frame.f_code.co_code[frame.f_lasti] == _IMPORT_FROM
+
+
+_IMPORT_FROM = opmap['IMPORT_FROM']
 
 
 def _removed_submodule(package: str, name: str) -> str | None:

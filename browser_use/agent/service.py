@@ -37,7 +37,7 @@ from browser_use.llm import (
 	resolve_model,
 )
 from browser_use.repl import Repl, check_mode, redact
-from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets
+from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets, secret_forms
 from browser_use.search import WebSearch, search_url
 from browser_use.telemetry.recorder import RunRecorder, now
 from browser_use.tools import Tools
@@ -286,6 +286,7 @@ class Agent:
 				'stand alone, not inside longer words or numbers; a longer value is safer.'
 			)
 		self.task, self.llm, self.browser, self.tools = task, as_chat_model(llm), browser, tools
+		self._tasks = [task]  # every task this agent ran (follow-ups too): telemetry never sends their text
 		# bu-fast and bu-ultrafast are evaluated in ultrafast mode (Google Flights: 0/3 in default mode, 3/3)
 		fast = gateway_alias(self.llm) in ('bu-fast', 'bu-ultrafast')
 		self.mode = check_mode(mode if mode is not None else 'ultrafast' if fast else 'default')
@@ -339,6 +340,7 @@ class Agent:
 		"""The next run() continues this conversation with a new task."""
 		_check_task_arg(task)
 		self.task, self._continue = task, True
+		self._tasks.append(task)
 
 	def _check_task(self) -> None:
 		if self.browser.use_cloud and (m := LOCAL_TARGET.search(self.task)):  # a hint, never a refusal
@@ -732,12 +734,23 @@ class Agent:
 		duration: float,
 		meta: dict[str, Any],
 	) -> None:
-		"""One agent_event per run. Counts, names, hostnames and classes only: never the task, the result, code, typed
-		text, secrets, page content, URLs or error messages. Here, on the run's path, only what can change
-		after the run is copied; the event is built in the telemetry thread (build())."""
+		"""One agent_event per run: counts, names, hostnames and classes, the URLs visited without query strings, error
+		messages and the final result, scrubbed of secrets and credentials (stats.scrub). Never the task text, typed
+		text, code or secrets. Here, on the run's path, only what can change after the run is copied; the event is built
+		in the telemetry thread (build())."""
 		try:
 			from browser_use.telemetry.service import Job, telemetry
-			from browser_use.telemetry.stats import RunStats, download_ext, top
+			from browser_use.telemetry.stats import (
+				MAX_ERROR,
+				MAX_ERRORS,
+				MAX_RESULT,
+				MAX_URL,
+				MAX_URLS,
+				RunStats,
+				download_ext,
+				scrub,
+				top,
+			)
 			from browser_use.telemetry.views import AgentTelemetryEvent
 			from browser_use.utils import get_browser_use_version, get_install_source
 
@@ -800,6 +813,10 @@ class Agent:
 				'error_phase': phase,
 				'budget_hit': budget_hit,
 			}
+			secrets = self.sensitive_data
+			tasks = list(dict.fromkeys([*self._tasks, self.task]))  # a follow-up's result can quote the first task
+			run_error = result.error if result else None
+			final = result.text if result else None
 			known = rec.known
 			function_tools = known - {'finish', 'finish_from_repl'}
 			total_ms = int(duration * 1000)
@@ -813,6 +830,12 @@ class Agent:
 				v3 = rec.build(stats, total_ms, steps, keys)
 				if tool_args := sum(name in function_tools for name in retried):
 					v3['retries']['tool_args'] = tool_args
+				forms = secret_forms(secrets) if secrets else []
+				urls = dict.fromkeys(scrub(u, forms, MAX_URL, tasks, stats.typed) for u in stats.urls[: min(keys, MAX_URLS)])
+				errors = [
+					scrub(e, forms, MAX_ERROR, tasks, stats.typed)
+					for e in ([run_error] if run_error else []) + stats.error_messages
+				]
 				repairs = ('delivery_placeholder', 'delivery_missing_files', 'delivery_split', 'text_repair', 'text_tool_markup')
 				event = AgentTelemetryEvent(
 					get_browser_use_version(),
@@ -841,6 +864,9 @@ class Agent:
 					domain_blocks=stats.events['domain_blocked'],
 					downloads=len(downloads),
 					download_exts=top(Counter(download_ext(p) for p in downloads), keys),
+					urls_visited=[u for u in urls if u],
+					error_messages=[e for e in dict.fromkeys(errors) if e][:MAX_ERRORS],
+					final_result=scrub(final, forms, MAX_RESULT, tasks, stats.typed) or None,
 				)
 				return event.properties
 

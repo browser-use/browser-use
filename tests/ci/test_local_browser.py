@@ -523,6 +523,7 @@ def attaches(debug_dirs, monkeypatch):
 	monkeypatch.setattr(daemon, 'supported_browser_running', lambda: True)
 	monkeypatch.setattr(admin, '_open_chrome_inspect_once', lambda: opened.append(True))
 	monkeypatch.setattr(admin, '_launch_browser', lambda: pytest.fail('launched a browser'))
+	monkeypatch.setattr(_local, 'has_display', lambda: True)  # a desktop: chrome://inspect can be ticked
 	yield calls, opened
 
 
@@ -538,6 +539,18 @@ async def test_attach_never_lets_browser_harness_guess_port_9222(attaches):
 	with pytest.raises(RuntimeError, match=r'(?s)remote-debugging-setup.*chrome://inspect.*BU_CDP_URL'):
 		harness_cloud.ensure_daemon(name=f'butestattach{os.getpid()}')  # the CLI's and --cli-mcp's attach
 	assert calls == [] and opened == [True, True]
+
+
+async def test_attach_on_a_box_with_no_display_names_what_works_there(attaches, monkeypatch):
+	"""e2e 1.0.1: `echo 'print(1)' | browser-use` on a fresh python:3.12-slim (no display, no Chrome) said to tick a
+	box in chrome://inspect, which nobody can open there."""
+	from browser_use import harness_cloud
+
+	calls, opened = attaches
+	monkeypatch.setattr(_local, 'has_display', lambda: False)
+	with pytest.raises(RuntimeError, match=r'remote-debugging-setup: .*no display.*BU_CDP_URL.*start_remote_daemon\(\)') as e:
+		harness_cloud.ensure_daemon(name=f'butestheadless{os.getpid()}')  # the CLI's attach
+	assert 'chrome://inspect' not in str(e.value) and calls == [] and opened == []
 
 
 @posix_only

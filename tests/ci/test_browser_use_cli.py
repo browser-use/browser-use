@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -255,6 +256,142 @@ def test_stdin_from_the_null_device_is_empty_stdin_not_the_quickstart():
 	assert 'received empty stdin' in r.stderr and 'Welcome' not in r.stdout
 
 
+def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path):
+	"""Live (k8s read-only fs, `docker run -u` without a home, Lambda): browser-harness creates ~/.config/browser-harness
+	when imported, so Browser().start() and every browser-use command that drives a browser died with a bare
+	PermissionError on ~/.config, naming neither browser-use nor BH_HOME. Commands that need no browser still work."""
+	(tmp_path / '.config').write_text('')  # no dir can be made under it: an unwritable HOME, for root and on Windows too
+	env = {
+		k: v
+		for k, v in os.environ.items()
+		if not k.startswith('BH_') and k not in ('XDG_CONFIG_HOME', 'BROWSER_HARNESS_HOME', 'BROWSER_USE_API_KEY')
+	}
+	env.update(HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONPATH=str(ROOT), BU_CDP_URL='http://127.0.0.1:1')
+
+	def run(*argv: str, stdin: str = '') -> subprocess.CompletedProcess[str]:
+		return subprocess.run(
+			[sys.executable, *argv], input=stdin, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
+		)
+
+	start = "import asyncio\nfrom browser_use import Browser\nasyncio.run(Browser(cdp_url='http://127.0.0.1:1').start())"
+	r = run('-c', start)
+	assert 'BrowserConfigError: browser-use cannot create its browser-harness dir' in r.stderr and 'BH_HOME' in r.stderr, r.stderr
+	for argv, stdin in ((['--doctor'], ''), ([], 'print(1)')):
+		r = run('-m', 'browser_use.cli', *argv, stdin=stdin)
+		assert (r.returncode, r.stdout) == (1, ''), r.stderr
+		assert 'BH_HOME' in r.stderr and 'Traceback' not in r.stderr, r.stderr
+	assert run('-m', 'browser_use.cli', 'skill', 'show').returncode == 0
+	# the default model looks for the key `browser-use login` stored, in browser-harness's config dir
+	r = run('-c', "from browser_use import Agent; Agent('x').run_sync()")
+	assert 'MissingAPIKeyError' in r.stderr and 'BROWSER_USE_API_KEY' in r.stderr and 'BH_HOME' in r.stderr, r.stderr
+	assert 'NotADirectoryError' not in r.stderr and 'PermissionError' not in r.stderr, r.stderr
+	# --cli-mcp exited before initialize: the agent saw only 'Connection closed'. It starts, and every call says why
+	init = {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '1'}}
+	messages = [
+		{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': init},
+		{'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+		{'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'browser_exec', 'arguments': {'code': '1'}}},
+	]
+	server = subprocess.Popen(
+		[sys.executable, '-m', 'browser_use.cli', '--cli-mcp'],
+		stdin=subprocess.PIPE,
+		stdout=subprocess.PIPE,
+		stderr=subprocess.DEVNULL,
+		cwd=tmp_path,
+		env=env,
+		text=True,
+	)
+	assert server.stdin and server.stdout
+	try:  # stdin stays open until the call is answered: at EOF the server ends, cancelling a call in flight
+		server.stdin.write(''.join(json.dumps(m) + '\n' for m in messages))
+		server.stdin.flush()
+		reply: dict = {}
+		while reply.get('id') != 2:
+			line = server.stdout.readline()
+			assert line, 'the server ended before it answered the call'
+			reply = json.loads(line)
+	finally:
+		server.kill()
+		server.wait(10)
+	assert reply['result']['isError'] and 'BH_HOME' in reply['result']['content'][0]['text'], reply
+
+
+def test_an_unwritable_harness_dir_names_the_setting_that_chose_it(tmp_path, monkeypatch):
+	"""BH_CONFIG_DIR (and BH_RUNTIME_DIR, BH_TMP_DIR, BH_AGENT_WORKSPACE) override BH_HOME for their dir: an unwritable
+	one told the user to change BH_HOME, which could not fix it."""
+	from browser_use.auth import harness_dir_setting
+
+	for name in ('BH_CONFIG_DIR', 'BH_RUNTIME_DIR', 'BH_TMP_DIR', 'BH_AGENT_WORKSPACE'):
+		monkeypatch.delenv(name, raising=False)
+	assert harness_dir_setting(tmp_path / 'home' / 'runtime') == 'BH_HOME'
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'ro' / 'config'))
+	assert harness_dir_setting(tmp_path / 'ro') == 'BH_CONFIG_DIR'  # mkdir failed on a dir around it
+	assert harness_dir_setting(tmp_path / 'ro' / 'config') == 'BH_CONFIG_DIR'
+	assert harness_dir_setting(tmp_path / 'home' / 'runtime') == 'BH_HOME'
+
+
+def test_piped_code_is_read_as_utf8_whatever_the_locale_says(monkeypatch):
+	"""Windows: Python decodes a stdin pipe with the ANSI code page (cp1252; cp932 on Japanese Windows), so piped
+	fill_input('input', 'Zürich') typed 'ZÃ¼rich', and some CJK text raised UnicodeDecodeError before the code ran.
+	Coding agents pipe UTF-8; PowerShell's starts with a BOM."""
+	import codecs
+	import io
+
+	from browser_use import cli
+
+	code = 'fill_input("input", "Zürich 東京 €5")\n'
+	ran = []
+	monkeypatch.setattr(cli, '_run_browser_harness', ran.append)
+	for raw in (code.encode(), codecs.BOM_UTF8 + code.encode()):
+		monkeypatch.setattr(sys, 'stdin', io.TextIOWrapper(io.BytesIO(raw), encoding='cp1252'))
+		cli._dispatch([])
+	assert ran == [code, code]
+
+
+def test_piped_http_get_fetches_from_this_machine_with_a_key_set(monkeypatch):
+	"""With BROWSER_USE_API_KEY set, piped code's http_get was browser-harness's: it POSTs the URL and its headers
+	(Authorization too) to the fetch-use proxy, so localhost and intranet URLs failed and the headers left the machine.
+	It is the Agent's http_get now: plain HTTP from here, as the docs say."""
+	import http.server
+	import threading
+
+	import fetch_use
+	from browser_harness import run
+
+	from browser_use import cli
+
+	class Echo(http.server.BaseHTTPRequestHandler):
+		def do_GET(self):
+			body = f'{self.path} {self.headers.get("Authorization")}'.encode()
+			self.send_response(200)
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.write(body)
+
+		def log_message(self, *args):
+			pass
+
+	def proxied(*args, **kwargs):
+		raise AssertionError('http_get went to the fetch-use proxy')
+
+	server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Echo)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	url = f'http://127.0.0.1:{server.server_address[1]}/internal'
+	got = []
+	monkeypatch.setattr(fetch_use, 'fetch_sync', proxied)
+	monkeypatch.setattr(run, 'http_get', run.http_get)  # put back after the test
+	# the piped code runs in browser-harness's run module: its names are the module's
+	monkeypatch.setattr(run, 'main', lambda: got.append(vars(run)['http_get'](url, headers={'Authorization': 'Bearer t'})))
+	monkeypatch.setattr(sys, 'argv', ['browser-use'])
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'bu_test')
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	try:
+		cli._run_browser_harness('print(http_get(url))')
+	finally:
+		server.shutdown()
+	assert got == ['/internal Bearer t']
+
+
 def test_every_install_line_pins_the_released_version_exactly():
 	"""Users and their agents copy these lines: each pins browser-use with == to this release, never >=."""
 	import tomllib
@@ -420,3 +557,14 @@ async def test_page_info_waiting_for_the_document_still_reports_a_dialog(daemon,
 	finally:
 		server.shutdown()
 	assert not failed and "'dialog'" in out and "'hi'" in out, out
+
+
+def test_a_malformed_bh_dir_override_keeps_the_bh_home_hint(monkeypatch, tmp_path):
+	"""Retest 1.0.1 review: picking the hint resolved every BH_* override, so '~nosuchuser_x/dir' (RuntimeError) raised inside the handler that reports the unwritable dir."""
+	from browser_use.auth import harness_dir_setting
+
+	for name in ('BH_CONFIG_DIR', 'BH_RUNTIME_DIR', 'BH_TMP_DIR', 'BH_AGENT_WORKSPACE'):
+		monkeypatch.delenv(name, raising=False)
+	monkeypatch.setenv('BH_CONFIG_DIR', '~nosuchuser_bu101/cfg')
+	assert harness_dir_setting(tmp_path / 'x') == 'BH_HOME'
+	assert harness_dir_setting('~nosuchuser_bu101/x') == 'BH_HOME'
