@@ -1,112 +1,57 @@
 [project]
 name = "browser-use"
-description = "Open-source browser agent + hosted cloud browsers for AI agents, from $0.02/browser-hour"
+description = "Browser agent on Pydantic AI: one persistent Python REPL on raw CDP, cloud or local Chrome"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.13.14"
+version = "1.0.0"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11,<4.0"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "aiohttp==3.14.5",
-    "anyio==4.12.1",
-    "bubus==1.5.6",
-    "click==8.3.3",
-    "InquirerPy==0.3.4",
-    "rich==14.3.3",
-    "google-api-core==2.29.0",
-    "httpx==0.28.1",
-    "posthog==7.7.0",
-    "psutil==7.2.2",
-    "pydantic==2.13.5",
-    "pydantic-settings==2.15.0",
-    "pyobjc==12.1; platform_system == 'darwin'",
-    "python-dotenv==1.2.2",
-    "requests==2.33.0",
-    "screeninfo==0.8.1; platform_system != 'darwin'",
-    "typing-extensions==4.15.0",
-    "uuid7==0.1.0",
-    "google-genai==1.65.0",
-    "openai>=2.26.0,<4.0.0",
-    "anthropic>=0.76.0,<2.0.0",
-    "groq==1.0.0",
-    "ollama==0.6.1",
-    "google-api-python-client==2.188.0",
-    "google-auth==2.48.0",
-    "google-auth-oauthlib==1.2.4",
-    "mcp==2.1.1",
-    "pypdf==6.16.2",
-    "reportlab==4.4.9",
-    "cdp-use==1.4.5",
-    "pyotp==2.9.0",
-    "pillow==12.3.0",
-    "cloudpickle==3.1.2",
-    "markdownify==1.2.2",
-    "python-docx==1.2.0",
-    "browser-use-sdk>=3.10.0,<4",
     "browser-harness==0.1.13",
+    "pydantic==2.14.3",
+    "pydantic-ai-slim[openai,anthropic,google]==2.66.0",
+    "google-genai==2.34.0",
+    "genai-prices==0.2.1",
+    "idna==3.20",
+    "pillow==12.3.0",
+    "python-dotenv==1.2.4",
+    "uuid7==0.1.0",
+    "mcp==2.3.0",
 ]
-# google-api-core: only used for Google LLM APIs
-# pyperclip: only used for examples that use copy/paste
-# pyobjc: only used to get screen resolution on macOS
-# screeninfo: only used to get screen resolution on Linux/Windows
-# markdownify: used for page text content extraction for passing to LLM
-# openai: datalib,voice-helpers are actually NOT NEEDED but openai produces noisy errors on exit without them TODO: fix
-# rich: used for terminal formatting and styling in CLI
-# click: used for command-line argument parsing
+# browser-harness: CDP daemon, browser helpers, CLI, auth (also pulls cdp-use, fetch-use, websockets)
+# genai-prices: cost per run (imported directly). pydantic-ai-slim[openai,anthropic,google]: agent loop (Anthropic and Google built in so model strings just work) (keep it below 3 when bumping the pin: the engine uses its capabilities API); OpenAI Responses (official API, gateway) and chat completions (base_url)
+# pillow: the REPL worker validates and downsizes images before they reach the model
+# python-dotenv: .env loading; uuid7: the anonymous telemetry device id (telemetry is sent with the standard library)
+# mcp: `browser-use --cli-mcp` (the biggest CLI surface) must work without extras
+# google-genai: keep the pin below 3 when bumping; 3.0.0 calls the Gemini API on v1, which rejects tools, so every Gemini run fails on its first request.
+# Pydantic AI caps it at <3 the same way (pydantic/pydantic-ai#12700, unreleased on 11-08); lift with pydantic-ai#12732.
 
 [project.optional-dependencies]
-openai-tools = ["openai>=3.31.0,<4.0.0"]
-cli = []
-core = [
-    "browser-use-core==0.13.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
-    "browser-use-core==0.13.3; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "browser-use-core==0.13.3; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "browser-use-core==0.13.3; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "browser-use-core==0.13.3; sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'x86_64')",
-]
-aws = ["boto3==1.42.37"]
-oci = ["oci==2.166.0"]
-video = ["imageio[ffmpeg]==2.37.2", "numpy==2.4.1"]
-examples = [
-    "agentmail==0.0.59",
-    # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
-    "botocore==1.42.37",
-    "imgcat==0.6.0",
-    # "stagehand-py>=0.3.6",
-    # "browserbase>=0.4.0",
-    "langchain-openai==1.7.2",
-]
-eval = [
-    "lmnr[all]==0.7.42",
-    "anyio==4.12.1",
-    "psutil==7.2.2",
-    "datamodel-code-generator==0.75.1",
-]
-cli-oci = ["browser-use[cli,oci]"]
-all = ["browser-use[cli,examples,aws,oci]"]
-
-# will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
-# [tool.uv.sources]
-# bubus = { path = "../bubus", editable = true }
-
+anthropic = []  # kept so `browser-use[anthropic]` installs resolve; Anthropic is a core dependency
+google = []  # same for Google
+mcp = []  # kept so existing `browser-use[mcp]` installs resolve; mcp is a core dependency
+cli = []  # same for `browser-use[cli]` (0.x docs, install-script.yml); the CLI is part of the package
+all = ["browser-use[anthropic,google]"]
 
 [project.urls]
 Homepage = "https://browser-use.com"
 Documentation = "https://docs.browser-use.com"
 Repository = "https://github.com/browser-use/browser-use"
-Telemetry = "https://docs.browser-use.com/development/monitoring/telemetry"
 "Terms of Service" = "https://browser-use.com/legal/terms-of-service"
 "Privacy Policy" = "https://browser-use.com/privacy/"
 
 [project.scripts]
 browser-use = "browser_use.cli:main"  # Browser Use CLI for agents
 browseruse = "browser_use.cli:main"  # Alias for browser-use
-bu = "browser_use.cli:main"  # Alias for browser-use
-browser = "browser_use.cli:main"  # Alias for browser-use
 browser-use-tui = "browser_use.cli:browser_use_tui_main"  # Deprecated alias for browser-use
 
 [build-system]
@@ -145,31 +90,9 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-include = ["browser_use", "examples", "tests"]
-exclude = [
-    ".venv/",
-    ".venv*/",
-    ".git/",
-    "__pycache__/",
-    "**/site-packages/",
-    "./test_*.py",
-    "./debug_*.py",
-    "private_example/",
-    "debug/*",
-    "tests/scripts/*",
-    "tests/old/*",
-    "browser_use/dom/playground/*",
-    "examples/use-cases/onepassword.py",
-    "browser_use/llm/oci_raw/*",
-    "browser_use/llm/tests/test_chat_models.py",
-    "browser_use/llm/tests/test_single_step.py",
-    # Dynamic beta agent wrapper; covered by tests/ci/test_beta_agent.py.
-    "browser_use/beta/service.py",
-    "tests/ci/test_beta_agent.py",
-    "product_extraction.py",
-    "discover/",
-    "list/",
-]
+pythonVersion = "3.11"
+include = ["browser_use", "examples"]  # tests use Pydantic AI test internals
+exclude = [".venv/", ".venv*/", ".git/", "__pycache__/", "**/site-packages/"]
 venvPath = "."
 venv = ".venv"
 reportMissingTypeStubs = false
@@ -178,71 +101,37 @@ reportMissingTypeStubs = false
 [tool.hatch.build]
 include = [
     "browser_use/**/*.py",
-    "!browser_use/**/tests/*.py",
-    "!browser_use/**/tests.py",
-	"browser_use/agent/system_prompts/*.md",
-    "browser_use/cli_templates/*.py",
     "browser_use/skills/**/*.md",
     "browser_use/py.typed",
-    "browser_use/dom/**/*.js",
-    "!tests/**/*.py",
-    "!debug/*",
 ]
 
 [tool.pytest.ini_options]
 timeout = 300
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "session"
-asyncio_default_test_loop_scope = "session"
-markers = [
-    "slow: marks tests as slow (deselect with `-m 'not slow'`)",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
-    "asyncio: mark tests as async tests",
-]
+asyncio_default_fixture_loop_scope = "function"
+markers = ["chrome: needs a local Chrome/Chromium (skipped when none is found)"]
 testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-addopts = "-svx --strict-markers --tb=short --dist=loadscope"
-log_cli = true
-log_cli_format = "%(levelname)-8s [%(name)s] %(message)s"
-filterwarnings = [
-    "ignore::pytest.PytestDeprecationWarning",
-    "ignore::DeprecationWarning",
-]
-log_level = "DEBUG"
+addopts = "--strict-markers --tb=short"
+filterwarnings = ["ignore::DeprecationWarning"]
 
 
 [tool.hatch.metadata]
 allow-direct-references = true
 
 [tool.uv]
-# required-environments = [
-#     "sys_platform == 'darwin' and platform_machine == 'arm64'",
-#     "sys_platform == 'darwin' and platform_machine == 'x86_64'",
-#     "sys_platform == 'linux' and platform_machine == 'x86_64'",
-#     "sys_platform == 'linux' and platform_machine == 'aarch64'",
-#     # "sys_platform == 'linux' and platform_machine == 'arm64'",  # no pytorch wheels available yet
-#     "sys_platform == 'win32' and platform_machine == 'x86_64'",
-#     # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
-# ]
-dev-dependencies = [
+# Supply-chain freeze: uv.lock resolves only packages published before this time.
+# Move it forward on purpose (uv lock --upgrade), never implicitly.
+exclude-newer = "2026-11-09T09:48:30Z"
+
+[dependency-groups]
+dev = [
     "ruff==0.14.14",
-    "tokencost==0.1.26",
     "build==1.4.0",
     "pytest==9.0.2",
     "pytest-asyncio==1.3.0",
-    "pytest-httpserver==1.1.3",
-    "fastapi==0.128.0",
-    "inngest==0.5.15",
-    "uvicorn==0.40.0",
-    "ipdb==0.13.13",
+    "pytest-timeout==2.4.0",
     "pre-commit==4.5.1",
     "codespell==2.4.1",
     "pyright==1.1.408",
-    "ty==0.0.14",
-    "pytest-xdist==3.8.0",
-    "lmnr[all]==0.7.42",
-    # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
-    "pytest-timeout==2.4.0",
-    "pydantic_settings==2.15.0",
+    "pyyaml==6.0.3",  # tests/ci/test_workflows.py reads the workflow files
 ]

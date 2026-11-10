@@ -5,7 +5,7 @@ Browser Use Cloud is the hosted product from Browser Use. It has two parts:
 - **Cloud browsers:** managed Chromium you drive over CDP with Playwright, Puppeteer, or any CDP client.
 - **Agents API:** send a task, a hosted agent does it in a cloud browser and returns the result.
 
-Browser Use Cloud is hosted only; Cloud itself is not open source. Related open-source projects include this repo's [browser-use](README.md) Python library and [Browser Harness](https://github.com/browser-use/browser-harness) (both MIT). The library can also run on a cloud browser with `Browser(use_cloud=True)`.
+Browser Use Cloud is hosted only; Cloud itself is not open source. Related open-source projects include this repo's [browser-use](README.md) Python library and [Browser Harness](https://github.com/browser-use/browser-harness) (both MIT). The library runs on a cloud browser by default: `Browser()`.
 
 Current docs: [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt). Current prices: [browser-use.com/pricing.md](https://browser-use.com/pricing.md).
 

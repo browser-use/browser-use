@@ -10,7 +10,7 @@ from pathlib import Path
 # agents writing agent code (browser-use library, Playwright, Puppeteer, CDP) open it too.
 SKILL_DESCRIPTION = (
 	'Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. '
-	'Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), '
+	'Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser()), '
 	'Playwright, Puppeteer or any CDP client.'
 )
 
