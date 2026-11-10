@@ -546,6 +546,7 @@ def _server_env(**extra: str) -> dict[str, str]:
 	return {**env, **extra}
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='POSIX leaves it to the reaper: that stop waits on the daemon')
 async def test_mcp_server_stops_its_cloud_browser_itself_when_the_client_closes_it(tmp_path):
 	"""win-cli-1: on Windows the official mcp client kills the server's whole Job Object right after the server exits,
 	reaper included, and the cloud browser billed on. The server now stops it itself before it exits."""

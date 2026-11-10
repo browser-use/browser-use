@@ -588,9 +588,10 @@ class CLIMCPServer:
 				pass
 			finally:
 				sys.stdout = stdout
-				# the client closed the session: stop the cloud browser before exiting, not only from the reaper (a Windows
-				# client may kill the server's whole process tree right after it exits)
-				if self._cloud_started:
+				# Windows: the client closed the session; stop the cloud browser before exiting, not only from the reaper (the
+				# client kills the server's Job Object right after it exits, and with it a reaper WMI could not start).
+				# Not on POSIX: the reaper already does it there, and this stop waits up to 15 s on the daemon it spawned.
+				if self._cloud_started and os.name == 'nt':
 					try:
 						harness_cloud.stop_cloud(self._remote)
 					except Exception:
