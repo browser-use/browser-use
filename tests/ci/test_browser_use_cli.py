@@ -280,6 +280,24 @@ def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path
 	assert run('-m', 'browser_use.cli', 'skill', 'show').returncode == 0
 
 
+def test_piped_code_is_read_as_utf8_whatever_the_locale_says(monkeypatch):
+	"""Windows: Python decodes a stdin pipe with the ANSI code page (cp1252; cp932 on Japanese Windows), so piped
+	fill_input('input', 'Zürich') typed 'ZÃ¼rich', and some CJK text raised UnicodeDecodeError before the code ran.
+	Coding agents pipe UTF-8; PowerShell's starts with a BOM."""
+	import codecs
+	import io
+
+	from browser_use import cli
+
+	code = 'fill_input("input", "Zürich 東京 €5")\n'
+	ran = []
+	monkeypatch.setattr(cli, '_run_browser_harness', ran.append)
+	for raw in (code.encode(), codecs.BOM_UTF8 + code.encode()):
+		monkeypatch.setattr(sys, 'stdin', io.TextIOWrapper(io.BytesIO(raw), encoding='cp1252'))
+		cli._dispatch([])
+	assert ran == [code, code]
+
+
 def test_every_install_line_pins_the_released_version_exactly():
 	"""Users and their agents copy these lines: each pins browser-use with == to this release, never >=."""
 	import tomllib

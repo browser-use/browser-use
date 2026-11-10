@@ -6,7 +6,7 @@ import sys
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from importlib.metadata import PackageNotFoundError, version
-from io import StringIO
+from io import StringIO, TextIOWrapper
 from typing import TYPE_CHECKING, Any
 
 
@@ -780,6 +780,9 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		command, rest = (args[1], args[2:]) if args[0] == 'auth' else (args[0], args[1:])
 		return (_run_login_command if command == 'login' else _run_logout_command)(rest), command
 
+	if isinstance(sys.stdin, TextIOWrapper) and not sys.stdin.isatty():
+		# Windows decoded a pipe with the ANSI code page (cp1252, cp932): piped 'Zürich' ran as 'ZÃ¼rich', or raised
+		sys.stdin.reconfigure(encoding='utf-8-sig', errors='replace')  # -sig: PowerShell's UTF-8 starts with a BOM
 	code = None
 	if not args:
 		if _stdin_is_terminal():
