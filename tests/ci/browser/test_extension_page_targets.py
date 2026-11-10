@@ -41,3 +41,42 @@ async def test_extension_options_cleanup_still_sees_extension_pages():
 	with patch.object(BrowserSession, '_cdp_close_page', new_callable=AsyncMock) as close_page:
 		await session._close_extension_options_pages()
 	close_page.assert_awaited_once_with('extension')
+
+
+async def test_reconnect_restores_focus_on_an_extension_page(monkeypatch):
+	"""An agent working on an extension page keeps that tab focused after a CDP reconnect."""
+	from browser_use.browser._cdp_timeout import TimeoutWrappedCDPClient
+	from browser_use.browser.profile import BrowserProfile
+
+	session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, cdp_url='ws://127.0.0.1:9222'))
+	session.agent_focus_target_id = 'extension'
+	focused = []
+
+	async def start_monitoring(manager):
+		manager._targets = _session_with_targets().session_manager._targets
+
+	async def start(client):
+		client._message_handler_task = None
+
+	async def send_raw(client, method, params=None, session_id=None):
+		return {}
+
+	async def get_or_create_cdp_session(self, target_id=None, focus=True):
+		if focus:
+			focused.append(target_id)
+
+	async def noop(self):
+		return None
+
+	monkeypatch.setattr(SessionManager, 'start_monitoring', start_monitoring)
+	monkeypatch.setattr(TimeoutWrappedCDPClient, 'start', start)
+	monkeypatch.setattr(TimeoutWrappedCDPClient, 'send_raw', send_raw)
+	monkeypatch.setattr(BrowserSession, 'get_or_create_cdp_session', get_or_create_cdp_session)
+	monkeypatch.setattr(BrowserSession, '_setup_proxy_auth', noop)
+	monkeypatch.setattr(BrowserSession, '_attach_ws_drop_callback', lambda self: None)
+
+	try:
+		await session.reconnect()
+		assert focused == ['extension']
+	finally:
+		await session.event_bus.stop(clear=True, timeout=5)

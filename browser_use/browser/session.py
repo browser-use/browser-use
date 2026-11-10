@@ -2235,7 +2235,8 @@ class BrowserSession(BaseModel):
 			# Prefer the previous focus target when it remains available.
 			restored = False
 			if old_focus_target_id:
-				for target in page_targets:
+				# the agent may have been working on an extension page on purpose, so look there too
+				for target in self.session_manager.get_all_page_targets(include_extensions=True):
 					if target.target_id == old_focus_target_id:
 						await self.get_or_create_cdp_session(old_focus_target_id, focus=True)
 						restored = True
