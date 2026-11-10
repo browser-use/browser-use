@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - v1
     paths:
       - 'browser_use/cli.py'
       - 'browser_use/skills/**'
@@ -36,9 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
 
+      # Compares against SKILL.md of the browser-harness version pyproject.toml pins (installed by uv run), never harness main.
       - name: Check generated Browser Use skill
-        run: python3 scripts/sync_browser_harness_skill.py --check
+        run: uv run --python 3.11 python scripts/sync_browser_harness_skill.py --check
 
   test-pip-install:
     name: uv pip install (${{ matrix.os }})
@@ -78,8 +81,6 @@ jobs:
       - name: Verify aliases
         run: |
           browseruse --help
-          bu --help
-          browser --help
 
   test-uvx-local-wheel:
     name: uvx browser-use from local wheel

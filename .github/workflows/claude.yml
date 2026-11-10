@@ -12,11 +12,18 @@ on:
 
 jobs:
   claude:
+    # Pre-filter: owners, org members and collaborators (MEMBER and COLLABORATOR can be read-only). The write-access gate is
+    # claude-code-action itself: its prepare step fails unless the actor has write or admin permission
+    # (src/github/validation/permissions.ts), so Claude never runs with the repository secrets for anyone else
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.review.author_association)) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association))
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -35,34 +42,6 @@ jobs:
           activate-environment: true
 
       - run: uv sync --dev --all-extras
-
-      - name: Detect installed Playwright version
-        run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
-
-      # - name: Cache chrome binaries
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: |
-      #       /tmp/google-chrome-stable_current_amd64.deb
-      #    key: ${{ runner.os }}-${{ runner.arch }}-chrome-stable
-
-      # - name: Install Chrome stable binary
-      #   run: |
-      #     sudo apt-get update -qq \
-      #     && sudo curl -o "/tmp/google-chrome-stable_current_amd64.deb" --no-clobber "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
-      #     && sudo apt-get install -y "/tmp/google-chrome-stable_current_amd64.deb" -f
-      # - run: patchright install chrome --with-deps
-      # - run: playwright install chrome --with-deps
-
-      - name: Cache chromium binaries
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium
-
-      - run: playwright install chromium --with-deps
-      # - run: patchright install chromium --with-deps
 
       - name: Run Claude Code
         id: claude

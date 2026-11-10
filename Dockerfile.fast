@@ -1,4 +1,6 @@
-# Fast Dockerfile using pre-built base images
+# Fast Dockerfile using pre-built base images (the chromium base image only provides the browser binary).
+# browser-use 1.0: Agent(..., browser=Browser('chromium')) launches the container's chromium headless, or use the
+# default cloud browser.
 ARG REGISTRY=browseruse
 ARG BASE_TAG=latest
 FROM ${REGISTRY}/base-python-deps:${BASE_TAG}

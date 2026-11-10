@@ -43,31 +43,29 @@ Your system has an orchestrator — some agent, pipeline, or workflow engine tha
 
 **For:** Agents running in sandboxes/VMs with terminal access.
 
-The agent delegates a complete task to the cloud via CLI commands. No Python imports needed.
+The agent delegates a complete task to the hosted agent (API v4) with `curl`. No Python imports needed; the key is
+read from the environment.
 
 ```bash
-# 1. Set API key (once)
-browser-use cloud login $BROWSER_USE_API_KEY
+# 1. Fire off a run
+curl -X POST https://api.browser-use.com/api/v4/runs \
+  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"task": "Find the top HN post and return title and URL"}'
+# Returns the run with its id and sessionId
 
-# 2. Fire off a task
-browser-use cloud v2 POST /tasks '{"task": "Find the top HN post and return title and URL"}'
-# Returns: {"id": "<task-id>", "sessionId": "<session-id>"}
+# 2. Poll the lightweight status route until completed, failed or cancelled
+curl https://api.browser-use.com/api/v4/runs/RUN_ID/status -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY"
 
-# 3. Poll until done (blocks)
-browser-use cloud v2 poll <task-id>
-
-# 4. Get the result
-browser-use cloud v2 GET /tasks/<task-id>
-# Returns full TaskView with output, steps, outputFiles
+# 3. Get the result once
+curl https://api.browser-use.com/api/v4/runs/RUN_ID -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY"
 ```
 
-For structured output, pass a JSON schema:
-```bash
-browser-use cloud v2 POST /tasks '{
-  "task": "Find the CEO of OpenAI",
-  "structuredOutput": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"company\":{\"type\":\"string\"}},\"required\":[\"name\",\"company\"]}"
-}'
-```
+Only `completed` means success; the result is a string to parse and validate (see [API v4](../api-v4.md)). Polling
+has no built-in limit: if you stop polling, the run keeps going and billing, so cancel it through the runs cancel
+route; do not blindly retry the POST after an ambiguous failure, which can start a second paid run. The
+`browser-use` CLI (1.0) drives a browser itself: `browser-use login` stores the key, and `start_remote_daemon()` in
+the piped Python starts a cloud browser.
 
 ---
 
