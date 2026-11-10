@@ -218,14 +218,16 @@ class MCPToolCallEvent(BaseTelemetryEvent):
 	tool_name: str  # browser_exec, browser_screenshot, browser_login, a 0.x tool name, or 'invalid'
 	duration_seconds: float
 	ok: bool  # the result was not an error
-	error_type: str | None  # exception class (as in agent_event's cell_error_types), CancelledError for a cancelled call
+	# exception class (as in agent_event's cell_error_types), CancelledError for a cancelled call; invalid_arguments or
+	# unknown_tool for an error result without an exception
+	error_type: str | None
 	server: str  # cli-mcp | mcp
 	browser: str  # chrome (the user's) | chromium (--mcp's own) | cloud
 	agent_client: str | None  # the coding agent the server runs under (claude-code, codex, cursor, ...), from its env
 	call_n: int  # this call's number in the server process
 	is_internal: bool
 	action: str = 'tool_call'
-	error_message: str | None = None  # the exception's message, 300 chars
+	error_message: str | None = None  # the exception's message (or the rejected arguments' error), 300 chars
 
 	name: str = 'mcp_server_event'
 

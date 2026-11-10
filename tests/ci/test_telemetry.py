@@ -611,6 +611,27 @@ def test_cli_event_goes_to_the_library_project_under_the_device_id(posthog, monk
 	assert 'anonymized usage telemetry' not in caplog.text  # the CLI's stderr: no notice on every command
 
 
+def test_a_failed_cli_command_sends_its_error_message(monkeypatch, sent):
+	"""cli_event's error_message is what tells a failing CLI call apart in production: a command that fails before
+	browser-harness runs sends its error line too, not only the exit code."""
+	from browser_harness import telemetry as harness
+
+	import browser_use.cli as cli
+
+	for attr in ('_send_detached', '_install_id', 'is_enabled', 'status'):  # restored after the test, wrappers and all
+		monkeypatch.setattr(harness, attr, getattr(harness, attr))
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	monkeypatch.setenv('BROWSER_USE_DEVICE_ID', 'bu-test-device')
+	monkeypatch.setattr(sys, 'argv', ['browser-use', '--update'])
+	assert cli.main() == 2
+	(props,) = sent
+	assert (props['command'], props['action'], props['exit_code']) == ('update', 'error', 2)
+	assert (
+		props['error_message']
+		== 'browser-use does not update itself: uv tool upgrade browser-use (or pip install -U browser-use).'
+	)
+
+
 async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 	"""Retest 11-09: 0.x's MCP server sent one mcp_server_event per tool call (tool, duration) to the library project;
 	1.0's --cli-mcp sent one cli_event, to the browser-harness project, when the session ended: which tools MCP clients
@@ -634,14 +655,16 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 	for name, arguments in calls:
 		await handler(None, types.CallToolRequestParams(name=name, arguments=arguments))  # pyright: ignore[reportArgumentType]
 	assert_absent({'events': sent}, 'Zq9')
-	assert [e['error_message'] for e in sent] == [None, "'sent zq7 <credential>'", None, None, None]
+	# a rejected call has no exception: its error is the server's own text; an unknown tool's name is never sent
+	errors = [e['error_message'] for e in sent]
+	assert errors == [None, "'sent zq7 <credential>'", "'code' must be a non-empty string", None, None]
 	got = [(e['event'], e['action'], e['tool_name'], e['ok'], e['error_type'], e['call_n']) for e in sent]
 	assert got == [
 		('mcp_server_event', 'tool_call', 'browser_exec', True, None, 1),
 		('mcp_server_event', 'tool_call', 'browser_exec', False, 'KeyError', 2),
-		('mcp_server_event', 'tool_call', 'browser_exec', False, None, 3),
-		('mcp_server_event', 'tool_call', 'browser_navigate', False, None, 4),
-		('mcp_server_event', 'tool_call', 'invalid', False, None, 5),
+		('mcp_server_event', 'tool_call', 'browser_exec', False, 'invalid_arguments', 3),
+		('mcp_server_event', 'tool_call', 'browser_navigate', False, 'unknown_tool', 4),
+		('mcp_server_event', 'tool_call', 'invalid', False, 'unknown_tool', 5),
 	]
 	first = sent[0]
 	assert (first['server'], first['browser'], first['agent_client'], first['is_internal']) == (
@@ -957,6 +980,90 @@ async def test_telemetry_off_sends_fetches_and_writes_nothing(tmp_path, monkeypa
 	assert 'browser-use-telemetry' not in {t.name for t in threading.enumerate()} - threads
 	assert instance._thread is None and not instance._pending
 	assert not [p for p in config.rglob('*') if p.is_file()]
+
+
+def _telemetry_cli(env: dict, *argv: str) -> dict:
+	r = subprocess.run(
+		[sys.executable, '-m', 'browser_use.cli', 'telemetry', *argv], env=env, capture_output=True, text=True, timeout=60
+	)
+	assert r.returncode == 0, r.stderr
+	return json.loads(r.stdout)
+
+
+async def test_browser_use_telemetry_disable_stops_agent_and_mcp_events(posthog, tmp_path, monkeypatch):
+	"""Review of 1.0.0: `browser-use telemetry disable` wrote browser-harness's telemetry.json and printed enabled: false,
+	but every Agent.run() still sent agent_event and every MCP tool call mcp_server_event: the library only read
+	ANONYMIZED_TELEMETRY. Disabled: no event, no thread, no file. `telemetry enable` turns them back on."""
+	from mcp import types
+
+	import browser_use.telemetry.service as service
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'bh'))
+	for name in ('BH_TELEMETRY', 'BROWSER_HARNESS_TELEMETRY'):
+		monkeypatch.delenv(name, raising=False)
+	env = {**os.environ, 'BROWSER_USE_CONFIG_DIR': str(tmp_path / 'cli-config')}
+	assert _telemetry_cli(env, 'disable')['enabled'] is False
+	status = _telemetry_cli(env, 'status')
+	assert (status['enabled'], status['disabled_by_config'], status['install_id']) == (False, True, None)
+
+	monkeypatch.setattr(service, '_harness_config_disabled', None)  # this process reads the file as a new one would
+	no_browser(monkeypatch)
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path / 'ws').run()).status == 'completed'
+	mcp = cli_mcp.CLIMCPServer()
+	mcp._ensure_daemon = lambda code: None  # the cell needs no browser
+	handler = mcp.server._request_handlers['tools/call'].handler
+	call = types.CallToolRequestParams(name='browser_exec', arguments={'code': 'raise KeyError(1)'})
+	await handler(None, call)  # pyright: ignore[reportArgumentType]
+	assert posthog.telemetry._thread is None and not posthog.telemetry._pending and not posthog.state.attempts
+	assert not [p for p in posthog.config.rglob('*') if p.is_file()]
+
+	status = _telemetry_cli(env, 'enable')
+	assert (status['enabled'], status['disabled_by_config'], status['install_id']) == (True, False, 'bu-test-device')
+	monkeypatch.setattr(service, '_harness_config_disabled', None)
+	await handler(None, call)  # pyright: ignore[reportArgumentType]
+	(event,) = posthog.events()
+	assert (event['event'], event['properties']['error_type']) == ('mcp_server_event', 'KeyError')
+
+
+@pytest.mark.parametrize(
+	'name, value', [('ANONYMIZED_TELEMETRY', 'n'), ('ANONYMIZED_TELEMETRY', 'disable'), ('BH_TELEMETRY', '0')]
+)
+def test_telemetry_status_reports_what_browser_use_sends(tmp_path, monkeypatch, name, value):
+	"""Review of 1.0.0: ANONYMIZED_TELEMETRY=n or =disable turned the library off, but `browser-use telemetry status`
+	printed enabled: true (browser-harness alone only knows 0, false, no and off). And BH_TELEMETRY=0, which status
+	showed as off, left agent_event on. Status and every event now agree."""
+	import browser_use.telemetry.service as service
+
+	for var in ('BH_TELEMETRY', 'BROWSER_HARNESS_TELEMETRY'):
+		monkeypatch.delenv(var, raising=False)
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	monkeypatch.setenv(name, value)
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'bh'))
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path / 'bu'))
+	status = _telemetry_cli(dict(os.environ), 'status')
+	assert (status['enabled'], status['disabled_by_env'], status['install_id']) == (False, True, None)
+	assert service.ProductTelemetry().enabled is False
+	assert not [p for p in tmp_path.rglob('*') if p.is_file()]
+
+
+def test_a_device_id_that_cannot_be_stored_is_random_per_process(tmp_path, monkeypatch):
+	"""Review of 1.0.0: with no writable config dir the device id was a hash of the MAC address and hostname: the same
+	for every user, venv and reinstall on the machine, and not removed by deleting browser-use's files."""
+	import browser_use.telemetry.service as service
+
+	(tmp_path / 'file').write_text('')
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path / 'file' / 'config'))  # under a file: never created
+	monkeypatch.delenv('BROWSER_USE_DEVICE_ID', raising=False)
+	monkeypatch.setattr(uuid, 'getnode', lambda: 0x00163E5A7B9C)  # a real (unicast) MAC address
+	ids = set()
+	for _ in range(2):
+		monkeypatch.setattr(service, '_device_id', None)  # a new process
+		first = service.get_or_create_device_id()
+		assert service.get_or_create_device_id() == first  # one id for the whole process
+		ids.add(first)
+	assert len(ids) == 2 and all(re.fullmatch(r'[0-9a-f]{32}', i) for i in ids), ids
 
 
 # --- v4: URLs, error messages and the final result ---

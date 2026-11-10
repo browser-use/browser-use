@@ -405,6 +405,9 @@ class CLIMCPServer:
 
 			if not telemetry().enabled:
 				return
+			if not errors and result is not None and result.is_error:  # no exception: rejected arguments, an unknown tool
+				text = next((c.text for c in result.content if isinstance(c, types.TextContent)), '') if name in TOOLS else ''
+				errors = [('invalid_arguments' if name in TOOLS else 'unknown_tool', text.removeprefix('Error: '))]
 			detect = getattr(harness_telemetry, '_detect_agent_client', None)
 			event = MCPToolCallEvent(
 				version=get_browser_use_version(),

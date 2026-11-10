@@ -25,6 +25,8 @@ os.environ['BH_AUTH_PATH'] = str(Path(tempfile.gettempdir()) / 'browser-use-test
 # The 0.x config.json `browser-use --mcp` reads: never the developer's own.
 os.environ['BROWSER_USE_CONFIG_DIR'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-config')
 os.environ['BROWSER_USE_TELEMETRY_INTERNAL'] = '1'
+# browser-harness's telemetry.json (`browser-use telemetry disable`) turns the library's events off: never the developer's.
+os.environ['BH_CONFIG_DIR'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-bh-config')
 
 # No test reaches the real PostHog: a test that points telemetry at a dead host left a send in flight, and its retry went
 # to the module's host once the fixture had restored it (an event from bu-test-device in production per suite run).

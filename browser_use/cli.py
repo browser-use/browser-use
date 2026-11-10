@@ -63,15 +63,34 @@ def _scrub_harness_telemetry() -> None:
 
 		install_id.__bu_scrubbed__ = True  # type: ignore[attr-defined]
 		telemetry._install_id = install_id
+	if not getattr(telemetry.status, '__bu_scrubbed__', False):
+		harness_status = telemetry.status
+
+		def status() -> dict:
+			"""`browser-use telemetry status|enable|disable`: whether browser-use sends, ANONYMIZED_TELEMETRY read as the
+			library reads it (browser-harness alone took n or disable for on)."""
+			from browser_use.telemetry import service
+
+			out = harness_status()
+			service._harness_config_disabled = bool(out.get('disabled_by_config'))  # enable/disable just changed it
+			out['disabled_by_env'] = bool(out.get('disabled_by_env')) or not CONFIG.ANONYMIZED_TELEMETRY
+			out['enabled'] = service.telemetry().enabled
+			if not out['enabled']:
+				out['install_id'] = None
+			return out
+
+		status.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry.status = status
 	if getattr(telemetry._send_detached, '__bu_scrubbed__', False):
 		return
 
 	def scrubbed(payload: dict) -> None:
-		if not CONFIG.ANONYMIZED_TELEMETRY:
-			return
 		from browser_use.telemetry.service import Job
 		from browser_use.telemetry.service import telemetry as product_telemetry
 		from browser_use.telemetry.stats import scrub_cli_event
+
+		if not product_telemetry().enabled:
+			return
 
 		event = scrub_cli_event(payload)
 		props = event.get('properties') or {}

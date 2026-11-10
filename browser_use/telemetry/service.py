@@ -2,7 +2,7 @@
 or the disk: run_started() and capture_run() are a dict update and a queue.put. The thread builds each event, gzips it
 and POSTs it (3 s timeout, one retry); a failed send goes to an outbox the next process sends. At exit, events still
 queued go to a detached sender process, so a one-shot script neither waits for the network nor loses its event.
-ANONYMIZED_TELEMETRY=false: no thread, no network, no files."""
+ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable`: no thread, no network, no files."""
 
 from __future__ import annotations
 
@@ -62,6 +62,7 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 
 _device_id: str | None = None
 _device_id_lock = threading.Lock()
+_harness_config_disabled: bool | None = None  # browser-harness's telemetry.json, read once per process (harness_disabled)
 _tls: Any = None  # the thread's TLS context, made once under ProductTelemetry._lock (_online)
 
 
@@ -77,9 +78,8 @@ def get_or_create_device_id() -> str:
 	# the telemetry thread and the exit handler build a one-shot script's event at once: one id per process
 	with _device_id_lock:
 		if not _device_id:
-			_device_id = (
-				os.environ.get('BROWSER_USE_DEVICE_ID') or _persisted_device_id() or _machine_fingerprint() or uuid.uuid4().hex
-			)
+			# an id that cannot be stored is this process's own: never one derived from the machine (MAC, hostname)
+			_device_id = os.environ.get('BROWSER_USE_DEVICE_ID') or _persisted_device_id() or uuid.uuid4().hex
 	return _device_id
 
 
@@ -107,15 +107,20 @@ def _persisted_device_id() -> str | None:
 		return None
 
 
-def _machine_fingerprint() -> str | None:
-	"""Hashed hardware-derived id"""
-	import hashlib
-	import socket
+def harness_disabled() -> bool:
+	"""browser-harness's opt-outs, which `browser-use telemetry disable|status` write and show: its env names
+	(BH_TELEMETRY=0) or its telemetry.json {"disabled": true}, the file read once per process."""
+	global _harness_config_disabled
+	try:
+		from browser_harness import telemetry as harness
 
-	node = uuid.getnode()
-	if (node >> 40) & 0x01:  # multicast bit set: getnode() failed and returned a random id
-		return None
-	return 'bu_' + hashlib.sha256(f'browser-use:{node}:{socket.gethostname()}'.encode()).hexdigest()[:32]
+		if harness._env_disabled():
+			return True
+		if _harness_config_disabled is None:
+			_harness_config_disabled = bool(harness._load_config().get('disabled'))
+		return _harness_config_disabled
+	except Exception:  # - no readable config: browser-harness itself counts that as enabled
+		return False
 
 
 @dataclass
@@ -167,7 +172,7 @@ def _size(path: Path) -> int:
 
 
 class ProductTelemetry:
-	"""One per process (telemetry()). Reads ANONYMIZED_TELEMETRY on every call."""
+	"""One per process (telemetry()). Reads ANONYMIZED_TELEMETRY on every call, browser-harness's config once."""
 
 	notice = True  # the one-line notice when the first event is queued; the browser-use CLI's stderr stays its own
 
@@ -189,7 +194,7 @@ class ProductTelemetry:
 
 	@property
 	def enabled(self) -> bool:
-		return CONFIG.ANONYMIZED_TELEMETRY
+		return CONFIG.ANONYMIZED_TELEMETRY and not harness_disabled()
 
 	def _own(self) -> None:
 		"""A forked child (a multiprocessing pool on Linux) starts with none of the parent's thread, queue, runs or
@@ -210,7 +215,7 @@ class ProductTelemetry:
 						logger.info(
 							'Using anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited (without '
 							'query strings), error messages and the final result. Never the task text, typed text, code or '
-							'secrets. ANONYMIZED_TELEMETRY=false turns it off.'
+							'secrets. ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable` turns it off.'
 						)
 					atexit.register(self._at_exit)
 					self._atexit = True
