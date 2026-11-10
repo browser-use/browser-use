@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 CATEGORIES = ('bug', 'docs', 'missing', 'other')
 MAX_MESSAGE = 2000  # characters
-MAX_PER_RUN = 3  # report_issue() calls sent per Agent.run()
+MAX_PER_RUN = 3  # report_issue() calls sent per Agent.run(), browser_feedback calls per MCP server process
 OFF = 'Feedback is off (ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable`): nothing was sent.'
 SENT = 'Reported to the Browser Use team. Thanks; carry on.'
 MODEL_CODE = 'From an agent cell use report_issue(...), from an MCP client the browser_feedback tool: nothing was sent.'
@@ -92,12 +92,22 @@ def feedback(message: str, category: str = 'bug') -> bool:
 	return capture('python', message, category, consent=True) is not None
 
 
+_mcp_sent = 0  # browser_feedback calls this process sent: one MCP server is one client session
+
+
 def mcp_call(arguments: dict) -> tuple[str, bool]:
-	"""browser_feedback -> (its text, is_error). The client's model is not the user: usage stats off sends nothing."""
+	"""browser_feedback -> (its text, is_error). The client's model is not the user: usage stats off sends nothing. At
+	most MAX_PER_RUN per server process, as report_issue() per run: a model stuck in a loop reports once, not per turn."""
+	global _mcp_sent
 	message = arguments.get('message')
 	if not isinstance(message, str) or not message.strip():
 		return "Error: 'message' must be a non-empty string", True
-	return (SENT if capture('mcp', message, arguments.get('category', 'bug')) else OFF), False
+	if _mcp_sent >= MAX_PER_RUN:
+		return f'Already reported {MAX_PER_RUN} issues this session: nothing more was sent.', False
+	if not capture('mcp', message, arguments.get('category', 'bug')):
+		return OFF, False
+	_mcp_sent += 1
+	return SENT, False
 
 
 class RunReports:

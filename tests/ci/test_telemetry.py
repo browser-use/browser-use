@@ -110,7 +110,9 @@ def posthog(monkeypatch, tmp_path):
 	"""A local PostHog: the real sender (thread, gzip, /batch/) posts here. events() waits for n agent_events. With
 	down set it answers 503 and keeps nothing; attempts counts the /batch/ posts either way."""
 	import browser_use.telemetry.service as service
+	from browser_use.telemetry import feedback
 
+	monkeypatch.setattr(feedback, '_mcp_sent', 0)  # browser_feedback's per-process cap: each test is a new server
 	bodies: list[str] = []
 	state = SimpleNamespace(down=False, attempts=0)
 
@@ -2303,6 +2305,17 @@ async def test_the_mcp_feedback_tool_is_listed_and_sends_one_event(posthog):
 	assert (p['source'], p['category'], p['message']) == ('mcp', 'missing', 'js() drops an async return value, see <email>')
 	assert p['run_id'] is None and p['model'] is None
 	assert [e['properties']['tool_name'] for e in events if e['event'] == 'mcp_server_event'] == ['browser_feedback'] * 2
+
+
+def test_the_mcp_feedback_tool_sends_at_most_three_per_server(posthog):
+	"""A client model stuck in a loop called browser_feedback every turn: one server process sends three, as
+	report_issue() per run, and says the rest were not sent."""
+	from browser_use.telemetry import feedback
+
+	texts = [feedback.mcp_call({'message': f'goto_url hangs {i}'}) for i in range(5)]
+	assert texts[:3] == [(feedback.SENT, False)] * 3
+	assert texts[3:] == [('Already reported 3 issues this session: nothing more was sent.', False)] * 2
+	assert [e['properties']['message'] for e in _feedback(posthog.events(3))] == [f'goto_url hangs {i}' for i in range(3)]
 
 
 def test_python_feedback_is_the_users_consent_sent_with_usage_stats_off_and_nothing_else_with_it(posthog, monkeypatch):

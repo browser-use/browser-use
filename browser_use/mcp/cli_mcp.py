@@ -6,6 +6,7 @@ import asyncio
 import base64
 import contextvars
 import functools
+import locale
 import os
 import shutil
 import subprocess
@@ -205,6 +206,29 @@ def _no_chrome_here() -> str | None:
 		return None
 	except Exception:
 		return why
+
+
+CHROME_SETUP = (
+	'your Chrome has remote debugging off. For your Chrome with its tabs and logins: in Chrome open '
+	'chrome://inspect/#remote-debugging, tick "Allow remote debugging for this browser instance", then restart this MCP '
+	'server'
+)
+
+
+def _setup_reason(e: RuntimeError) -> str:
+	"""Why --cli-mcp runs its own Chromium after the chrome://inspect setup failed, and how to get the user's Chrome."""
+	text = str(e).removeprefix('remote-debugging-setup:').strip()
+	if text.startswith('none of your browsers'):
+		return CHROME_SETUP
+	return f'{text.rstrip(".").removesuffix(", then run again")}, then restart this MCP server'
+
+
+def _utf8_open(file: Any, mode: str = 'r', buffering: int = -1, encoding: str | None = None, *args: Any, **kwargs: Any):
+	"""open() for browser_exec code: text files default to UTF-8, as in the agent's worker (PYTHONUTF8=1). On Windows
+	this process's default is the locale's cp1252, and a cell writing page text to a file failed on the first emoji."""
+	if encoding is None and 'b' not in mode:
+		encoding = 'utf-8'
+	return open(file, mode, buffering, encoding, *args, **kwargs)
 
 
 def _install_chromium() -> float:
@@ -566,6 +590,8 @@ class CLIMCPServer:
 			install_page_info()  # cli-1: before the * import binds page_info
 			install_capture()  # win-cli-5: capture_screenshot() of a hidden tab activates it after a short try
 			exec(_NAMESPACE_IMPORTS, ns)
+			if not sys.flags.utf8_mode and locale.getpreferredencoding(False).lower().replace('-', '') != 'utf8':
+				ns['open'] = _utf8_open
 			harness_cloud.install(ns)
 			ns['start_remote_daemon'] = self._start_remote
 			ns['stop_remote_daemon'] = lambda name=None: harness_cloud.stop(self._remote)
@@ -597,16 +623,38 @@ class CLIMCPServer:
 			with self._attach_lock:
 				if self._browser is None and (why := _no_chrome_here()):
 					self._browser, self._fallback = Browser('chromium'), why
+		setup: RuntimeError | None = None
 		if self._browser is None:
-			return harness_cloud.ensure_daemon()
-		with self._attach_lock:
 			try:
-				harness_cloud.route(asyncio.run(self._start_own(self._browser))['BU_NAME'], self._namespace)
-			except Exception as e:
-				if self._own_started:  # it ran before: its own error (crashed, reattach failed)
+				return harness_cloud.ensure_daemon()
+			except RuntimeError as e:
+				# 1.0.0/1.0.1: ~390 Mac/Windows devices and most Cursor-on-Linux ones never got past this error. It also
+				# opened chrome://inspect in their Chrome: the user can turn it on and restart the server for their logins.
+				# With the toggle already on (Chrome slow to start, or closed while Edge runs) the next call attaches it,
+				# as in 1.0.1: a Chromium of our own would hold this server off the user's Chrome until a restart.
+				from browser_harness import daemon
+
+				if not str(e).startswith('remote-debugging-setup:') or daemon.remote_debugging_toggle_profiles():
 					raise
-				raise self._no_browser(e) from None
-			self._own_started = True
+				setup = e
+			with self._attach_lock:
+				if self._browser is None:
+					self._browser, self._fallback = Browser('chromium'), _setup_reason(setup)
+		with self._attach_lock:
+			if (browser := self._browser) is not None:
+				try:
+					harness_cloud.route(asyncio.run(self._start_own(browser))['BU_NAME'], self._namespace)
+				except Exception as e:
+					if self._own_started:  # it ran before: its own error (crashed, reattach failed)
+						raise
+					if setup is not None:  # a browser find_binary cannot launch (Brave, Arc): the setup steps are the way
+						self._browser = self._fallback = None
+						raise setup from None
+					raise self._no_browser(e) from None
+				self._own_started = True
+				return
+		# another thread's fallback (a cell the client gave up on) could not start and went back to the user's Chrome
+		return self._attach()
 
 	async def _start_own(self, browser: Browser) -> dict[str, str]:
 		"""browser.start(); on a machine with no browser and no display (a server, a container), installs Playwright's
@@ -787,8 +835,9 @@ class CLIMCPServer:
 			local = "its own Chromium (a temp profile, not the user's Chrome)"
 		else:
 			local = (
-				"the user's own Chrome; where none can be attached or set up (no Chrome installed, or Linux with no "
-				'display) its own Chromium on a temp profile instead. The first browser_exec result says which'
+				"the user's own Chrome; where none can be attached (no Chrome installed, Linux with no display, or remote "
+				'debugging off in Chrome) its own Chromium on a temp profile instead. The first browser_exec result says '
+				"which, and how to get the user's Chrome"
 			)
 		guide = MCP_GUIDE.format(local=local)
 		if self._browser is not None and self._browser.domains:

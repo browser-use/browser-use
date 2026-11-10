@@ -42,7 +42,7 @@ from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
 from browser_use.remote_upload import set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
-from browser_use.repl.capture import SCREENSHOT_TIMEOUT_S, capture
+from browser_use.repl.capture import CDP_TIMEOUT_S, SCREENSHOT_TIMEOUT_S, capture
 from browser_use.repl.highlight import Highlighter
 from browser_use.repl.network_idle import wait_for_network_idle
 from browser_use.repl.page_info import install as install_page_info
@@ -60,7 +60,6 @@ from browser_use.utils import TLSHandler, install_tls_opener, name_download
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
-CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
 DIALOG_PROBE_S = 2.0  # while the daemon saw a JS dialog open: how long a page call may take before it is blamed
 DIALOG_POLL_S = 0.25  # while a navigation runs: how often to ask whether a beforeunload prompt holds it
 # What a page frozen by an alert/confirm/prompt never answers (Page.handleJavaScriptDialog is what unfreezes it)
