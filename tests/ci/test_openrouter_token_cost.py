@@ -113,6 +113,82 @@ async def test_calculate_cost_uses_openrouter_cache_pricing(monkeypatch: pytest.
 	assert cost.completion_cost == pytest.approx(20 * 0.20 / 1_000_000)
 
 
+async def test_missing_cache_read_price_bills_cached_tokens_at_input_price(monkeypatch: pytest.MonkeyPatch) -> None:
+	async def fake_openrouter_pricing(model_name: str) -> ModelPricing:
+		return ModelPricing(
+			model=model_name,
+			input_cost_per_token=3.00 / 1_000_000,
+			output_cost_per_token=0,
+			cache_read_input_token_cost=None,
+			cache_creation_input_token_cost=None,
+			max_tokens=None,
+			max_input_tokens=None,
+			max_output_tokens=None,
+		)
+
+	monkeypatch.setattr('browser_use.tokens.service.get_openrouter_model_pricing', fake_openrouter_pricing)
+
+	token_cost = TokenCost(include_cost=True)
+	token_cost._initialized = True
+	token_cost._pricing_data = {}
+
+	cost = await token_cost.calculate_cost(
+		'deepseek/deepseek-v4-flash',
+		ChatInvokeUsage(
+			prompt_tokens=1_000_000,
+			prompt_cached_tokens=900_000,
+			prompt_cache_creation_tokens=None,
+			prompt_image_tokens=None,
+			completion_tokens=0,
+			total_tokens=1_000_000,
+		),
+	)
+
+	assert cost is not None
+	assert cost.new_prompt_cost == pytest.approx(0.30)
+	assert cost.prompt_read_cached_tokens == 900_000
+	assert cost.prompt_read_cached_cost == pytest.approx(2.70)
+	assert cost.total_cost == pytest.approx(3.00)
+
+
+async def test_cached_tokens_above_prompt_tokens_cannot_make_cost_negative(monkeypatch: pytest.MonkeyPatch) -> None:
+	async def fake_openrouter_pricing(model_name: str) -> ModelPricing:
+		return ModelPricing(
+			model=model_name,
+			input_cost_per_token=3.00 / 1_000_000,
+			output_cost_per_token=0,
+			cache_read_input_token_cost=0.30 / 1_000_000,
+			cache_creation_input_token_cost=None,
+			max_tokens=None,
+			max_input_tokens=None,
+			max_output_tokens=None,
+		)
+
+	monkeypatch.setattr('browser_use.tokens.service.get_openrouter_model_pricing', fake_openrouter_pricing)
+
+	token_cost = TokenCost(include_cost=True)
+	token_cost._initialized = True
+	token_cost._pricing_data = {}
+
+	cost = await token_cost.calculate_cost(
+		'deepseek/deepseek-v4-flash',
+		ChatInvokeUsage(
+			prompt_tokens=1_000_000,
+			prompt_cached_tokens=1_200_000,
+			prompt_cache_creation_tokens=None,
+			prompt_image_tokens=None,
+			completion_tokens=0,
+			total_tokens=1_000_000,
+		),
+	)
+
+	assert cost is not None
+	assert cost.new_prompt_cost == 0
+	assert cost.prompt_read_cached_tokens == 1_000_000
+	assert cost.prompt_read_cached_cost == pytest.approx(0.30)
+	assert cost.total_cost == pytest.approx(0.30)
+
+
 async def test_registered_openrouter_llm_forces_openrouter_pricing(monkeypatch: pytest.MonkeyPatch) -> None:
 	seen_model_names = []
 
