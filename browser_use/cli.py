@@ -272,6 +272,7 @@ LOGIN_DONE = (
 
 def _read_api_key_stdin() -> str:
 	"""The key for `login --api-key-stdin`, checked before anything is stored."""
+	import ssl
 	import urllib.error
 	import urllib.request
 
@@ -295,8 +296,15 @@ def _read_api_key_stdin() -> str:
 			raise auth.AuthError(
 				f'Browser Use Cloud rejected that key (HTTP 401); create one at {KEYS_URL} and paste it'
 			) from None
-	except OSError:
-		pass  # offline: store it; the first cloud call reports a bad key
+	except OSError as e:
+		reason = getattr(e, 'reason', e)  # urllib wraps the handshake's error in URLError
+		if isinstance(reason, ssl.SSLError):  # a certificate the TLS check refused is not offline
+			why = getattr(reason, 'verify_message', None) or reason  # the certificate problem itself, when there is one
+			raise auth.AuthError(
+				f'could not check the key: the TLS connection to {auth.auth_base()} failed ({why}); '
+				'the key was not stored. Behind a TLS-inspecting proxy, set SSL_CERT_FILE to its CA bundle and retry'
+			) from None
+		# offline: store it; the first cloud call reports a bad key
 	return key
 
 
@@ -712,6 +720,9 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 
 		print(f'browser-use {_browser_use_version()} (browser-harness {package_version("browser-harness")})')
 		return 0, 'version'
+	from browser_use.utils import install_tls_opener  # after --version: importing it costs ~12 ms on macOS (proxy lookup)
+
+	install_tls_opener()  # browser-harness's own requests here (cloud browsers, login) verify as the OS does
 	if '--cli-mcp' in args:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'

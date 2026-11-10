@@ -78,6 +78,7 @@ _REAPER = (
 	'import os, sys\n'
 	'sys.stdin.buffer.read()\n'
 	'from browser_use.harness_cloud import stop_cloud\n'
+	'from browser_use.utils import install_tls_opener; install_tls_opener()\n'
 	"stop_cloud(sys.argv[1], os.environ['BU_CLEANUP_BROWSER_ID'])\n"
 )
 
