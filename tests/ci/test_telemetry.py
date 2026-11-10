@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from conftest import script
 
+import browser_use
 from browser_use import Agent, Browser
 from browser_use.repl import Repl
 from browser_use.telemetry.stats import (
@@ -50,10 +51,13 @@ def slug(rng: random.Random, n: int = 10) -> str:
 	return 'q' + ''.join(rng.choices(string.ascii_lowercase, k=n))
 
 
+HELPER_FILE = str(Path(browser_use.__file__).resolve().parent / 'helper_sim.py')
+
+
 def lib_raise(exception: str) -> str:
-	"""Cell code whose exception a library raises: its message is sent, scrubbed. What the cell's own code raises is
-	sent as its class only (stats.raised_by_cell)."""
-	return f'exec(compile({"raise " + exception!r}, "lib.py", "exec"))'
+	"""Cell code whose exception a browser-use helper raises: its message is sent, scrubbed. What the cell's own code
+	or any other library raises is sent as its class only (stats.raised_by_cell)."""
+	return f'exec(compile({"raise " + exception!r}, {HELPER_FILE!r}, "exec"))'
 
 
 class Page(BaseHTTPRequestHandler):
@@ -592,7 +596,8 @@ def test_browser_use_cli_scrubs_what_browser_harness_sends(monkeypatch, sent):
 
 def test_cli_event_sends_only_the_class_of_an_error_the_piped_code_raised(monkeypatch, sent):
 	"""Retest 1.0.1: the CLI sent the message the piped code's own raise wrote (`assert 'Paid' in text, text[:300]`),
-	page text no scrub knows; --cli-mcp sent only its class. A library's error keeps its scrubbed message."""
+	page text no scrub knows; --cli-mcp sent only its class. A library the code called can quote it too (json, strptime):
+	class only. Only browser-use's and browser-harness's own errors keep their scrubbed message."""
 	from browser_harness import telemetry as harness
 
 	import browser_use.cli as cli
@@ -608,10 +613,7 @@ def test_cli_event_sends_only_the_class_of_an_error_the_piped_code_raised(monkey
 		except Exception as exc:  # and sends its event while it handles the error (run.main)
 			harness.capture_cli_event(action='error', command='script', exit_code=1, error_message=str(exc))
 	assert_absent({'events': sent}, 'Zq9')
-	assert [p['error_message'] for p in sent] == [
-		'AssertionError',
-		'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)',
-	]
+	assert [p['error_message'] for p in sent] == ['AssertionError', 'JSONDecodeError']
 
 
 def test_cli_event_goes_to_the_library_project_under_the_device_id(posthog, monkeypatch, tmp_path, caplog):
@@ -692,12 +694,10 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 	for name, arguments in calls:
 		await handler(None, types.CallToolRequestParams(name=name, arguments=arguments))  # pyright: ignore[reportArgumentType]
 	assert_absent({'events': sent}, 'Zq9')
-	# what the cell's own code raised is its class only: it quotes what Claude typed or read from the page. A library's
-	# error keeps its message; a rejected call has no exception: its error is the server's own text; an unknown tool's
-	# name is never sent
+	# what the cell's code or a library it called raised is its class only: it can quote what Claude typed or read from
+	# the page. A rejected call has no exception: its error is the server's own text; an unknown tool's name is never sent
 	errors = [e['error_message'] for e in sent]
-	decode = 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)'
-	assert errors == [None, None, decode, "'code' must be a non-empty string", None, None]
+	assert errors == [None, None, None, "'code' must be a non-empty string", None, None]
 	got = [(e['event'], e['action'], e['tool_name'], e['ok'], e['error_type'], e['call_n']) for e in sent]
 	assert got == [
 		('mcp_server_event', 'tool_call', 'browser_exec', True, None, 1),
@@ -1223,6 +1223,7 @@ async def test_the_runs_error_comes_first_and_repeated_messages_are_sent_once(se
 		('Authorization: Bearer example-token-1', 'Authorization: Bearer <credential>'),
 		('curl -H "Authorization: Basic dXNlcjpwYXNzMTIz"', 'curl -H "Authorization: Basic <credential>"'),
 		('login?password=hunter2&user=x', 'login?password=<credential>&user=x'),
+		('password=Tr0ub4dor&3 next', 'password=<credential> next'),
 		('{"api_key": "zz1234", "access_token": \'t0k\'}', '{"api_key": <credential>, "access_token": <credential>}'),
 		('client_secret=abc refresh_token: xyz', 'client_secret=<credential> refresh_token: <credential>'),
 		('keys sk-proj-abcdefgh12 sk-ant-api03-abcdefgh AIza' + 'x' * 30, 'keys <credential> <credential> <credential>'),
@@ -2135,3 +2136,25 @@ def test_an_event_the_exit_handler_could_not_write_is_still_written_by_the_threa
 	monkeypatch.setattr(t, '_to_outbox', write)
 	t._send(job)  # the thread, mid-send as the process exits
 	assert [p.name for p in (posthog.config / 'telemetry' / 'outbox').iterdir()] == [f'{job.run_id}.gz']
+
+
+def test_a_library_error_quoting_page_text_is_sent_as_its_class_only():
+	"""datetime.strptime(text, fmt), urlopen(href), Path(x).read_text() quote their argument: page text. Only errors
+	browser-use or browser-harness raised keep their message."""
+	from datetime import datetime
+
+	from browser_use.telemetry.stats import raised_by_cell
+
+	page_text = 'Jane Doe owes 4,200 on account'
+	try:
+		datetime.strptime(page_text, '%Y-%m-%d')
+	except ValueError as e:
+		assert page_text in str(e) and raised_by_cell(e)
+	try:
+		exec(compile('raise RuntimeError("no Chrome to attach")', HELPER_FILE, 'exec'))
+	except RuntimeError as e:
+		assert not raised_by_cell(e)
+	try:
+		exec(compile('raise ValueError(x)', '<cell 3>', 'exec'), {'x': page_text})
+	except ValueError as e:
+		assert raised_by_cell(e)

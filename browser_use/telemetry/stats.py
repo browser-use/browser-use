@@ -129,8 +129,8 @@ KEYS = re.compile(
 BEARER = re.compile(r'\b([Bb]earer|[Bb]asic|BEARER|BASIC)(\s+)(?=\S*(?:\d|[a-z]\S*[A-Z]))[A-Za-z0-9._~+/=-]{8,}')
 ASSIGNED = re.compile(
 	r'(?i)(?<![a-z<])(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|authorization)'
-	r'(["\']?\s*[=:]\s*)(?!(?:bearer|basic)\s)("[^"]*"|\'[^\']*\'|[^\s&,;]+)'
-)
+	r'(["\']?\s*[=:]\s*)(?!(?:bearer|basic)\s)("[^"]*"|\'[^\']*\'|[^\s&,;]+(?:&(?![A-Za-z_][\w.-]*=)[^\s&,;]*)*)'
+)  # a value runs past '&' unless a next query field (&name=) starts there: 'password=Tr0ub4dor&3' is one value
 COOKIE = re.compile(r'(?im)(?<![a-z])((?:set-)?cookie["\']?\s*[=:]\s*)[^\r\n]+')  # every name=value pair to the line end
 # a URL in a message or the result: its user:password@ and its query and fragment are not sent, as in urls_visited
 TAG = r'<[a-z]+(?::[^\s<>]*)?>'  # a <secret:name> already in a URL is part of it
@@ -396,15 +396,32 @@ def imported_modules(code: str) -> list[str]:
 	return [n if known_module(n) else 'other' for n in names]
 
 
+@cache
+def _our_dirs() -> tuple[str, ...]:
+	"""browser_use's and browser_harness's package dirs: the only code whose error messages we wrote."""
+	dirs = [str(Path(__file__).resolve().parents[1])]
+	spec = importlib.util.find_spec('browser_harness')
+	if spec and spec.origin:
+		dirs.append(str(Path(spec.origin).resolve().parent))
+	return tuple(d + os.sep for d in dirs)
+
+
 def raised_by_cell(e: BaseException) -> bool:
-	"""The innermost frame is the model's own code (an Agent cell '<cell N>' or its finish '<finish>'; code the CLI or
-	--cli-mcp exec'd, '<string>'), not a helper or a library: its message is what the code typed or read from the page
-	(`assert name in text, text[:300]`, `data[name]`), which no scrub can know. Telemetry sends only its class."""
+	"""True unless browser-use or browser-harness itself raised it (innermost frame in their package dirs). Anything
+	else, the model's code ('<cell N>', '<finish>', '<string>') or a library it called (datetime.strptime(text, fmt),
+	urlopen(href), data[name]), can quote what the code typed or read from the page, which no scrub can know.
+	Telemetry sends only its class; our own helpers' messages (no Chrome to attach, a blocked domain) are sent, scrubbed."""
 	tb = e.__traceback__
 	while tb is not None and tb.tb_next is not None:
 		tb = tb.tb_next
-	name = tb.tb_frame.f_code.co_filename if tb is not None else ''
-	return name.startswith('<cell ') or name in ('<string>', '<finish>')
+	if tb is None:
+		return True
+	name = tb.tb_frame.f_code.co_filename
+	try:
+		name = str(Path(name).resolve())
+	except (OSError, ValueError):
+		return True
+	return not name.startswith(_our_dirs())
 
 
 def error_class(e: BaseException | type) -> str:
