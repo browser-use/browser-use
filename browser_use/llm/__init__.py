@@ -589,7 +589,7 @@ def __getattr__(name: str):
 	from browser_use.legacy import removed_name
 
 	# ChatGroq, BaseChatModel, UserMessage, ...: the removed error naming the 1.0 answer
-	raise removed_name(__name__, name, _LLM_REMOVED if name in _LLM_REMOVED else None)
+	raise removed_name(__name__, name, _LLM_REMOVED)
 
 
 __all__ = ['ChatAnthropic', 'ChatBrowserUse', 'ChatGoogle', 'ChatOpenAI', 'GATEWAY_URL', 'model_ref', 'resolve_model']
