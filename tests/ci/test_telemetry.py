@@ -1220,7 +1220,7 @@ async def test_the_runs_error_comes_first_and_repeated_messages_are_sent_once(se
 @pytest.mark.parametrize(
 	'text, out',
 	[
-		('Authorization: Bearer abc123def456ghi', 'Authorization: Bearer <credential>'),
+		('Authorization: Bearer example-token-1', 'Authorization: Bearer <credential>'),
 		('curl -H "Authorization: Basic dXNlcjpwYXNzMTIz"', 'curl -H "Authorization: Basic <credential>"'),
 		('login?password=hunter2&user=x', 'login?password=<credential>&user=x'),
 		('{"api_key": "zz1234", "access_token": \'t0k\'}', '{"api_key": <credential>, "access_token": <credential>}'),
@@ -1295,7 +1295,11 @@ def test_scrub_redacts_the_runs_secrets_and_the_task_before_it_cuts():
 	assert scrub(short.replace('<secret:pw>', 'Zq9 hunter-2') + 'x' * 50_000, forms, 300) == short[:300]
 
 
-@pytest.mark.parametrize('run', ['a' * 40_000, 'a.' * 20_000, '%' * 40_000, '-' * 40_000, 'http://' + 'a' * 40_000])
+@pytest.mark.parametrize(
+	'run',
+	['a' * 40_000, 'a.' * 20_000, '%' * 40_000, '-' * 40_000, 'http://' + 'a' * 40_000],
+	ids=['letters', 'dotted', 'percent', 'dashes', 'url'],  # Windows caps PYTEST_CURRENT_TEST at 32,767 chars
+)
 def test_scrub_is_linear_in_a_long_run_of_one_kind_of_character(run):
 	"""EMAIL started a match at every character of a run and scanned to its end: a 32k run of letters (hex, base64) in
 	a result or an error message took 2.5 s in the telemetry thread, holding the GIL."""
