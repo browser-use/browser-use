@@ -227,8 +227,11 @@ class TokenCost:
 		if data is None:
 			return None
 
-		uncached_prompt_tokens = usage.prompt_tokens - (usage.prompt_cached_tokens or 0)
 		pricing_multiplier = usage.pricing_multiplier or 1.0
+		input_cost = data.input_cost_per_token or 0
+		cached_tokens = min(usage.prompt_cached_tokens or 0, usage.prompt_tokens)
+		uncached_prompt_tokens = usage.prompt_tokens - cached_tokens
+		cache_read_cost = input_cost if data.cache_read_input_token_cost is None else data.cache_read_input_token_cost
 
 		cache_creation_5m_tokens = usage.prompt_cache_creation_5m_tokens
 		cache_creation_1h_tokens = usage.prompt_cache_creation_1h_tokens
@@ -245,12 +248,10 @@ class TokenCost:
 
 		return TokenCostCalculated(
 			new_prompt_tokens=usage.prompt_tokens,
-			new_prompt_cost=uncached_prompt_tokens * (data.input_cost_per_token or 0) * pricing_multiplier,
+			new_prompt_cost=uncached_prompt_tokens * input_cost * pricing_multiplier,
 			# Cached tokens
-			prompt_read_cached_tokens=usage.prompt_cached_tokens,
-			prompt_read_cached_cost=usage.prompt_cached_tokens * data.cache_read_input_token_cost * pricing_multiplier
-			if usage.prompt_cached_tokens and data.cache_read_input_token_cost
-			else None,
+			prompt_read_cached_tokens=cached_tokens or None,
+			prompt_read_cached_cost=cached_tokens * cache_read_cost * pricing_multiplier if cached_tokens else None,
 			# Cache creation tokens
 			prompt_cached_creation_tokens=usage.prompt_cache_creation_tokens,
 			prompt_cache_creation_cost=prompt_cache_creation_cost * pricing_multiplier
@@ -315,8 +316,8 @@ class TokenCost:
 
 		# Always show token breakdown if we have cache information, regardless of cost tracking
 		if usage.prompt_cached_tokens or usage.prompt_cache_creation_tokens:
-			# Calculate actual new tokens (non-cached)
-			new_tokens = usage.prompt_tokens - (usage.prompt_cached_tokens or 0)
+			cached_tokens = min(usage.prompt_cached_tokens or 0, usage.prompt_tokens)
+			new_tokens = usage.prompt_tokens - cached_tokens
 
 			if new_tokens > 0:
 				new_tokens_fmt = self._format_tokens(new_tokens)
@@ -325,8 +326,8 @@ class TokenCost:
 				else:
 					parts.append(f'🆕 {C_YELLOW}{new_tokens_fmt}{C_RESET}')
 
-			if usage.prompt_cached_tokens:
-				cached_tokens_fmt = self._format_tokens(usage.prompt_cached_tokens)
+			if cached_tokens:
+				cached_tokens_fmt = self._format_tokens(cached_tokens)
 				if self.include_cost and cost and cost.prompt_read_cached_cost:
 					parts.append(f'💾 {C_BLUE}{cached_tokens_fmt} (${cost.prompt_read_cached_cost:.4f}){C_RESET}')
 				else:
