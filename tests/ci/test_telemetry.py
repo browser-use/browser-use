@@ -257,7 +257,7 @@ async def test_failed_run_sends_the_error_class_and_its_message_with_secrets_red
 	assert result.status == 'error'  # a failed browser start is a result, never raised (error contract)
 	(props,) = sent
 	assert_absent(props, secret)
-	assert props['error_messages'] == ['cannot reach https://intranet.example/<secret:tok>?k=<secret:tok>']
+	assert props['error_messages'] == ['cannot reach https://intranet.example/<secret:tok>']  # no query
 	assert (props['status'], props['error_type'], props['browser_mode'], props['cells']) == (
 		'error',
 		'ConnectionError',
@@ -1006,6 +1006,35 @@ async def test_planted_secrets_and_credentials_never_reach_posthog(chrome, site,
 	assert props['final_result'] == f'<task>: {cred} <email> <secret:pw>'
 
 
+async def test_typed_text_and_quoted_task_words_are_never_sent_also_after_a_follow_up(chrome, site, sent, tmp_path):
+	"""The task was replaced only when quoted whole, and text the agent typed not at all: an error message or a result
+	that quoted part of the task, or what was typed into a page, reached PostHog."""
+	rng = random.Random(7)
+	words = [rand(rng, 6) for _ in range(8)]
+	typed, filled, follow_up = rand(rng, 10), rand(rng, 10), rand(rng, 12)
+	code = (
+		f'new_tab({site + "/"!r}); wait_for_load()\n'
+		'js(\'document.getElementById("f").focus()\')\n'
+		f'type_text({typed!r}); fill_input("#f", {filled!r})\n'
+		f'raise ValueError("the field rejected " + {typed!r})'
+	)
+	model, _ = script(
+		('python', {'code': code}),
+		('finish', {'success': True, 'result': f'Done {" ".join(words[1:7])}: typed {typed} and {filled}'}),
+		('finish', {'success': True, 'result': f'again {" ".join(words[:6])}'}),  # the follow-up quotes the first task
+	)
+	agent = Agent(' '.join(words), model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path)
+	assert (await agent.run()).status == 'completed'
+	agent.add_new_task(f'and now {follow_up}')
+	assert (await agent.run()).status == 'completed'
+	first, second = sent
+	for props in sent:
+		assert_absent(props, typed, filled, *(' '.join(words[i : i + 5]) for i in range(4)))
+	assert first['error_messages'] == ['ValueError: the field rejected <typed>']
+	assert first['final_result'] == 'Done <task> typed <typed> and <typed>'  # the run takes its last word's colon
+	assert second['final_result'] == 'again <task>'
+
+
 async def test_urls_errors_and_the_result_are_cut_and_capped(sent, tmp_path, monkeypatch):
 	"""urls_visited: 50 at most, 200 characters each, without the query; error_messages: 20 at most, 300 characters
 	each (the class counters still count every failed cell); final_result: 500 characters."""
@@ -1055,6 +1084,19 @@ async def test_the_runs_error_comes_first_and_repeated_messages_are_sent_once(se
 		('ValueError: <secret:pw> was rejected', 'ValueError: <secret:pw> was rejected'),
 		("NameError: name 'basic_task' is not defined", "NameError: name 'basic_task' is not defined"),
 		('the basic plan; a token expired; disk-usage-report', 'the basic plan; a token expired; disk-usage-report'),
+		('net::ERR at https://admin:Pw1@intranet:8080/a?token=x&q=y#f', 'net::ERR at https://<credential>@intranet:8080/a'),
+		('done: https://shop.example/home/deals?ref=zq#top', 'done: https://shop.example/home/deals'),
+		(
+			r"No file '/Users/jane/a.pdf', C:\Users\jane\a, file:///home/jane/x",
+			r"No file '/Users/<user>/a.pdf', C:\Users\<user>\a, file:///home/<user>/x",
+		),
+		('Cookie: sid=abc123; csrftoken=xyz', 'Cookie: <credential>'),
+		('aws AKIAIOSFODNN7EXAMPLE', 'aws <credential>'),
+		('at http://admin:<secret:pw>@intranet/x?k=<secret:pw>', 'at http://<credential>@intranet/x'),  # redacted first
+		(
+			"RuntimeError: JavaScript evaluation failed: TypeError: x; expression: fill('zq')",
+			'RuntimeError: JavaScript evaluation failed: TypeError: x; expression: <code>',
+		),
 	],
 )
 def test_scrub_replaces_credentials_and_emails_and_keeps_ordinary_text(text, out):
@@ -1080,6 +1122,28 @@ def test_scrub_redacts_the_runs_secrets_and_the_task_before_it_cuts():
 	assert scrub(short.replace('<secret:pw>', 'Zq9 hunter-2') + 'x' * 50_000, forms, 300) == short[:300]
 
 
+@pytest.mark.parametrize('run', ['a' * 40_000, 'a.' * 20_000, '%' * 40_000, '-' * 40_000, 'http://' + 'a' * 40_000])
+def test_scrub_is_linear_in_a_long_run_of_one_kind_of_character(run):
+	"""EMAIL started a match at every character of a run and scanned to its end: a 32k run of letters (hex, base64) in
+	a result or an error message took 2.5 s in the telemetry thread, holding the GIL."""
+	started = time.perf_counter()
+	scrub(run, [], 500, task='zq ' * 100)
+	assert time.perf_counter() - started < 0.1
+
+
+def test_scrub_sends_a_credential_from_this_processs_environment_in_any_format_as_credential(monkeypatch):
+	monkeypatch.setenv('ZQ_ACME_API_KEY', 'zq.weird+format.key')
+	assert scrub('upstream 401 for key zq.weird+format.key', [], 300) == 'upstream 401 for key <credential>'
+
+
+def test_scrub_sends_five_task_words_in_a_row_and_typed_text_as_placeholders():
+	task = 'Log into the Acme portal as alice, then download the March invoice'
+	out = scrub('Done: logged in. log into the acme portal as Alice and downloaded it', [], 300, task=task)
+	assert out == 'Done: logged in. <task> and downloaded it'
+	assert scrub('the Acme portal is up', [], 300, task=task) == 'the Acme portal is up'  # four words: ordinary text
+	assert scrub('searched Paris Hilton; Parisian', [], 300, typed=['Paris Hilton', 'Parisian x']) == 'searched <typed>; Parisian'
+
+
 @pytest.mark.parametrize(
 	'url, out',
 	[
@@ -1089,6 +1153,7 @@ def test_scrub_redacts_the_runs_secrets_and_the_task_before_it_cuts():
 		('https://example.com', 'https://example.com/'),
 		('https://example.com/a/./b/../c#top', 'https://example.com/a/c'),
 		('https://zq-quiet-river.trycloudflare.com/admin?k=1', 'https://*.trycloudflare.com/admin'),
+		('https://shop.example/cart;jsessionid=AB12CD?x=1', 'https://shop.example/cart'),
 		('about:blank', None),
 		('file:///Users/jane/secret.pdf', None),
 		('data:text/html,<p>hi</p>', None),

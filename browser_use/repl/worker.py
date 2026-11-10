@@ -137,6 +137,14 @@ class CellStats:
 		with self.lock:
 			getattr(self, kind)[name] += 1
 
+	def record_typed(self, text: object) -> None:
+		"""Text the agent typed (type_text, fill_input, bu.type, cdp Input.insertText): never sent, only replaced with
+		<typed> wherever telemetry's error messages or final result quote it (stats.scrub)."""
+		if isinstance(text, str) and text.strip():
+			with self.lock:
+				if len(self.typed) < MAX_URLS and text[:4096] not in self.typed:
+					self.typed.append(text[:4096])
+
 	def timed(self, kind: str, name: str, ns: int, failed: bool) -> None:
 		"""One helper ('helper_t') or CDP ('cdp_t') call: [calls, errors, ns total, ns max] per name."""
 		with self.lock:
@@ -248,6 +256,7 @@ class CellStats:
 				'events': dict(getattr(self, 'events', {})),
 				'hosts': sorted(getattr(self, 'hosts', ())),
 				'urls': list(getattr(self, 'urls', ())),  # in the order visited, each once per worker
+				'typed': list(getattr(self, 'typed', ())),  # never sent: telemetry replaces it where quoted (scrub)
 				'navigations': getattr(self, 'navigations', 0),
 				'helper_t': getattr(self, 'helper_t', {}),
 				'cdp_t': getattr(self, 'cdp_t', {}),
@@ -258,7 +267,7 @@ class CellStats:
 			}
 			self.helpers, self.cdp, self.events, self.hosts, self.navigations = Counter(), Counter(), Counter(), set(), 0
 			self.helper_t, self.cdp_t, self.host, self.new_pages, self.revisits = {}, {}, None, 0, 0
-			self.nav_errors, self.urls = Counter(), []
+			self.nav_errors, self.urls, self.typed = Counter(), [], []
 		return out
 
 
@@ -301,12 +310,19 @@ def _back_to_agent_tab() -> None:
 					time.sleep(0.05)
 
 
+TYPING = {'type_text': 0, 'fill_input': 1, 'bu.type': 1}  # helper -> position of the text it types
+
+
 def _counted(name: str, fn):
 	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname, once the
 	agent navigated."""
 
+	at = TYPING.get(name)
+
 	@functools.wraps(fn)
 	def counted(*args, **kwargs):
+		if at is not None:
+			stats.record_typed(kwargs.get('text', args[at] if len(args) > at else None))
 		started, failed = time.perf_counter_ns(), True
 		try:
 			result = fn(*args, **kwargs)
@@ -654,6 +670,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	@functools.wraps(cdp)
 	def agent_cdp(method, session_id=None, **params):  # the agent's own cdp() calls, counted by method
 		stats.count('cdp', str(method))
+		if method == 'Input.insertText':
+			stats.record_typed(params.get('text'))
 		return cdp(method, session_id, **params)
 
 	ns['cdp'] = agent_cdp
