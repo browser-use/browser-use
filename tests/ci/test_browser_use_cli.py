@@ -285,11 +285,15 @@ def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path
 	r = run('-c', "from browser_use import Agent; Agent('x').run_sync()")
 	assert 'MissingAPIKeyError' in r.stderr and 'BROWSER_USE_API_KEY' in r.stderr and 'BH_HOME' in r.stderr, r.stderr
 	assert 'NotADirectoryError' not in r.stderr and 'PermissionError' not in r.stderr, r.stderr
-	# --cli-mcp exited before initialize: the agent saw only 'Connection closed'. It starts, and every call says why
+	# --cli-mcp exited before initialize: the agent saw only 'Connection closed'. It starts, and every call says why;
+	# browser_feedback still reports (here with usage stats off, conftest: so it says nothing was sent)
 	init = {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '1'}}
+	report = {'name': 'browser_feedback', 'arguments': {'message': 'browser-use --cli-mcp cannot start'}}
 	messages = [
 		{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': init},
 		{'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+		{'jsonrpc': '2.0', 'id': 3, 'method': 'tools/list', 'params': {}},
+		{'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': report},
 		{'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'browser_exec', 'arguments': {'code': '1'}}},
 	]
 	server = subprocess.Popen(
@@ -305,15 +309,19 @@ def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path
 	try:  # stdin stays open until the call is answered: at EOF the server ends, cancelling a call in flight
 		server.stdin.write(''.join(json.dumps(m) + '\n' for m in messages))
 		server.stdin.flush()
-		reply: dict = {}
-		while reply.get('id') != 2:
+		replies: dict = {}
+		while not {2, 3, 4} <= replies.keys():
 			line = server.stdout.readline()
 			assert line, 'the server ended before it answered the call'
 			reply = json.loads(line)
+			replies[reply.get('id')] = reply
 	finally:
 		server.kill()
 		server.wait(10)
+	reply = replies[2]
 	assert reply['result']['isError'] and 'BH_HOME' in reply['result']['content'][0]['text'], reply
+	assert [t['name'] for t in replies[3]['result']['tools']] == ['browser_exec', 'browser_feedback']
+	assert not replies[4]['result']['isError'] and 'Feedback is off' in replies[4]['result']['content'][0]['text']
 
 
 def test_an_unwritable_harness_dir_names_the_setting_that_chose_it(tmp_path, monkeypatch):

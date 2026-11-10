@@ -2,7 +2,9 @@
 or the disk: run_started() and capture_run() are a dict update and a queue.put. The thread builds each event, gzips it
 and POSTs it (3 s timeout, one retry); a failed send goes to an outbox the next process sends. At exit, events still
 queued go to a detached sender process, so a one-shot script neither waits for the network nor loses its event.
-ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable`: no thread, no network, no files."""
+ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable`: no thread, no network, no files; only feedback the user
+sends themselves (Job.consent: browser_use.feedback(), `browser-use feedback`) is sent, and nothing else with it: under
+an id of this process (no device_id file), sent once or dropped (no outbox)."""
 
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ import os
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -44,8 +47,15 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 	'    if any(extra): ctx.load_verify_locations(*extra)\n'  # a proxy's CA, as tls_context() loads it
 	'except Exception:\n'
 	'    ctx = None\n'
-	'url = sys.argv[1]\n'
-	'for path in sys.argv[2:]:\n'
+	'url, offline = sys.argv[1], False\n'
+	'for arg in sys.argv[2:]:\n'
+	'    once = arg[:1] == "!"\n'  # usage stats off: the user's own feedback, sent now or deleted (_once_file)
+	'    path = arg[once:]\n'
+	'    if offline:\n'  # one timeout: the outbox's files wait for the next process
+	'        if once:\n'
+	'            try: os.remove(path)\n'
+	'            except OSError: pass\n'
+	'        continue\n'
 	'    claimed = path[:-3] + f".{os.getpid()}.sending"\n'
 	'    try: os.replace(path, claimed)\n'
 	'    except OSError: continue\n'  # another sender has it
@@ -55,9 +65,9 @@ EXIT_SENDER = (  # the detached process that sends what was still queued at exit
 	'        urllib.request.urlopen(urllib.request.Request(url, data, headers), timeout=10, context=ctx).read()\n'
 	'        os.remove(claimed)\n'
 	'    except Exception:\n'
-	'        try: os.replace(claimed, path)\n'
+	'        offline = True\n'
+	'        try: os.remove(claimed) if once else os.replace(claimed, path)\n'
 	'        except Exception: pass\n'
-	'        break\n'  # offline: one timeout, the rest waits for the next process
 )
 
 _device_id: str | None = None
@@ -65,6 +75,7 @@ _device_id_lock = threading.Lock()
 _harness_config_disabled: bool | None = None  # browser-harness's telemetry.json, read once per process (harness_disabled)
 _tls: Any = None  # the thread's TLS context, made once under ProductTelemetry._lock (_online)
 _IMPORT_PID = os.getpid()  # a different pid in _post: a forked child
+_PROCESS_ID = uuid.uuid4().hex  # usage stats off: the user's own feedback goes under this, never a stored device id
 
 
 def telemetry_dir() -> Path:
@@ -126,13 +137,28 @@ def harness_disabled() -> bool:
 
 @dataclass
 class Job:
-	"""One event to send. build(steps_kept, keys_per_map) returns its properties; it runs in the thread (or at exit)."""
+	"""One event to send. build(steps_kept, keys_per_map) returns its properties; it runs in the thread (or at exit).
+	consent: the user asked to send it (feedback they sent themselves): sent even with usage stats off."""
 
 	name: str
 	build: Callable[[int, int], dict[str, Any]]
 	run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 	timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 	event: dict[str, Any] | None = None  # built
+	consent: bool = False
+	sent: bool | None = None  # set once the thread tried: PostHog took it, or not
+
+
+def _once_file(data: bytes, name: str) -> Path | None:
+	"""Usage stats off: an event the user sent themselves, for the exit sender, outside the config dir. The sender deletes
+	it, sent or not: the outbox would keep it and send it once stats are on, without asking again."""
+	try:
+		fd, path = tempfile.mkstemp(prefix=f'browser-use-{name}.', suffix='.gz')
+		with os.fdopen(fd, 'wb') as f:
+			f.write(data)
+		return Path(path)
+	except OSError:
+		return None
 
 
 def _alive(pid: int) -> bool:
@@ -212,7 +238,7 @@ class ProductTelemetry:
 				self._thread = threading.Thread(target=self._loop, name='browser-use-telemetry', daemon=True)
 				self._thread.start()
 				if not getattr(self, '_atexit', False):
-					if self.notice:
+					if self.notice and self.enabled:
 						logger.info(
 							'Using anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited (without '
 							'query strings), error messages and the final result. Never the task text, typed text, code or '
@@ -237,7 +263,7 @@ class ProductTelemetry:
 			logger.debug('telemetry: %s', e)
 
 	def capture_run(self, job: Job) -> None:
-		if not self.enabled:
+		if not (self.enabled or job.consent):
 			self._active.pop(job.run_id, None)
 			return
 		try:
@@ -284,8 +310,9 @@ class ProductTelemetry:
 	def _loop(self) -> None:
 		try:
 			self._warm()
-			self._send_outbox()
-			self._send_crashed()
+			if self.enabled:  # off, a user's own feedback goes alone: never the events kept from before
+				self._send_outbox()
+				self._send_crashed()
 		except Exception as e:  # - a read-only disk, no network: carry on with the queue
 			logger.debug('telemetry start: %s', e)
 		while True:
@@ -342,7 +369,7 @@ class ProductTelemetry:
 		props.update({'$lib': 'browser-use', '$lib_version': get_browser_use_version()})
 		job.event = {
 			'event': job.name,
-			'distinct_id': get_or_create_device_id(),
+			'distinct_id': get_or_create_device_id() if self.enabled else os.environ.get('BROWSER_USE_DEVICE_ID') or _PROCESS_ID,
 			'uuid': str(uuid.UUID(job.run_id)) if len(job.run_id) == 32 else job.run_id,
 			'timestamp': job.timestamp,
 			'properties': props,
@@ -396,11 +423,13 @@ class ProductTelemetry:
 		if not ok and not self._exiting:
 			time.sleep(1)
 			ok = self._online() and self._post(data)
+		job.sent = ok
 		if ok:
 			self.send_failures = 0
 		else:
 			self.send_failures += 1
-			if job.run_id not in self._handed:  # else written again after the exit sender took it: sent twice
+			# not after the exit sender took it (sent twice); not with usage stats off (its caller says it was not sent)
+			if job.run_id not in self._handed and self.enabled:
 				self._to_outbox(data, job.run_id)
 		self._pending.pop(job.run_id, None)
 		self._unmark(job.run_id)
@@ -542,7 +571,9 @@ class ProductTelemetry:
 
 	def _at_exit(self) -> None:
 		"""Events still queued go to a detached sender, so exit does not wait for the network (~10 ms to spawn). The
-		outbox earlier processes left goes with them: a short-lived process (the CLI) exits before its thread sends it."""
+		outbox earlier processes left goes with them: a short-lived process (the CLI) exits before its thread sends it.
+		An event the thread is still POSTing is handed on too: its request may not have left yet (a CLI call's first send
+		is still connecting), and a second copy carries the same uuid, timestamp and distinct_id, which PostHog keeps once."""
 		try:
 			if os.getpid() != self._pid:
 				return
@@ -552,12 +583,26 @@ class ProductTelemetry:
 			self._handed = {job.run_id for job in jobs}
 			if locked:
 				self._lock.release()
-			backlog = self._outbox()  # also with nothing queued: a run killed before its event still hands the outbox on
-			files = [self._to_outbox(self._body([self._event(job)]), job.run_id) for job in jobs]
-			self._handed = {job.run_id for job, f in zip(jobs, files) if f is not None}  # one not written: the thread's
+			# also with nothing queued: a run killed before its event still hands the outbox on; off, only this process's
+			on = self.enabled
+			try:
+				backlog = self._outbox() if on else []
+			except OSError:  # no config dir (a read-only HOME): this ended the handler, and the queued events were lost
+				backlog = []
+			files: list[str] = []
 			for job in jobs:
+				data = self._body([self._event(job)])
+				# off, or an outbox that cannot be written (a read-only HOME: the MCP error server's browser_feedback):
+				# a temp file the sender sends once or deletes
+				if on and (path := self._to_outbox(data, job.run_id)) is not None:
+					files.append(str(path))
+				elif (path := _once_file(data, job.run_id)) is not None:
+					files.append(f'!{path}')
+				else:  # not written: the thread's
+					self._handed.discard(job.run_id)
 				self._unmark(job.run_id)
-			files = [str(f) for f in files if f is not None]
+			for run_id in self._handed:  # a second call (atexit after an explicit one) does not hand them again
+				self._pending.pop(run_id, None)
 			files += [str(f) for f in backlog]
 			if not files:
 				return
@@ -566,8 +611,13 @@ class ProductTelemetry:
 				kw['creationflags'] = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
 			else:
 				kw['start_new_session'] = True
-			# if this fails (no subprocesses here), the files stay in the outbox and the next process sends them
-			subprocess.Popen([sys.executable, '-I', '-c', EXIT_SENDER, f'{POSTHOG_HOST}/batch/', *files], **kw)
+			try:
+				subprocess.Popen([sys.executable, '-I', '-c', EXIT_SENDER, f'{POSTHOG_HOST}/batch/', *files], **kw)
+			except Exception:  # no subprocesses here: the outbox's files wait for the next process; a temp file would stay
+				for f in files:  # forever, with the feedback's text in it
+					if f.startswith('!'):
+						Path(f[1:]).unlink(missing_ok=True)
+				raise
 		except Exception as e:  # - exit must never fail because of telemetry
 			logger.debug('telemetry at exit: %s', e)
 

@@ -39,7 +39,9 @@ from browser_use.llm import (
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets, secret_forms
 from browser_use.search import WebSearch, search_url
+from browser_use.telemetry.feedback import RunReports
 from browser_use.telemetry.recorder import RunRecorder, now
+from browser_use.telemetry.stats import model_id
 from browser_use.tools import Tools
 from browser_use.utils import raise_fd_limit
 
@@ -319,6 +321,7 @@ class Agent:
 		self._custom_workspace = workspace is not None
 		self._downloads: list[Path] = []  # what the last stop() copied from a cloud browser (telemetry counts them)
 		self._sync = False  # the current run came from run_sync()
+		self._reports = RunReports()  # report_issue() from the REPL, pointed at each run
 
 	@property
 	def workspace(self) -> Path:
@@ -451,6 +454,7 @@ class Agent:
 		self._downloads = []
 		before = set((self.workspace / 'downloads').glob('*'))
 		self._telemetry_started(run_id, rec, max_steps, timeout)
+		self._reports.start(run_id, rec, model_id(self._model_name), list(dict.fromkeys(self._tasks)), self.sensitive_data)
 		_ACTIVE[0] += 1
 		try:
 			logger.info(f'Task: {redact(self.task, self.sensitive_data)[:200]} (workspace {self.workspace})')
@@ -499,12 +503,14 @@ class Agent:
 					search=self._search,
 					downloads=self._list_downloads if self.browser.use_cloud or self._launched() else None,
 					highlight_actions=self.highlight_actions,
+					feedback=self._reports,
 				)
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}
 			session = Session(
 				repl=self._repl, timeout_s=timeout, max_steps=max_steps, vision=self.use_vision, rec=rec, **compacted
 			)
+			self._reports.stats = session.stats
 			phase = 'loop'
 			result = await run(
 				self._agent,
@@ -635,7 +641,7 @@ class Agent:
 
 	def _config(self, max_steps: int, timeout: float) -> dict[str, Any]:
 		"""The run's configuration fields: counts, bools, enums and names, never values or paths."""
-		from browser_use.telemetry.stats import cdp_category, host, is_internal, model_id, provider_name
+		from browser_use.telemetry.stats import cdp_category, host, is_internal, provider_name
 
 		schema = self.output_model_schema
 		fields = getattr(schema, 'model_fields', None)
@@ -812,6 +818,7 @@ class Agent:
 				'concurrent_runs': meta['concurrent'],
 				'error_phase': phase,
 				'budget_hit': budget_hit,
+				'feedback_count': self._reports.sent,
 			}
 			secrets = self.sensitive_data
 			tasks = list(dict.fromkeys([*self._tasks, self.task]))  # a follow-up's result can quote the first task
