@@ -35,8 +35,8 @@ jobs:
     env:
       IS_SANDBOX: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: true
           activate-environment: true
@@ -45,7 +45,7 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@28f83620103c48a57093dcc2837eec89e036bb9f # v0.0.63 (beta)
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           model: "claude-opus-4-20250514"
@@ -63,39 +63,25 @@ jobs:
             BROWSER_USE_CLOUD_SYNC: 'false'
             ANONYMIZED_TELEMETRY: 'false'
             BROWSER_USE_LOGGING_LEVEL: 'DEBUG'
-            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-            PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
-            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-            GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-            GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           settings: |
             {
               "permissions": {
                 "allow": [
                   "Bash(git:*)",
-                  "Bash(uv:*)",
                   "Bash(uv run pytest:*)",
                   "Bash(uv run ruff:*)",
                   "Bash(uv run pyright:*)",
                   "Bash(uv run pre-commit:*)",
-                  "Bash(uv pip:*)",
-                  "Bash(uv add:*)",
                   "Bash(uv sync --all-extras --dev)",
-                  "Bash(.venv/bin/*:*)",
-                  "Bash(.venv/bin/python:*)",
                   "Bash(sed:*)",
                   "Bash(rg:*)",
                   "Bash(jq:*)",
                   "Bash(find:*)",
                   "Bash(grep:*)",
-                  "Bash(python:*)",
                   "Bash(chmod:*)",
                   "Bash(rm:*)",
-                  "Bash(playwright:*)",
-                  "Bash(uv run playwright:*)",
                   "Bash(./bin/lint.sh)",
                   "Bash(./bin/test.sh)",
-                  "WebFetch(*)",
                   "WebSearch(*)"
                 ],
                 "additionalDirectories": ["/home/runner/work"]
@@ -103,27 +89,18 @@ jobs:
             }
           allowed_tools: |
             Bash(git:*)
-            Bash(uv:*)
             Bash(uv run pytest:*)
             Bash(uv run ruff:*)
             Bash(uv run pyright:*)
             Bash(uv run pre-commit:*)
-            Bash(uv pip:*)
-            Bash(uv add:*)
             Bash(uv sync --all-extras --dev)
-            Bash(.venv/bin/*:*)
-            Bash(.venv/bin/python:*)
             Bash(sed:*)
             Bash(rg:*)
             Bash(jq:*)
             Bash(find:*)
             Bash(grep:*)
-            Bash(python:*)
             Bash(chmod:*)
             Bash(rm:*)
-            Bash(playwright:*)
-            Bash(uv run playwright:*)
             Bash(./bin/lint.sh)
             Bash(./bin/test.sh)
-            WebFetch(*)
             WebSearch(*)
