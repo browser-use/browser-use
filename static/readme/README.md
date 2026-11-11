@@ -1,12 +1,4 @@
-# README artwork, diagram, and demo sources
-
-## Header artwork
-
-The orange key-shaped bridge is an existing painting from the
-[Browser Use website](https://browser-use.com/lander/plates/browsers-8dd60aa0.jpg).
-The README displays the original image at a maximum width of 720 pixels and links
-it to the website. It is hosted on the website, so cloning the repository does
-not download the artwork.
+# README diagram and demo sources
 
 ## Product diagram
 

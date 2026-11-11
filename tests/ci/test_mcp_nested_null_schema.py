@@ -1,131 +1,139 @@
-"""Regression tests for preserving explicit nulls in nested MCP parameters."""
-
-from unittest.mock import AsyncMock, MagicMock
+import inspect
+import sys
+import textwrap
 
 import pytest
 from mcp import types
+from pydantic import ValidationError
 
-from browser_use.mcp.client import MCPClient
-from browser_use.tools.registry.service import Registry
+from browser_use.mcp import MCPClient
+from browser_use.mcp.client import _serialize_mcp_params
+from browser_use.tools import Tools
 
 
-@pytest.mark.asyncio
-async def test_nested_nullable_fields_and_array_items_are_preserved():
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
+def _parameters_model(schema: dict) -> type:
+	client = MCPClient(server_name='test', command='unused')
 	tool = types.Tool(
-		name='save_payload',
-		description='Save a payload',
-		input_schema={
+		name='test_tool',
+		input_schema=schema,
+	)
+	model = client._create_parameters_model('test_tool', tool)
+	assert model is not None
+	return model
+
+
+def test_nested_explicit_nulls_and_omitted_fields_are_serialized_correctly():
+	model = _parameters_model(
+		{
 			'type': 'object',
 			'properties': {
 				'payload': {
 					'type': 'object',
 					'properties': {
-						'note': {'type': 'string', 'nullable': True},
-						'values': {
-							'type': 'array',
-							'items': {'type': 'string', 'nullable': True},
-						},
+						'note': {'type': ['string', 'null']},
+						'values': {'type': 'array', 'items': {'type': ['string', 'null']}},
 					},
 					'required': ['note', 'values'],
 				},
-				'label': {'type': 'string', 'default': 'fallback'},
+				'optional': {'type': 'string'},
 			},
 			'required': ['payload'],
-		},
-	)
-	client._register_tool_as_action(registry, 'save_payload', tool)
-
-	result = await registry.execute_action(
-		'save_payload',
-		{'payload': {'note': None, 'values': ['first', None]}},
+		}
 	)
 
-	assert result.error is None
-	client.session.call_tool.assert_awaited_once_with(
-		'save_payload',
-		{'payload': {'note': None, 'values': ['first', None]}, 'label': 'fallback'},
-	)
+	params = model.model_validate({'payload': {'note': None, 'values': ['first', None]}})
+
+	assert _serialize_mcp_params(params) == {'payload': {'note': None, 'values': ['first', None]}}
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-	('name', 'parameter_schema'),
-	[
-		(
-			'nullable_object',
-			{'type': 'object', 'nullable': True, 'properties': {'name': {'type': 'string'}}},
-		),
-		('nullable_array', {'type': 'array', 'nullable': True, 'items': {'type': 'string'}}),
-		('nullable_enum', {'type': 'string', 'enum': ['ready', None]}),
-		('nullable_type', {'type': 'null'}),
-		('nullable_type_array', {'type': ['string', 'null']}),
-		('nullable_any_of', {'anyOf': [{'type': 'string'}, {'type': 'null'}]}),
-		('nullable_one_of', {'oneOf': [{'type': 'string'}, {'type': 'null'}]}),
-	],
-)
-async def test_nullable_schema_forms_accept_and_transmit_null(name, parameter_schema):
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
-	tool = types.Tool(
-		name=name,
-		description='Accept a nullable value',
-		input_schema={
-			'type': 'object',
-			'properties': {'value': parameter_schema},
-			'required': ['value'],
-		},
-	)
-	client._register_tool_as_action(registry, name, tool)
-
-	result = await registry.execute_action(name, {'value': None})
-
-	assert result.error is None
-	client.session.call_tool.assert_awaited_once_with(name, {'value': None})
-
-
-@pytest.mark.asyncio
-async def test_composition_respects_sibling_type_and_object_constraints():
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
-	tool = types.Tool(
-		name='validate_composition_siblings',
-		description='Validate sibling JSON Schema constraints',
-		input_schema={
+def test_schema_defaults_are_included_but_omitted_null_fields_are_not():
+	model = _parameters_model(
+		{
 			'type': 'object',
 			'properties': {
-				'text': {
-					'type': 'string',
-					'anyOf': [{'type': 'string'}, {'type': 'null'}],
-				},
+				'nullable': {'type': ['string', 'null']},
+				'fallback': {'type': 'string', 'default': 'schema default'},
+			},
+		}
+	)
+
+	assert _serialize_mcp_params(model.model_validate({})) == {'fallback': 'schema default'}
+	assert _serialize_mcp_params(model.model_validate({'nullable': None})) == {
+		'nullable': None,
+		'fallback': 'schema default',
+	}
+
+
+def test_json_schema_type_arrays_are_preserved_for_the_action_model():
+	model = _parameters_model(
+		{
+			'type': 'object',
+			'properties': {'value': {'type': ['string', 'null'], 'description': 'A nullable value'}},
+			'required': ['value'],
+		}
+	)
+
+	assert model.model_json_schema(by_alias=True)['properties']['value']['anyOf'] == [
+		{'type': 'string'},
+		{'type': 'null'},
+	]
+
+
+def test_composed_nullable_schema_keeps_absence_distinct_from_null():
+	model = _parameters_model(
+		{
+			'type': 'object',
+			'properties': {
+				'payload': {
+					'anyOf': [
+						{
+							'type': 'object',
+							'properties': {'name': {'type': 'string'}},
+							'required': ['name'],
+						},
+						{'type': 'null'},
+					]
+				}
+			},
+		}
+	)
+
+	assert _serialize_mcp_params(model.model_validate({})) == {}
+	assert _serialize_mcp_params(model.model_validate({'payload': None})) == {'payload': None}
+	with pytest.raises(ValidationError):
+		model.model_validate({'payload': {}})
+
+
+@pytest.mark.parametrize(
+	'nullable_schema',
+	[
+		{'type': 'object', 'nullable': True, 'properties': {'name': {'type': 'string'}}},
+		{'type': 'array', 'nullable': True, 'items': {'type': 'string'}},
+		{'type': 'string', 'enum': ['ready', None]},
+		{'type': 'null'},
+		{'type': ['string', 'null']},
+		{'anyOf': [{'type': 'string'}, {'type': 'null'}]},
+		{'oneOf': [{'type': 'string'}, {'type': 'null'}]},
+	],
+)
+def test_nullable_schema_forms_accept_and_transmit_null(nullable_schema):
+	model = _parameters_model(
+		{
+			'type': 'object',
+			'properties': {'value': nullable_schema},
+			'required': ['value'],
+		}
+	)
+
+	assert _serialize_mcp_params(model.model_validate({'value': None})) == {'value': None}
+
+
+def test_composition_enforces_sibling_type_and_object_constraints():
+	model = _parameters_model(
+		{
+			'type': 'object',
+			'properties': {
+				'text': {'type': 'string', 'anyOf': [{'type': 'string'}, {'type': 'null'}]},
 				'payload': {
 					'type': 'object',
 					'properties': {'name': {'type': 'string'}},
@@ -134,344 +142,166 @@ async def test_composition_respects_sibling_type_and_object_constraints():
 				},
 			},
 			'required': ['text', 'payload'],
-		},
-	)
-	client._register_tool_as_action(registry, 'validate_composition_siblings', tool)
-
-	with pytest.raises(RuntimeError, match='Invalid parameters'):
-		await registry.execute_action(
-			'validate_composition_siblings',
-			{'text': None, 'payload': {'name': 'member'}},
-		)
-	with pytest.raises(RuntimeError, match='Invalid parameters'):
-		await registry.execute_action(
-			'validate_composition_siblings',
-			{'text': 'hello', 'payload': {}},
-		)
-	client.session.call_tool.assert_not_awaited()
-
-	valid = await registry.execute_action(
-		'validate_composition_siblings',
-		{'text': 'hello', 'payload': {'name': 'member'}},
+		}
 	)
 
-	assert valid.error is None
-	client.session.call_tool.assert_awaited_once_with(
-		'validate_composition_siblings',
-		{'text': 'hello', 'payload': {'name': 'member'}},
-	)
+	for value in (
+		{'text': None, 'payload': {'name': 'member'}},
+		{'text': 'hello', 'payload': {}},
+	):
+		with pytest.raises(ValidationError):
+			model.model_validate(value)
+	assert model.model_validate({'text': 'hello', 'payload': {'name': 'member'}})
 
 
-@pytest.mark.asyncio
-async def test_one_of_rejects_values_matching_multiple_alternatives():
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
-	tool = types.Tool(
-		name='validate_one_of',
-		description='Require exactly one matching alternative',
-		input_schema={
+def test_one_of_rejects_values_matching_multiple_alternatives():
+	model = _parameters_model(
+		{
 			'type': 'object',
 			'properties': {
 				'value': {
 					'oneOf': [
 						{'type': 'string'},
-						{'type': 'string', 'enum': ['duplicate']},
+						{'anyOf': [{'type': 'string'}, {'type': 'number'}]},
 					]
 				}
 			},
 			'required': ['value'],
-		},
+		}
 	)
-	client._register_tool_as_action(registry, 'validate_one_of', tool)
 
-	with pytest.raises(RuntimeError, match='Invalid parameters'):
-		await registry.execute_action('validate_one_of', {'value': 'duplicate'})
-	client.session.call_tool.assert_not_awaited()
+	with pytest.raises(ValidationError):
+		model.model_validate({'value': 'matches-both'})
+	assert model.model_validate({'value': 3})
 
 
-@pytest.mark.asyncio
-async def test_all_of_object_intersections_and_boolean_alternatives():
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
-	tool = types.Tool(
-		name='validate_all_of_and_boolean_schemas',
-		description='Validate allOf object intersections and boolean alternatives',
-		input_schema={
+def test_all_of_object_intersections_and_boolean_alternatives():
+	model = _parameters_model(
+		{
 			'type': 'object',
 			'properties': {
 				'payload': {
 					'allOf': [
-						{
-							'type': 'object',
-							'properties': {'name': {'type': 'string'}},
-							'required': ['name'],
-						},
-						{
-							'type': 'object',
-							'properties': {'age': {'type': 'integer', 'minimum': 18}},
-							'required': ['age'],
-						},
+						{'type': 'object', 'properties': {'name': {'type': 'string'}}, 'required': ['name']},
+						{'type': 'object', 'properties': {'age': {'type': 'integer'}}, 'required': ['age']},
 					]
 				},
-				'text': {'anyOf': [False, {'type': 'string'}]},
-				'open': {'anyOf': [True, {'type': 'string'}]},
+				'choice': {'anyOf': [False, {'type': 'string'}]},
 			},
-			'required': ['payload', 'text', 'open'],
-		},
-	)
-	client._register_tool_as_action(registry, 'validate_all_of_and_boolean_schemas', tool)
-
-	action_schema = registry.create_action_model().model_json_schema()
-	payload_schemas = [node for node in _walk_schema(action_schema) if {'name', 'age'}.issubset(node.get('properties', {}))]
-	assert payload_schemas
-	assert {'name', 'age'}.issubset(payload_schemas[0].get('required', []))
-
-	with pytest.raises(RuntimeError, match='Invalid parameters'):
-		await registry.execute_action(
-			'validate_all_of_and_boolean_schemas',
-			{'payload': {'name': 'member'}, 'text': 'ok', 'open': 42},
-		)
-	client.session.call_tool.assert_not_awaited()
-
-	result = await registry.execute_action(
-		'validate_all_of_and_boolean_schemas',
-		{'payload': {'name': 'member', 'age': 18}, 'text': 'ok', 'open': 42},
+			'required': ['payload', 'choice'],
+		}
 	)
 
-	assert result.error is None
-	client.session.call_tool.assert_awaited_once_with(
-		'validate_all_of_and_boolean_schemas',
-		{'payload': {'name': 'member', 'age': 18}, 'text': 'ok', 'open': 42},
-	)
+	assert model.model_validate({'payload': {'name': 'member', 'age': 3}, 'choice': 'accepted'})
+	for value in (
+		{'payload': {'name': 'member'}, 'choice': 'accepted'},
+		{'payload': {'name': 'member', 'age': 3}, 'choice': 1},
+	):
+		with pytest.raises(ValidationError):
+			model.model_validate(value)
 
 
-def _walk_schema(value):
-	if isinstance(value, dict):
-		yield value
-		for child in value.values():
-			yield from _walk_schema(child)
-	elif isinstance(value, list):
-		for child in value:
-			yield from _walk_schema(child)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-	('schema', 'value', 'should_reject'),
-	[
-		({'allOf': [{'enum': [1]}]}, True, True),
-		({'allOf': [{'const': 1}]}, True, True),
-		({'allOf': [{'uniqueItems': True}]}, [1, True], False),
-	],
-)
-async def test_composed_constraints_use_json_type_aware_equality(schema, value, should_reject):
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
-	tool = types.Tool(
-		name='validate_json_number',
-		description='Validate a JSON number constraint',
-		input_schema={
-			'type': 'object',
-			'properties': {'value': schema},
-			'required': ['value'],
-		},
-	)
-	client._register_tool_as_action(registry, 'validate_json_number', tool)
-
-	if should_reject:
-		with pytest.raises(RuntimeError, match='Invalid parameters'):
-			await registry.execute_action('validate_json_number', {'value': value})
-		client.session.call_tool.assert_not_awaited()
-	else:
-		result = await registry.execute_action('validate_json_number', {'value': value})
-		assert result.error is None
-		client.session.call_tool.assert_awaited_once_with('validate_json_number', {'value': value})
-
-
-@pytest.mark.asyncio
-async def test_sensitive_data_preserves_omitted_composed_object_fields():
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
-	tool = types.Tool(
-		name='save_composed_payload',
-		description='Save an object or null',
-		input_schema={
+def test_json_schema_enum_const_and_unique_items_use_json_equality():
+	model = _parameters_model(
+		{
 			'type': 'object',
 			'properties': {
-				'payload': {
-					'anyOf': [
-						{
-							'type': 'object',
-							'properties': {
-								'name': {'type': 'string'},
-								'optional': {'type': 'string'},
-							},
-							'required': ['name'],
-						},
-						{'type': 'null'},
-					]
-				}
+				'enum_value': {'type': 'integer', 'enum': [1]},
+				'constant': {'type': 'integer', 'const': 1},
+				'values': {
+					'type': 'array',
+					'items': {'type': ['integer', 'boolean']},
+					'uniqueItems': True,
+				},
 			},
-			'required': ['payload'],
-		},
-	)
-	client._register_tool_as_action(registry, 'save_composed_payload', tool)
-
-	result = await registry.execute_action(
-		'save_composed_payload',
-		{'payload': {'name': 'member'}},
-		sensitive_data={'api_key': 'probe-secret-value'},
+			'required': ['enum_value', 'constant', 'values'],
+		}
 	)
 
-	assert result.error is None
-	client.session.call_tool.assert_awaited_once_with('save_composed_payload', {'payload': {'name': 'member'}})
+	assert model.model_validate({'enum_value': 1, 'constant': 1, 'values': [1, True]})
+	for field in ('enum_value', 'constant'):
+		invalid_values = {'enum_value': 1, 'constant': 1, 'values': []}
+		invalid_values[field] = True
+		with pytest.raises(ValidationError):
+			model.model_validate(invalid_values)
+	with pytest.raises(ValidationError):
+		model.model_validate({'enum_value': 1, 'constant': 1, 'values': [1, 1]})
 
 
-@pytest.mark.asyncio
-async def test_false_boolean_schema_alternative_rejects_values():
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
-	tool = types.Tool(
-		name='reject_false_schema',
-		description='Reject values for a false JSON Schema',
-		input_schema={
-			'type': 'object',
-			'properties': {'value': {'anyOf': [False]}},
-			'required': ['value'],
-		},
-	)
-	client._register_tool_as_action(registry, 'reject_false_schema', tool)
-
-	with pytest.raises(RuntimeError, match='Invalid parameters'):
-		await registry.execute_action('reject_false_schema', {'value': 'not allowed'})
-	client.session.call_tool.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
 	('schema', 'invalid_value'),
 	[
-		({'type': 'string', 'minLength': 3}, 'ab'),
-		({'type': 'string', 'pattern': '^[A-Z]+$'}, 'lower'),
-		({'type': 'number', 'minimum': 5}, 4),
-		({'type': 'number', 'multipleOf': 1}, 1_000_000_000.5),
-		({'type': 'array', 'maxItems': 1, 'items': {'type': 'integer'}}, [1, 2]),
-		({'type': 'array', 'uniqueItems': True}, ['same', 'same']),
+		({'type': 'number', 'multipleOf': 0.1}, 0.15),
+		({'type': 'string', 'minLength': 2, 'pattern': '^[a-z]+$'}, 'A'),
+		({'type': 'array', 'minItems': 2, 'items': {'type': 'integer'}}, [1]),
+		({'type': 'array', 'contains': {'const': 'required'}}, ['other']),
 	],
 )
-async def test_composition_validator_enforces_scalar_and_collection_constraints(schema, invalid_value):
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
-	tool = types.Tool(
-		name='validate_constrained_value',
-		description='Validate constrained value',
-		input_schema={
+def test_composed_and_scalar_constraints_reject_invalid_values(schema, invalid_value):
+	model = _parameters_model(
+		{
 			'type': 'object',
-			'properties': {'value': {'anyOf': [schema]}},
+			'properties': {'value': schema},
 			'required': ['value'],
-		},
+		}
 	)
-	client._register_tool_as_action(registry, 'validate_constrained_value', tool)
 
-	with pytest.raises(RuntimeError, match='Invalid parameters'):
-		await registry.execute_action('validate_constrained_value', {'value': invalid_value})
-	client.session.call_tool.assert_not_awaited()
+	with pytest.raises(ValidationError):
+		model.model_validate({'value': invalid_value})
 
 
-@pytest.mark.asyncio
-async def test_omitted_nullable_fields_stay_omitted_with_sensitive_data():
-	client = MCPClient(server_name='test-server', command='test-command')
-	client._telemetry = MagicMock()
-	client._connected = True
-	client.session = MagicMock()
-	client.session.call_tool = AsyncMock(
-		return_value=types.CallToolResult(
-			content=[types.TextContent(type='text', text='success')],
-			is_error=False,
-		)
-	)
-	registry = Registry()
-	tool = types.Tool(
-		name='save_optional',
-		description='Save an optional value',
-		input_schema={
+def test_false_boolean_schema_alternative_rejects_values():
+	model = _parameters_model(
+		{
 			'type': 'object',
-			'properties': {
-				'value': {'type': 'string', 'nullable': True},
-				'union_value': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
-				'payload': {
-					'type': 'object',
-					'properties': {'note': {'type': 'string', 'nullable': True}},
-				},
-				'omitted': {'type': 'string', 'nullable': True},
-				'credential': {'type': 'string', 'default': '<secret>api_key</secret>'},
-			},
-		},
+			'properties': {'value': False},
+			'required': ['value'],
+		}
 	)
-	client._register_tool_as_action(registry, 'save_optional', tool)
 
-	result = await registry.execute_action(
-		'save_optional',
-		{'value': None, 'union_value': None, 'payload': {}},
-		sensitive_data={'api_key': 'secret'},
+	with pytest.raises(ValidationError):
+		model.model_validate({'value': 'not allowed'})
+
+
+async def test_stdio_mcp_tool_receives_explicit_nullable_value():
+	server_code = textwrap.dedent(
+		"""
+		import asyncio
+		from mcp.server.mcpserver import MCPServer
+		from pydantic import BaseModel
+
+		server = MCPServer('nullable-test')
+
+		class Payload(BaseModel):
+			note: str | None
+			values: list[str | None]
+
+		@server.tool()
+		def save_payload(payload: Payload) -> str:
+			return payload.model_dump_json()
+
+		@server.tool()
+		def ping() -> str:
+			return 'pong'
+
+		asyncio.run(server.run_stdio_async())
+		"""
 	)
+	client = MCPClient(server_name='nullable-test', command=sys.executable, args=['-c', server_code])
+	tools = Tools()
+
+	async with client:
+		await client.register_to_tools(tools)
+		save_payload = next(tool for tool in tools.functions if tool.name == 'save_payload')
+		parameters = inspect.signature(save_payload.function).parameters['params'].annotation
+		result = await client._call_tool(
+			'save_payload',
+			_serialize_mcp_params(parameters(payload={'note': None, 'values': ['first', None]})),
+		)
+		assert any(tool.name == 'ping' for tool in tools.functions)
+		ping_result = await client._call_tool('ping', {})
 
 	assert result.error is None
-	client.session.call_tool.assert_awaited_once_with(
-		'save_optional',
-		{'value': None, 'union_value': None, 'payload': {}, 'credential': 'secret'},
-	)
+	assert result.extracted_content == '{"note":null,"values":["first",null]}'
+	assert ping_result.error is None
+	assert ping_result.extracted_content == 'pong'
