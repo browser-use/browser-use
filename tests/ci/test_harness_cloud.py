@@ -1152,9 +1152,35 @@ def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
 	assert b'LATE' in err
 
 
+def test_a_cdp_url_nothing_listens_on_fails_at_once_naming_both_ways_out(monkeypatch):
+	"""1.0.2: with BU_CDP_URL=http://127.0.0.1:PORT and no browser on PORT (~100 Linux + Cursor --cli-mcp devices a day),
+	every call failed only after browser-harness retried it for 30 s, with a hint naming neither the value nor the way
+	back to a browser browser-use finds itself."""
+	import socket
+
+	from browser_harness import admin
+
+	from browser_use import harness_cloud
+
+	with socket.socket() as s:
+		s.bind(('127.0.0.1', 0))
+		port = s.getsockname()[1]  # closed again: connections to it are refused
+	monkeypatch.setenv('BU_CDP_URL', f'http://user:hunter2@127.0.0.1:{port}/?secret=s3')
+	monkeypatch.delenv('BU_CDP_WS', raising=False)
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda **kw: pytest.fail('browser-harness retried BU_CDP_URL for 30 s'))
+	started = time.monotonic()
+	with pytest.raises(RuntimeError) as e:
+		harness_cloud.ensure_daemon(name=f'butestcdprefused{os.getpid()}')
+	assert time.monotonic() - started < 10
+	msg = str(e.value)
+	assert f'BU_CDP_URL=http://127.0.0.1:{port} ' in msg and f'--remote-debugging-port={port}' in msg, msg
+	assert 'unset BU_CDP_URL' in msg and 'hunter2' not in msg and 's3' not in msg, msg
+
+
 def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(monkeypatch):
 	"""M31: with BU_CDP_URL, concurrent CLI cold starts raced (browser-harness takes no spawn lock in CDP mode) and
 	orphaned daemons."""
+	import socket
 	import threading
 	import time
 
@@ -1162,7 +1188,8 @@ def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(mon
 
 	from browser_use import harness_cloud
 
-	monkeypatch.setenv('BU_CDP_URL', 'http://127.0.0.1:1')
+	listener = socket.create_server(('127.0.0.1', 0))  # a browser's port: the spawn lock is what this is about
+	monkeypatch.setenv('BU_CDP_URL', f'http://127.0.0.1:{listener.getsockname()[1]}')
 	active, peak, lock = [0], [0], threading.Lock()
 
 	def ensure(wait=None, name=None, env=None):
@@ -1180,6 +1207,7 @@ def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(mon
 		t.start()
 	for t in threads:
 		t.join(10)
+	listener.close()
 	assert peak[0] == 1
 
 

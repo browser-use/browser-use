@@ -17,8 +17,10 @@ it is stopped, so a later process (the next CLI call) knows it too.
 
 import ast
 import os
+import socket
 import time
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -136,6 +138,7 @@ def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[
 
 			require_debug_port_unless_attached(name)  # never the 127.0.0.1:9222 guess (local.py)
 			return admin.ensure_daemon(wait=wait, name=name, env=env)
+		require_cdp_url_listening(env)
 		# BU_CDP_URL / BU_CDP_WS: browser-harness takes no spawn lock there, so concurrent cold CLI calls each started
 		# a daemon under one name and orphaned all but one. One spawn at a time (its own lock file: a stale daemon's
 		# restart inside ensure_daemon takes browser-harness's).
@@ -150,6 +153,44 @@ def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[
 	raise CloudBrowserError(
 		f'Cloud browser {name!r} has ended (cloud timeout, stopped, or its daemon died). It was not replaced with your '
 		f'local Chrome. Start a new one: start_remote_daemon({name!r})'
+	)
+
+
+CDP_REFUSED_GRACE_S = 3.0  # a Chrome started just before this call opens its port within that
+
+
+def require_cdp_url_listening(env: dict[str, str] | None = None) -> None:
+	"""BU_CDP_URL (and no BU_CDP_WS, which wins) whose host refuses connections: nothing listens on that port, yet
+	browser-harness retried it for 30 s on every call and then failed. Raise at once with both ways out. Any other
+	failure (a timeout, DNS, a proxy, an HTTP error) stays browser-harness's to retry and report."""
+	merged = {**os.environ, **(env or {})}
+	url = merged.get('BU_CDP_URL')
+	if not url or merged.get('BU_CDP_WS'):
+		return
+	try:
+		u = urllib.parse.urlsplit(url)
+		host, port = u.hostname, u.port or (443 if u.scheme in ('https', 'wss') else 80)
+	except ValueError:
+		return
+	if not host:
+		return
+	deadline = time.monotonic() + CDP_REFUSED_GRACE_S
+	while True:
+		try:
+			socket.create_connection((host, port), timeout=5).close()  # Windows takes ~2 s to report a refusal
+			return
+		except ConnectionRefusedError:
+			if time.monotonic() >= deadline:
+				break
+			time.sleep(0.25)
+		except OSError:
+			return
+	shown = f'{u.scheme}://{u.netloc.rpartition("@")[2]}'  # never the user:password@, path or query (a token)
+	raise RuntimeError(
+		f'BU_CDP_URL={shown} refused the connection: no browser listens on {host}:{port}. Start Chrome with '
+		f'--remote-debugging-port={port} --user-data-dir=<a dir of its own>, or unset BU_CDP_URL and browser-use finds a '
+		'browser itself (your Chrome with remote debugging on; --cli-mcp falls back to its own Chromium). For an MCP '
+		"server, change it in the server's env in the MCP config, then restart the server."
 	)
 
 
