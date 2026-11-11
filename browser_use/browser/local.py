@@ -95,7 +95,7 @@ def _holder_wrote_it(base: Path) -> bool:
 		port, path = (base / 'DevToolsActivePort').read_text(encoding='utf-8', errors='replace').split()[:2]
 		local = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # 127.0.0.1 itself, never an HTTP proxy
 		with local.open('http://127.0.0.1:%d/json/version' % int(port), timeout=1) as r:
-			ws = json.loads(r.read())['webSocketDebuggerUrl']
+			ws = json.loads(r.read(65536))['webSocketDebuggerUrl']  # ~500 bytes from Chrome
 		return urllib.parse.urlsplit(ws).path == path
 	except Exception:  # - 404, not a browser, no such field: not proven
 		return False
