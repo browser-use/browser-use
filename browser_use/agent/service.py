@@ -541,7 +541,9 @@ class Agent:
 					await self._shutdown()
 				else:
 					await asyncio.to_thread(self.browser.remember_tab)  # a daemon that dies before the next run reattaches it
-					if self.browser.use_cloud and self.browser.id:  # each run's files land in its own workspace
+					cancelled = (task := asyncio.current_task()) is not None and task.cancelling() > 0
+					# each run's files land in its own workspace; a cancelled run leaves them to browser.stop()
+					if self.browser.use_cloud and self.browser.id and not cancelled:
 						await self.browser._fetch_downloads(
 							self.workspace / 'downloads', self.browser._fetched, self._downloads, self.browser.id
 						)

@@ -1568,3 +1568,36 @@ async def test_a_cdp_url_nothing_answers_on_names_the_cdp_url(url, tmp_path):
 	assert result.status == 'error', result
 	assert 'cdp_url' in (result.error or '') and f'127.0.0.1:{port}' in result.error, result.error
 	assert 'start_remote_daemon' not in result.error and 's3cret' not in result.error, result.error
+
+
+async def test_a_cancelled_run_never_copies_cloud_downloads_before_the_stop(cloud, monkeypatch, tmp_path):
+	"""1.0.2: a cancelled run still listed and copied the cloud browser's downloads, before and after the PATCH stop;
+	a slow listing held the stop, and the billing, up to DOWNLOADS_TIMEOUT_S each."""
+	import asyncio
+	import time
+
+	fake = browser_mod._cloud
+
+	def slow_listing(path, method='GET', body=None):
+		if 'downloads' in path:
+			time.sleep(2)
+		return fake(path, method, body)
+
+	monkeypatch.setattr(browser_mod, '_cloud', slow_listing)
+	browser = Browser()
+	await browser.start()
+
+	async def run():
+		try:
+			await asyncio.sleep(30)
+		finally:  # as Agent.run's finally
+			await browser.stop(downloads_dir=tmp_path / 'downloads')
+
+	task = asyncio.ensure_future(run())
+	await asyncio.sleep(0.05)
+	t = time.monotonic()
+	task.cancel()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	assert time.monotonic() - t < 1.5 and stops(cloud) == ['/browsers/b1']
+	assert not [path for _, path, _ in cloud if 'downloads' in path]
