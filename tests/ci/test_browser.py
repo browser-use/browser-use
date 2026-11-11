@@ -1007,8 +1007,9 @@ async def test_a_cancelled_run_never_waits_for_a_running_download(cloud, monkeyp
 	assert time.monotonic() - t < 5 and stops(cloud) == ['/browsers/b1']
 
 
-async def test_a_cancelled_run_never_waits_for_cloud_download_collection(cloud, monkeypatch, tmp_path):
-	"""Cancellation must stop the billed browser even when listing completed downloads is stuck."""
+@pytest.mark.parametrize('keep_alive', [False, True])
+async def test_a_cancelled_run_never_waits_for_cloud_download_collection(cloud, monkeypatch, tmp_path, keep_alive):
+	"""Cancellation skips a stuck download listing, whether the browser stops or stays alive."""
 	import asyncio
 	import contextlib
 	import threading
@@ -1022,20 +1023,25 @@ async def test_a_cancelled_run_never_waits_for_cloud_download_collection(cloud, 
 		entered.set()
 		await asyncio.Event().wait()
 
-	agent = Agent('Wait for cancellation', llm=FunctionModel(model), workspace=tmp_path)
+	browser = Browser(keep_alive=keep_alive)
+	agent = Agent('Wait for cancellation', llm=FunctionModel(model), browser=browser, workspace=tmp_path)
 	task = asyncio.create_task(agent.run())
 	try:
 		await asyncio.wait_for(entered.wait(), 5)
 		task.cancel()
 		with pytest.raises(asyncio.CancelledError):
 			await asyncio.wait_for(asyncio.shield(task), 5)
-		assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+		assert stops(cloud) == ([] if keep_alive else ['/browsers/b1'])
+		assert (browser in browser_mod._LIVE) is keep_alive
+		assert not any('downloads' in path for _, path, _ in cloud)
 	finally:
 		release.set()
 		if not task.done():
 			task.cancel()
 		with contextlib.suppress(asyncio.CancelledError):
 			await task
+		await agent.close()
+		await browser.stop()
 
 
 async def test_start_after_a_cancelled_stop_never_overlaps_its_stop_thread(cloud, monkeypatch):

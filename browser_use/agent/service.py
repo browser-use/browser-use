@@ -420,7 +420,8 @@ class Agent:
 	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
 		"""Run the current task. max_steps: model requests; as in 0.x the last one is a delivery-only turn (max_steps=1
 		only delivers), and one delivery repair may follow it. timeout: seconds for the agent loop (model requests and
-		cells); starting the browser before it and stopping it (with cloud downloads) after it are not counted."""
+		cells); starting the browser before it and stopping it (with cloud downloads) after it are not counted.
+		Cancellation skips cloud download collection, including with keep_alive=True."""
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent.run')
 		if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
@@ -541,7 +542,8 @@ class Agent:
 					await self._shutdown()
 				else:
 					await asyncio.to_thread(self.browser.remember_tab)  # a daemon that dies before the next run reattaches it
-					if self.browser.use_cloud and self.browser.id:  # each run's files land in its own workspace
+					cancelled = (task := asyncio.current_task()) is not None and task.cancelling() > 0
+					if self.browser.use_cloud and self.browser.id and not cancelled:  # each run's files land in its own workspace
 						await self.browser._fetch_downloads(
 							self.workspace / 'downloads', self.browser._fetched, self._downloads, self.browser.id
 						)
