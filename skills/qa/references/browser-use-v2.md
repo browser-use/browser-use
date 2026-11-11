@@ -1,6 +1,6 @@
 # Browser Use v2 agent backend (recommended for QA)
 
-Run the QA test as an autonomous **Browser Use cloud agent** instead of driving browser-harness
+Run the QA test as an autonomous **Browser Use cloud agent** instead of driving `browser-use`
 step by step. It's purpose-built for QA: a **judge** evaluates pass/fail against expected
 behavior, and **structured output** forces the 1–5 score. It runs server-side, parallelizes, and
 returns step-by-step evidence (screenshots + actions).
@@ -21,15 +21,15 @@ back to the Claude subagent to avoid credits.
   finished | failed | stopped`, plus `output`, `judgeVerdict`, `judgement`, `steps[]`, `cost`.
 - Auth header on both: `X-Browser-Use-API-Key`.
 
-## Key resolution — via browser-harness (it stores the key)
+## Key resolution — via browser-use (it stores the key)
 
-The v2 API authenticates with `BROWSER_USE_API_KEY` — the same key `methodology.md` step 0 resolves
-(browser-harness's `.env`, the process env, or self-signup). The cleanest way to use
-*browser-harness's stored key* is to run the calls **inside a `browser-harness` heredoc**, where
-the key is already loaded into `os.environ` — no separate plumbing, no re-exporting. (Plain `curl`
-with `$BROWSER_USE_API_KEY` also works if it's exported. The v2 task itself runs on a Browser Use
-cloud browser, so no local Chrome is needed for the test — browser-harness here is just the key
-store + HTTP runtime.)
+The v2 API authenticates with the same Browser Use API key `methodology.md` step 0 resolves
+(`BROWSER_USE_API_KEY` in the process env, else the key `browser-use login` stored). Run the script
+with the **Python of the `browser-use` install** (`"$(uv tool dir)/browser-use/bin/python"` for
+`uv tool install browser-use`), so `browser_use.auth.browser_use_api_key()` resolves the key the
+same way the CLI does — no re-exporting, and the key is never printed. Don't run it as a
+`browser-use <<'PY'` heredoc: that attaches a browser before your code runs, and the v2 task
+needs none (it runs on a Browser Use cloud browser).
 
 ## Flow: create → poll → report
 
@@ -37,10 +37,10 @@ Fill in `task`, `startUrl` (the public URL — tunnel a localhost target first),
 `judgeGroundTruth` (what success looks like), then run:
 
 ```bash
-browser-harness <<'PY'
+"$(uv tool dir)/browser-use/bin/python" - <<'PY'
 import os, json, time, urllib.request, urllib.error, subprocess, sys
-KEY = os.environ.get("BROWSER_USE_API_KEY")
-assert KEY, "no BROWSER_USE_API_KEY — resolve it per methodology.md step 0"
+from browser_use.auth import browser_use_api_key
+KEY = browser_use_api_key()  # BROWSER_USE_API_KEY, else the `browser-use login` key; raises how to get one
 BASE = "https://api.browser-use.com/api/v2"
 
 def open_local(url):

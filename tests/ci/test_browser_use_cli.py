@@ -448,19 +448,45 @@ def test_browser_harness_hints_name_commands_this_install_has(monkeypatch, capsy
 			'in another shell or click Allow to continue.', file=sys.stderr)  # fmt: skip
 		print('browser-harness: fatal: see ~/.config/browser-harness/tmp/bu-w.log', file=sys.stderr)
 		print('cell output names browser-harness', file=sys.stderr)
+		print('usage: browser-harness is the cell printing')
 
 	monkeypatch.setattr(run, 'main', harness_main)
 	monkeypatch.setattr(sys, 'argv', ['browser-use'])
 	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
-	stderr = sys.stderr
+	stdout, stderr = sys.stdout, sys.stderr
 	cli._run_browser_harness('print(1)')
-	assert sys.stderr is stderr
-	assert capsys.readouterr().err.splitlines() == [
+	assert (sys.stdout, sys.stderr) == (stdout, stderr)
+	captured = capsys.readouterr()
+	assert captured.err.splitlines() == [
 		'browser-use: Chrome is asking "Allow remote debugging?" — run `BU_NAME=w browser-use mac-approve` in another '
 		'shell or click Allow to continue.',
 		'browser-use: fatal: see ~/.config/browser-harness/tmp/bu-w.log',
 		'cell output names browser-harness',
 	]
+	assert captured.out == 'usage: browser-harness is the cell printing\n'
+
+
+def test_harness_subcommand_usage_names_browser_use(monkeypatch, capsys):
+	"""Live: `browser-use video` printed argparse's `usage: browser-harness video ...` and `browser-harness video: error:
+	...`, `recordings bogus` `usage: browser-harness recordings ...`: not on PATH for `uv tool install browser-use`. A
+	subcommand prints only browser-harness's own text, so all of it names browser-use; paths stay real."""
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	from browser_use import cli
+
+	for argv, code, stream, first in (
+		(['video'], 2, 'err', 'usage: browser-use video [-h] {init,review,export} ...'),
+		(['video', 'init'], 2, 'err', 'usage: browser-use video init [-h] [--require-explicit] recording'),
+		(['video', '--help'], 0, 'out', 'usage: browser-use video [-h] {init,review,export} ...'),
+		(['recordings', 'bogus'], 2, 'err', 'usage: browser-use recordings [--latest|enable|disable]'),
+	):
+		monkeypatch.setattr(sys, 'argv', ['browser-use', *argv])
+		with pytest.raises(SystemExit) as exited:
+			cli.main()
+		captured = capsys.readouterr()
+		text = getattr(captured, stream)
+		assert exited.value.code == code and text.splitlines()[0] == first, (argv, captured)
+		assert 'browser-harness' not in captured.out + captured.err, (argv, captured)
+	assert cli._as_browser_use_cli_text('see ~/.config/browser-harness/auth.json') == 'see ~/.config/browser-harness/auth.json'
 
 
 def test_mac_approve_names_browser_use(monkeypatch, capsys):

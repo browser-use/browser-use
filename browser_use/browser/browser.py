@@ -878,7 +878,7 @@ class Browser:
 					) from None
 				raise RuntimeError(
 					f"Browser('chrome'): Chrome did not allow remote debugging within {LOCAL_START_WAIT_S:g}s. Click "
-					'Allow on its "Allow remote debugging?" prompt (macOS: or run `browser-harness mac-approve` in another '
+					'Allow on its "Allow remote debugging?" prompt (macOS: or run `browser-use mac-approve` in another '
 					f'shell), then run again. Detail: {e}'
 				) from None
 			# A daemon that was already running (started by `browser-use`, the MCP server, browser-harness itself or an

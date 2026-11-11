@@ -41,6 +41,9 @@ FEEDBACK_LINE = (
 	"'what happened'`: it goes straight to the Browser Use team. Never include secrets."
 )
 
+HARNESS_INSTALL_LINK = 'read https://github.com/browser-use/browser-harness/blob/main/install.md'  # the sentence's period follows
+SETUP_HELP = 'run `browser-use --doctor` and follow its output and the error message'
+
 
 def as_browser_use_skill(text: str) -> str:
 	"""Expose the Browser Harness skill under the Browser Use skill identity."""
@@ -75,6 +78,8 @@ def as_browser_use_skill(text: str) -> str:
 		lines.extend(OPENCLAW_METADATA_LINES)
 
 	body = body.replace('# browser-harness', '# Browser Use', 1).replace('# Browser Harness', '# Browser Use', 1)
+	# browser-harness's install.md installs and runs `browser-harness`, which `uv tool install browser-use` does not provide
+	body = body.replace(HARNESS_INSTALL_LINK, SETUP_HELP)
 	# Rebrand every mention except repo URLs (github.com/browser-use/browser-harness/...)
 	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
@@ -96,6 +101,6 @@ def skill_text() -> str:
 		text = resources.files('browser_harness').joinpath('SKILL.md').read_text(encoding='utf-8')
 	except ModuleNotFoundError as exc:
 		raise RuntimeError(
-			'The Browser Use skill relies on the browser-harness package. Install browser-use again or install `browser-harness`.'
+			'The Browser Use skill relies on the browser-harness package. Install browser-use again: uv tool install --force browser-use'
 		) from exc
 	return as_browser_use_skill(text)

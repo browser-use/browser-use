@@ -221,7 +221,7 @@ def _run_mcp_error_server(message: str) -> None:
 	tools = [
 		types.Tool(
 			name='browser_exec',
-			description='Execute Python in the browser-harness session.',
+			description='Execute Python in the browser-use session.',
 			input_schema={'type': 'object', 'properties': {'code': {'type': 'string'}}, 'required': ['code']},
 		),
 		types.Tool(**feedback.MCP_TOOL),  # browser-use being broken is what feedback is for
@@ -324,8 +324,8 @@ def _run_install_command(argv: list[str]) -> int:
 
 
 LOGIN_DONE = (
-	'Signed in. One key for the library (default model and cloud browser), this CLI, the MCP server\n'
-	'(browser-use --cli-mcp) and browser-harness. Try it in Python:\n'
+	'Signed in. One key for the library (default model and cloud browser), this CLI and the MCP server\n'
+	'(browser-use --cli-mcp). Try it in Python:\n'
 	'  from browser_use import Agent\n'
 	"  print(Agent('Find the top story on Hacker News').run_sync().final_result())"
 )
@@ -563,14 +563,17 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 
 
 class _HarnessStderr:
-	"""sys.stderr while browser-harness runs piped code. Its own lines ("browser-harness: ...", the macOS Allow-popup
-	hint `run browser-harness mac-approve`) named a command `uv tool install browser-use` does not put on PATH."""
+	"""sys.stderr (and sys.stdout for a subcommand) while browser-harness runs. Its own lines ("browser-harness: ...",
+	the macOS Allow-popup hint `run browser-harness mac-approve`, `usage: browser-harness video ...`) named a command
+	`uv tool install browser-use` does not put on PATH. For piped code only its "browser-harness: " lines are its own;
+	a subcommand (video, recordings, --reload) prints nothing but its own text."""
 
-	def __init__(self, wrapped):
+	def __init__(self, wrapped, subcommand: bool = False):
 		self._wrapped = wrapped
+		self._subcommand = subcommand
 
 	def write(self, text):
-		if text.startswith('browser-harness: '):  # not the cell's own output
+		if self._subcommand or text.startswith('browser-harness: '):  # not the cell's own output
 			text = _as_browser_use_cli_text(text)
 		return self._wrapped.write(text)
 
@@ -618,11 +621,15 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 			print('usage: browser-use doctor [--fix-snap]', file=sys.stderr)
 			sys.exit(2)
 	_delegated_to_harness = True
-	stderr, sys.stderr = sys.stderr, _HarnessStderr(sys.stderr)
+	subcommand = bool(args) and args[0] != '--debug-clicks'  # --debug-clicks still runs piped code
+	stdout, stderr = sys.stdout, sys.stderr
+	sys.stderr = _HarnessStderr(stderr, subcommand)
+	if subcommand:  # `video --help`, `video init`'s "next: ... run browser-harness video review"
+		sys.stdout = _HarnessStderr(stdout, subcommand)
 	try:
 		run.main()
 	finally:
-		sys.stderr = stderr
+		sys.stdout, sys.stderr = stdout, stderr
 	return None
 
 
@@ -762,7 +769,7 @@ You can also paste this into your agent to get started:
 
   Install browser-use with `uv tool install browser-use=={version}`, run `browser-use skill install`
   to register the skill, and connect it to my browser. If setup or connection fails,
-  follow https://github.com/browser-use/browser-harness/blob/main/install.md
+  run `browser-use --doctor` and follow its output and the error message.
 
 More:
   browser-use login        sign in once for cloud browsers and the default model
