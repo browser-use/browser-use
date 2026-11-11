@@ -186,7 +186,7 @@ def _run_mcp_server(command: str = 'browser-use --mcp') -> int:
 	# Chrome, or go to sites it was kept off.
 	print(
 		f'{command} is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
-		'browser_login) on its own Chromium; browser-use --cli-mcp drives your own Chrome instead.',
+		'browser_login, browser_feedback) on its own Chromium; browser-use --cli-mcp drives your own Chrome instead.',
 		file=sys.stderr,
 	)
 	from browser_use.domains import DomainRules
@@ -207,26 +207,34 @@ def _run_cli_mcp_server() -> None:
 
 def _run_mcp_error_server(message: str) -> None:
 	"""--cli-mcp / --mcp where nothing can run (browser-harness cannot create its dirs): a server that starts and answers
-	every tool call with message. Exiting before initialize left message in the MCP host's log and showed the agent
-	only 'Connection closed'."""
+	every tool call with message, but browser_feedback, which still reports. Exiting before initialize left message in
+	the MCP host's log and showed the agent only 'Connection closed'."""
 	import asyncio
 
 	import mcp.server.stdio
 	import mcp.types as types
 	from mcp.server import Server
 
+	from browser_use.telemetry import feedback
+
 	server = Server('browser-use', version=_browser_use_version(), instructions=message)
-	tool = types.Tool(
-		name='browser_exec',
-		description='Execute Python in the browser-harness session.',
-		input_schema={'type': 'object', 'properties': {'code': {'type': 'string'}}, 'required': ['code']},
-	)
+	tools = [
+		types.Tool(
+			name='browser_exec',
+			description='Execute Python in the browser-use session.',
+			input_schema={'type': 'object', 'properties': {'code': {'type': 'string'}}, 'required': ['code']},
+		),
+		types.Tool(**feedback.MCP_TOOL),  # browser-use being broken is what feedback is for
+	]
 
 	async def list_tools(_context: Any, _params: Any) -> types.ListToolsResult:
-		return types.ListToolsResult(tools=[tool])
+		return types.ListToolsResult(tools=tools)
 
-	async def call_tool(_context: Any, _params: Any) -> types.CallToolResult:
-		return types.CallToolResult(content=[types.TextContent(type='text', text=f'Error: {message}')], is_error=True)
+	async def call_tool(_context: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
+		text, failed = f'Error: {message}', True
+		if params.name == 'browser_feedback':
+			text, failed = feedback.mcp_call(params.arguments or {})
+		return types.CallToolResult(content=[types.TextContent(type='text', text=text)], is_error=failed)
 
 	server.add_request_handler('tools/list', types.PaginatedRequestParams, list_tools)
 	server.add_request_handler('tools/call', types.CallToolRequestParams, call_tool)
@@ -316,8 +324,8 @@ def _run_install_command(argv: list[str]) -> int:
 
 
 LOGIN_DONE = (
-	'Signed in. One key for the library (default model and cloud browser), this CLI, the MCP server\n'
-	'(browser-use --cli-mcp) and browser-harness. Try it in Python:\n'
+	'Signed in. One key for the library (default model and cloud browser), this CLI and the MCP server\n'
+	'(browser-use --cli-mcp). Try it in Python:\n'
 	'  from browser_use import Agent\n'
 	"  print(Agent('Find the top story on Hacker News').run_sync().final_result())"
 )
@@ -418,6 +426,49 @@ def _run_init_command(argv: list[str]) -> int:
 	return 2
 
 
+def _run_feedback_command(argv: list[str]) -> int:
+	"""`browser-use feedback "what happened"` (or the text piped on stdin): one library_feedback event to the Browser Use
+	team, also with usage stats off (the user sends it). Waits for the send, so the line it prints is true."""
+	import argparse
+
+	from browser_use.telemetry import feedback
+	from browser_use.telemetry.service import telemetry
+
+	parser = argparse.ArgumentParser(
+		prog='browser-use feedback',
+		description='Tell the Browser Use team what went wrong with browser-use. Secrets, API keys, emails, URL queries '
+		'and home folders in the text are replaced before it is sent.',
+	)
+	parser.add_argument('message', nargs='*', help='what happened (or pipe it on stdin)')
+	parser.add_argument('--category', choices=feedback.CATEGORIES, default='bug')
+	args = parser.parse_args(argv)
+	if not args.message and isinstance(sys.stdin, TextIOWrapper) and not sys.stdin.isatty():
+		sys.stdin.reconfigure(encoding='utf-8-sig', errors='replace')  # Windows read a pipe as cp1252 (see _dispatch)
+	text = ' '.join(args.message) or ('' if _stdin_is_terminal() else sys.stdin.read())
+	if not text.strip():
+		parser.print_usage(sys.stderr)
+		print(
+			"browser-use feedback: say what happened, e.g. browser-use feedback 'goto_url hangs on example.com'", file=sys.stderr
+		)
+		return 2
+	sender = telemetry()
+	sender.notice = False  # the CLI's stderr stays its own
+	job = feedback.capture('cli', text, args.category, consent=True)
+	if job is None:  # run by a model's code (BU_MODEL_CODE)
+		print(feedback.MODEL_CODE, file=sys.stderr)
+		return 1
+	if not sender.flush(10) or job.sent is None:  # still sending at exit: the exit sender takes it
+		print('Sending your feedback to the Browser Use team in the background. Thanks!')
+	elif job.sent:
+		print('Sent your feedback to the Browser Use team. Thanks!')
+	elif sender.enabled:  # kept in the outbox
+		print('Could not reach the Browser Use team now; your feedback is saved and sent on the next browser-use run.')
+	else:
+		print('Could not reach the Browser Use team; nothing was sent. Try again later.', file=sys.stderr)
+		return 1
+	return 0
+
+
 def _as_browser_use_cli_text(text: str) -> str:
 	"""Rebrand command names in browser-harness output; paths (~/.config/browser-harness/auth.json) stay real."""
 	import re
@@ -512,14 +563,17 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 
 
 class _HarnessStderr:
-	"""sys.stderr while browser-harness runs piped code. Its own lines ("browser-harness: ...", the macOS Allow-popup
-	hint `run browser-harness mac-approve`) named a command `uv tool install browser-use` does not put on PATH."""
+	"""sys.stderr (and sys.stdout for a subcommand) while browser-harness runs. Its own lines ("browser-harness: ...",
+	the macOS Allow-popup hint `run browser-harness mac-approve`, `usage: browser-harness video ...`) named a command
+	`uv tool install browser-use` does not put on PATH. For piped code only its "browser-harness: " lines are its own;
+	a subcommand (video, recordings, --reload) prints nothing but its own text."""
 
-	def __init__(self, wrapped):
+	def __init__(self, wrapped, subcommand: bool = False):
 		self._wrapped = wrapped
+		self._subcommand = subcommand
 
 	def write(self, text):
-		if text.startswith('browser-harness: '):  # not the cell's own output
+		if self._subcommand or text.startswith('browser-harness: '):  # not the cell's own output
 			text = _as_browser_use_cli_text(text)
 		return self._wrapped.write(text)
 
@@ -567,11 +621,15 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 			print('usage: browser-use doctor [--fix-snap]', file=sys.stderr)
 			sys.exit(2)
 	_delegated_to_harness = True
-	stderr, sys.stderr = sys.stderr, _HarnessStderr(sys.stderr)
+	subcommand = bool(args) and args[0] != '--debug-clicks'  # --debug-clicks still runs piped code
+	stdout, stderr = sys.stdout, sys.stderr
+	sys.stderr = _HarnessStderr(stderr, subcommand)
+	if subcommand:  # `video --help`, `video init`'s "next: ... run browser-harness video review"
+		sys.stdout = _HarnessStderr(stdout, subcommand)
 	try:
 		run.main()
 	finally:
-		sys.stderr = stderr
+		sys.stdout, sys.stderr = stdout, stderr
 	return None
 
 
@@ -711,7 +769,7 @@ You can also paste this into your agent to get started:
 
   Install browser-use with `uv tool install browser-use=={version}`, run `browser-use skill install`
   to register the skill, and connect it to my browser. If setup or connection fails,
-  follow https://github.com/browser-use/browser-harness/blob/main/install.md
+  run `browser-use --doctor` and follow its output and the error message.
 
 More:
   browser-use login        sign in once for cloud browsers and the default model
@@ -745,7 +803,9 @@ Commands:
   browser-use install                 install Chromium for the library's Browser('chromium') (Playwright's build)
   browser-use skill [show | install [--target NAME] [--path DIR] [--install-cli]]
                                       print or install the agent skill
-  browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login)
+  browser-use feedback "what happened" [--category bug|docs|missing|other]
+                                      tell the Browser Use team what went wrong with browser-use
+  browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback)
   browser-use --version               print the versions
 Update: uv tool upgrade browser-use (or pip install -U browser-use).
 Library: from browser_use import Agent, see https://github.com/browser-use/browser-use"""
@@ -813,6 +873,8 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		from browser_use.skills.install import handle as handle_skill_command
 
 		return handle_skill_command(args[1:]), 'skill'
+	if args and args[0] == 'feedback':
+		return _run_feedback_command(args[1:]), 'feedback'
 
 	legacy = _legacy_command(args)
 	if legacy is not None:

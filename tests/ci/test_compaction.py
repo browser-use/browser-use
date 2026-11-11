@@ -74,7 +74,9 @@ def checkpoint_text(request) -> str | None:
 	return first.content if isinstance(first, UserPromptPart) and first.content.startswith('Conversation checkpoint') else None
 
 
-@pytest.mark.parametrize('kw', [{'compact_at_tokens': 4500}, {'window': 8000}])  # 0.65 * 8000 = 5200 tokens
+@pytest.mark.parametrize(
+	'kw', [{'compact_at_tokens': 4700}, {'window': 8000}]
+)  # 0.65 * 8000 = 5200 tokens; 4700: the system prompt and tools are ~2.2k of the 4.5k after compaction
 async def test_compacts_past_the_threshold_keeping_tool_pairs_and_user_messages(tmp_path, kw):
 	fn, agent_requests, summarizer_requests = scripted(big={3})
 	result = await go(tmp_path, fn, **kw)
@@ -214,7 +216,7 @@ def test_agent_passes_max_context_chars_to_compaction():
 
 async def test_archive_is_written_redacted_and_without_images(tmp_path):
 	fn, agent_requests, _ = scripted(big={3})
-	await go(tmp_path, fn, compact_at_tokens=4500)
+	await go(tmp_path, fn, compact_at_tokens=4700)
 	(archive,) = (tmp_path / '.browser-use' / 'context').glob('*.json')
 	assert json.dumps(str(archive)) in checkpoint_text(agent_requests[3])
 	raw = archive.read_text()
@@ -230,7 +232,7 @@ async def test_summarizer_failure_keeps_the_history_and_is_tried_again(tmp_path,
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
 	fn, agent_requests, summarizer_requests = scripted(big={3, 4, 5}, fail=True)  # past the threshold from request 3 on
 	with caplog.at_level(logging.WARNING, logger='browser_use.agent.loop'):
-		result = await go(tmp_path, fn, compact_at_tokens=4500)
+		result = await go(tmp_path, fn, compact_at_tokens=4700)
 	assert result.status == 'completed' and result.output == 'done', result.error
 	assert len(summarizer_requests) == 3 and not any(map(checkpoint_text, agent_requests))
 	assert len(agent_requests[3]) == 7 and agent_requests[3][0].parts[-1].content == 'TASK-TEXT'  # full history
@@ -306,7 +308,7 @@ def test_size_and_archive_count_only_message_content():
 async def test_summarizer_runs_at_low_effort_with_bu_pi_limits_and_no_cache_write(tmp_path):
 	fn, _, _ = scripted(big={3})
 	settings = {'cache': True, 'openai_reasoning_effort': 'high', 'temperature': 0.3}
-	await go(tmp_path, fn, compact_at_tokens=4500, model_settings=settings)
+	await go(tmp_path, fn, compact_at_tokens=4700, model_settings=settings)
 	(seen,) = fn.settings
 	assert 'cache' not in seen and 'tool_choice' not in seen
 	assert {k: seen.get(k) for k in ('openai_reasoning_effort', 'max_tokens', 'request_timeout', 'temperature')} == {
@@ -333,7 +335,7 @@ async def test_follow_up_run_keeps_sending_the_checkpoint(tmp_path, monkeypatch)
 
 	monkeypatch.setattr(Browser, 'start', start)
 	monkeypatch.setattr(Browser, 'stop', stop)
-	monkeypatch.setattr(service, 'build_agent', partial(build_agent, compact_at_tokens=4500))
+	monkeypatch.setattr(service, 'build_agent', partial(build_agent, compact_at_tokens=4700))
 	fn, agent_requests, summarizer_requests = scripted(big={3}, code=lambda i: f'print("step{i}", "." * 2000)')
 	agent = Agent('TASK-1', FunctionModel(fn), browser=Browser(local=True, keep_alive=True), workspace=tmp_path)
 	try:
