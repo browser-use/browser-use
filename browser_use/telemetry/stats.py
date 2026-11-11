@@ -167,7 +167,8 @@ def scrub(
 	"""Text as sent: the task text (or each of the agent's tasks) quoted whole, and each run of TASK_WORDS of its
 	words, as <task>; the run's secrets as <secret:name> (redact_forms with its secret_forms); text the agent typed
 	as <typed>, also in a URL path's forms (pizza+near+me); a URL's user:password@, ;params, query and fragment dropped,
-	and a path's query; a URL path's tokens as <token> (_path_tokens); a home folder's user name as <user>; emails as
+	and a path's query; a URL path's tokens as <token> (_path_tokens); a home folder's user name as <user> (another
+	$HOME as ~); emails as
 	<email>; API keys, bearer tokens, cookies, password=... values and the values of this process's *_KEY, *_TOKEN,
 	*_SECRET and *_PASSWORD environment variables as <credential>; runs of 6+ digits (a phone, card, IBAN, one-time
 	code) as <number>; then cut to limit characters. Cut last: a secret cut
@@ -205,6 +206,9 @@ def _scrub(text: str, forms: list[tuple[str, str]], tasks: tuple[str, ...], type
 	out = EXPRESSION.sub('; expression: <code>', out)
 	out = URL.sub(_url, out)
 	out = QUERY.sub(r'\1', out)
+	home = os.path.expanduser('~').rstrip('/\\')
+	if len(home) > 1 and not HOME.fullmatch(home):  # a home HOME does not cover (/var/lib/jenkins, /data/users/jane) as ~
+		out = re.sub(rf'(?:(?<=file://)|(?<![\w./-])){re.escape(home)}(?![^/\\\s\'"<>`:])', '~', out)
 	out = HOME.sub(lambda m: m[1] + '<user>', out)
 	out = BEARER.sub(lambda m: m[1] + m[2] + '<credential>', out)  # first: 'Authorization: Bearer <token>'
 	out = AUTHORIZATION.sub(lambda m: m[1] + '<credential>', out)
