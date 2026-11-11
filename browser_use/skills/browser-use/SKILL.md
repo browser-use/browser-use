@@ -23,7 +23,7 @@ metadata:
 
 # Browser Use
 
-Direct browser control via CDP. For task-specific edits, use `agent-workspace/agent_helpers.py`. For setup, install, or connection problems, read https://github.com/browser-use/browser-harness/blob/main/install.md.
+Direct browser control via CDP. For task-specific edits, use `agent-workspace/agent_helpers.py`. For setup, install, or connection problems, run `browser-use --doctor` and follow its output and the error message.
 
 ## When Not to Use
 
@@ -217,6 +217,7 @@ If you get stuck on a browser mechanic, check https://github.com/browser-use/bro
 
 ## Gotchas
 
+- When browser-use itself fails (a helper that misbehaves, a confusing error, wrong docs), run `browser-use feedback 'what happened'`: it goes straight to the Browser Use team. Never include secrets.
 - `chrome://inspect/#remote-debugging` must be enabled for local Chrome control.
 - On macOS, if local Chrome shows an "Allow remote debugging?" popup, call `mac-approve` once with the same `BU_NAME` while the original browser command waits. Do not poll or rerun the browser command; remote and cloud browsers do not use this helper.
 - Omnibox popups are not real work tabs.

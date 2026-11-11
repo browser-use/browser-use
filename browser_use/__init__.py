@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 	from browser_use.agent import Agent, AgentHistoryList
 	from browser_use.browser import Browser
 	from browser_use.llm import ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
+	from browser_use.telemetry.feedback import feedback
 	from browser_use.tools import ActionResult, Controller, Tools
 
 _LAZY_IMPORTS = {
@@ -36,6 +37,7 @@ _LAZY_IMPORTS = {
 	'ChatOpenAI': 'browser_use.llm',
 	'ChatAnthropic': 'browser_use.llm',
 	'ChatGoogle': 'browser_use.llm',
+	'feedback': 'browser_use.telemetry.feedback',
 }
 _BEDROCK = "llm='bedrock:<model id>' (pip install 'pydantic-ai-slim[bedrock]'; AWS credentials and AWS_DEFAULT_REGION)."
 _LLM_REMOVED = {  # each 0.x provider class -> its Pydantic AI model string, or ChatOpenAI for an OpenAI-compatible server
@@ -97,4 +99,5 @@ __all__ = [
 	'ChatOpenAI',
 	'ChatAnthropic',
 	'ChatGoogle',
+	'feedback',
 ]

@@ -156,10 +156,11 @@ def test_default_prompt_unchanged():
 	from this machine, not the browser, and returns bytes for binary: C31; native <select> is set in page code, never
 	clicked: C34; downloads are checked with downloads(), not Browser.downloadProgress events, which a cell drained
 	before they arrived, so the model clicked again; uploads take the task's existing file, which the agent never creates
-	or overwrites, without the hand-written DataTransfer fallback upload_file now does itself: t8_files)."""
+	or overwrites, without the hand-written DataTransfer fallback upload_file now does itself: t8_files; report_issue()
+	tells the Browser Use team when browser-use gets in the agent's way, a missing helper included: library_feedback)."""
 	default = static_instructions(build_agent())
 	assert default == [SYSTEM_PROMPT] == static_instructions(build_agent(mode='default'))
-	assert hashlib.sha256(default[0].encode()).hexdigest() == 'ede89c21572d7ecf37ad2f24a61c529a54a82bbf01d0f715082afcde33ce970b'
+	assert hashlib.sha256(default[0].encode()).hexdigest() == '01cd1da6278fdb263bcca92a24adf61a949efd26445a54a8cfab373a1c506023'
 	assert static_instructions(build_agent(instructions='X')) == [f'{SYSTEM_PROMPT}\nX']
 	assert static_instructions(build_agent(mode='ultrafast')) == [(SYSTEM_PROMPT + AX_PROMPT).rstrip()]
 	assert static_instructions(build_agent(mode='ultrafast', instructions='X')) == [f'{SYSTEM_PROMPT}{AX_PROMPT}\nX']

@@ -205,6 +205,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	urls_visited: list[str] = field(default_factory=list)  # scheme://host/path, in order, once; 50 at most, 200 chars each
 	error_messages: list[str] = field(default_factory=list)  # the run's error, then each failed cell's; 20, 300 chars each
 	final_result: str | None = None  # the result text (structured output as JSON), 500 chars
+	feedback_count: int = 0  # report_issue() calls sent as library_feedback during the run
 
 	name: str = 'agent_event'
 
@@ -215,7 +216,7 @@ class MCPToolCallEvent(BaseTelemetryEvent):
 	duration_seconds fields. Never the code, its output or arguments; the error message is scrubbed (stats.scrub)."""
 
 	version: str
-	tool_name: str  # browser_exec, browser_screenshot, browser_login, a 0.x tool name, or 'invalid'
+	tool_name: str  # browser_exec, browser_screenshot, browser_login, browser_feedback, a 0.x tool name, or 'invalid'
 	duration_seconds: float
 	ok: bool  # the result was not an error
 	# exception class (as in agent_event's cell_error_types), CancelledError for a cancelled call; invalid_arguments or
@@ -230,6 +231,24 @@ class MCPToolCallEvent(BaseTelemetryEvent):
 	error_message: str | None = None  # the exception's message (or the rejected arguments' error), 300 chars
 
 	name: str = 'mcp_server_event'
+
+
+@dataclass
+class FeedbackEvent(BaseTelemetryEvent):
+	"""One report of what went wrong with browser-use itself (telemetry/feedback.py), in the words of the agent's model,
+	the developer or an MCP client, scrubbed (stats.scrub)."""
+
+	version: str
+	source: str  # agent (report_issue) | python (browser_use.feedback) | cli (browser-use feedback) | mcp (browser_feedback)
+	message: str  # 2000 chars
+	category: str  # bug | docs | missing | other
+	is_internal: bool
+	model: str | None = None  # agent only, as agent_event sends it
+	run_id: str | None = None  # agent only: joins this run's agent_event
+	step: int | None = None  # agent only: the model response whose cell reported it
+	last_error_type: str | None = None  # agent only: the class of the run's last failed cell
+
+	name: str = 'library_feedback'
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here
