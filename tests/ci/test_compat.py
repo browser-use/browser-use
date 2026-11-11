@@ -688,6 +688,15 @@ def test_action_result_include_extracted_content_only_once_says_it_is_ignored(mo
 	assert result.model_dump(exclude_none=True) == {'extracted_content': 'x', 'long_term_memory': 'short'}
 
 
+def test_action_result_drops_every_ignored_field_not_only_the_first(monkeypatch):
+	"""0.x actions often set both ignored fields: ActionResult(include_in_memory=True,
+	include_extracted_content_only_once=False). Only the first was dropped; the second stayed as an extra field and
+	reached the model in the result JSON."""
+	monkeypatch.setattr('browser_use.tools._warned', set())  # keep the once-per-process warnings for the tests after
+	result = ActionResult(extracted_content='x', include_in_memory=True, include_extracted_content_only_once=False)
+	assert result.model_dump(exclude_none=True) == {'extracted_content': 'x'}
+
+
 async def test_action_result_include_in_memory_warns_and_the_run_goes_on(tmp_path, monkeypatch, caplog):
 	"""rr-legacy L08 / error contract: a 0.x action returning ActionResult(include_in_memory=True) (examples/custom-functions
 	style) ended the run with status 'error' after the browser had started and was billed. 1.0 keeps every result in the
