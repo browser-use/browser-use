@@ -5,6 +5,7 @@ Run with: browser-use --cli-mcp
 import asyncio
 import base64
 import contextvars
+import errno
 import functools
 import locale
 import os
@@ -141,6 +142,14 @@ _call_errors: contextvars.ContextVar[list[tuple[str, str]] | None] = contextvars
 	'browser_use_mcp_errors', default=None
 )
 TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login', 'browser_feedback')
+
+
+def _client_gone(e: BaseException) -> bool:
+	"""Writing to the client failed because it closed its end of the pipe: it quit, or gave up waiting for a reply (a
+	slow first start). Windows can report that as EINVAL instead of EPIPE (CPython bpo-35754)."""
+	if isinstance(e, BrokenPipeError | ConnectionResetError):
+		return True
+	return os.name == 'nt' and isinstance(e, OSError) and e.errno == errno.EINVAL
 
 
 def _error_class(e: BaseException) -> str:
@@ -858,8 +867,6 @@ class CLIMCPServer:
 					write_stream,
 					self.server.create_initialization_options(),
 				)
-			except BrokenPipeError:
-				pass
 			finally:
 				sys.stdout = stdout
 				# Windows: the client closed the session; stop the cloud browser before exiting, not only from the reaper (the
@@ -876,7 +883,11 @@ async def main(own_browser: bool = False, **browser_options: Any):
 	os.environ.setdefault('BH_CLIENT', 'browser-use-mcp')
 	os.environ['BU_MODEL_CODE'] = '1'  # browser_exec runs the client model's code: its browser_use.feedback() is not consent
 	server = CLIMCPServer(own_browser, **browser_options)
-	await server.run()
+	try:
+		await server.run()
+	except* OSError as group:  # the mcp library's task group raises a failed write inside an ExceptionGroup
+		if (rest := group.split(_client_gone)[1]) is not None:
+			raise rest from None
 
 
 if __name__ == '__main__':

@@ -602,3 +602,30 @@ def test_a_malformed_bh_dir_override_keeps_the_bh_home_hint(monkeypatch, tmp_pat
 	monkeypatch.setenv('BH_CONFIG_DIR', '~nosuchuser_bu101/cfg')
 	assert harness_dir_setting(tmp_path / 'x') == 'BH_HOME'
 	assert harness_dir_setting('~nosuchuser_bu101/x') == 'BH_HOME'
+
+
+def test_cli_mcp_exits_cleanly_when_the_client_is_gone_before_the_reply():
+	"""11-11: 3.2% of 1.0.2 devices (1.7% of 1.0.1's) had --cli-mcp exit 1 with an ExceptionGroup traceback: the client
+	closed its end of the pipe (it quit, or gave up waiting for initialize) and the reply's write raised BrokenPipeError
+	inside the mcp library's task group, past the server's `except BrokenPipeError`. A client leaving is a normal exit."""
+	init = {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '1'}}
+	env = {**os.environ, 'PYTHONPATH': os.pathsep.join(p for p in (str(ROOT), os.environ.get('PYTHONPATH', '')) if p)}
+	server = subprocess.Popen(
+		[sys.executable, '-m', 'browser_use.cli', '--cli-mcp'],
+		stdin=subprocess.PIPE,
+		stdout=subprocess.PIPE,
+		stderr=subprocess.PIPE,
+		cwd=ROOT,
+		env=env,
+	)
+	assert server.stdin and server.stdout and server.stderr
+	server.stdout.close()  # the client is gone: nothing reads the reply
+	server.stdin.write(json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': init}).encode() + b'\n')
+	server.stdin.close()
+	try:
+		server.wait(60)
+	finally:
+		server.kill()
+	err = server.stderr.read()
+	server.stderr.close()
+	assert (server.returncode, b'Traceback' in err) == (0, False), err.decode(errors='replace')
