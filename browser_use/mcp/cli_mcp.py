@@ -273,6 +273,19 @@ def _install_chromium() -> float:
 	return time.monotonic() - started
 
 
+def no_browser_text(what: str, e: Exception, cloud: str) -> str:
+	"""One line (a Chrome log tail has several) when nothing can be driven: what could not start, why, and the fix.
+	--cli-mcp and the CLI."""
+	reason = ' '.join((str(e) or type(e).__name__).split()).rstrip('.')
+	how = (
+		'sudo apt-get install -y libatomic1 && browser-use install' if sys.platform.startswith('linux') else 'browser-use install'
+	)
+	return (
+		f'No browser to drive: {what} could not start: {reason}. Install Google Chrome or Chromium on this machine (or run '
+		f'`{how}`){cloud}.'
+	)
+
+
 def _cloud_hint() -> str:
 	"""The way to a cloud browser: start_remote_daemon() only when a key is there for it to use."""
 	try:
@@ -681,19 +694,9 @@ class CLIMCPServer:
 		return await browser.start()
 
 	def _no_browser(self, e: Exception) -> NoBrowserError:
-		reason = ' '.join((str(e) or type(e).__name__).split()).rstrip('.')  # one line: a Chrome log tail has several
 		chrome = f'no Chrome to attach ({self._fallback}), and ' if self._fallback else ''
 		rules = self._browser is not None and self._browser.domains
-		cloud = '' if rules else f', or {_cloud_hint()}'
-		how = (
-			'sudo apt-get install -y libatomic1 && browser-use install'
-			if sys.platform.startswith('linux')
-			else 'browser-use install'
-		)
-		return NoBrowserError(
-			f"No browser to drive: {chrome}this server's own Chromium could not start: {reason}. Install Google Chrome or "
-			f'Chromium on this machine (or run `{how}`){cloud}.'
-		)
+		return NoBrowserError(no_browser_text(f"{chrome}this server's own Chromium", e, '' if rules else f', or {_cloud_hint()}'))
 
 	def _browser_note(self) -> str | None:
 		"""The browser now in use, once per change, for the browser_exec result: None for a cloud browser (its start said)."""

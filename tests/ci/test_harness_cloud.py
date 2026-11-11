@@ -1102,10 +1102,55 @@ def test_cli_on_a_headless_box_runs_its_own_chromium_and_the_next_call_gets_the_
 		assert "browser-use's own Chromium on a temp profile, not your Chrome (no display here" in first.stderr, first.stderr
 		second = _cli(stdin='print(page_info()["title"])\n', env=env, unset=unset)  # a new process: same browser and tab
 		assert second.returncode == 0 and second.stdout == 'first call\n' and 'own Chromium' not in second.stderr, second.stderr
+		# it is never taken for the user's Chrome: --cli-mcp still says why it runs its own, Browser('chrome') still refuses
+		check = 'from browser_use.mcp.cli_mcp import _no_chrome_here as n; print(n())\nfrom browser_use.browser.local import require_debug_port_unless_attached as r\ntry:\n r()\nexcept RuntimeError as e:\n print(str(e)[:22])'
+		other = subprocess.run(
+			[sys.executable, '-c', check],
+			cwd=ROOT,
+			env={k: v for k, v in {**os.environ, **env}.items() if k not in unset},
+			capture_output=True,
+			text=True,
+			timeout=60,
+		)
+		assert other.stdout == 'no display here to turn on remote debugging in a Chrome\nremote-debugging-setup\n', other
 	finally:
 		reload = _cli('--reload', stdin='', env=env, unset=unset)
 	assert reload.returncode == 0, reload.stderr
 	assert not [d for d in runtime.glob('*.chromium') if daemon._devtools_port_live(d)], 'its Chromium outlived --reload'
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='flock')
+def test_cli_never_launches_a_second_chromium_while_another_call_still_starts_one(monkeypatch, tmp_path):
+	"""A cold call that waited out the lock (another still installing Chromium) ran the launch unlocked: it wiped the
+	profile the first call was starting and launched a second Chromium."""
+	import fcntl
+
+	from browser_harness import admin
+
+	from browser_use import cli, harness_cloud
+	from browser_use.browser import local
+
+	for k in ('BU_NAME', 'BU_CDP_URL', 'BU_CDP_WS'):
+		monkeypatch.delenv(k, raising=False)
+	real_lock = admin._spawn_lock
+	monkeypatch.setattr(admin, '_spawn_lock', lambda name=None, timeout=30.0: real_lock(name, timeout=0.3))
+	monkeypatch.setattr(cli, '_own_chromium_dir', lambda: tmp_path / 'bu-default-chromium.chromium')
+	monkeypatch.setattr(admin, 'require_existing_daemon', lambda name=None: (_ for _ in ()).throw(RuntimeError('none')))
+	monkeypatch.setattr(harness_cloud, 'was_cloud', lambda name: False)
+	monkeypatch.setattr(local, 'has_display', lambda: False)
+	monkeypatch.setattr(local, 'live_debug_dirs', lambda: [])
+	monkeypatch.setattr(cli, '_start_own_chromium', lambda why, setup: pytest.fail('launched a second Chromium'))
+
+	def users_chrome(wait=None, name=None, env=None):
+		raise RuntimeError('remote-debugging-setup: no browser here has remote debugging on')
+
+	held = os.open(tmp_path / 'bu-default-chromium.chromiumlock', os.O_CREAT | os.O_RDWR, 0o600)
+	fcntl.flock(held, fcntl.LOCK_EX)  # the first call, still starting it
+	try:
+		with pytest.raises(RuntimeError, match='^daemon-starting: '):
+			cli._with_own_chromium(users_chrome, {'NAME': 'default'})()
+	finally:
+		os.close(held)
 
 
 def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
