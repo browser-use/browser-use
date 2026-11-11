@@ -688,6 +688,19 @@ def test_action_result_include_extracted_content_only_once_says_it_is_ignored(mo
 	assert result.model_dump(exclude_none=True) == {'extracted_content': 'x', 'long_term_memory': 'short'}
 
 
+def test_action_result_drops_and_names_every_ignored_field(monkeypatch, caplog):
+	"""#6379: only the first ignored 0.x field was dropped; the second stayed an extra field, reached the model in the
+	tool-result JSON, and was never warned about."""
+	from browser_use import tools as tools_mod
+
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	monkeypatch.setattr(tools_mod, '_warned', set())  # warned once per process: earlier tests may have used it up
+	result = ActionResult(extracted_content='x', include_in_memory=True, include_extracted_content_only_once=False)
+	assert result.model_dump_json() == '{"extracted_content":"x","error":null}'
+	for name in ('include_in_memory', 'include_extracted_content_only_once'):
+		assert f'ActionResult({name}=...) is ignored in browser-use 1.0' in caplog.text
+
+
 async def test_action_result_include_in_memory_warns_and_the_run_goes_on(tmp_path, monkeypatch, caplog):
 	"""rr-legacy L08 / error contract: a 0.x action returning ActionResult(include_in_memory=True) (examples/custom-functions
 	style) ended the run with status 'error' after the browser had started and was billed. 1.0 keeps every result in the
