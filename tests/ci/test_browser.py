@@ -1007,6 +1007,37 @@ async def test_a_cancelled_run_never_waits_for_a_running_download(cloud, monkeyp
 	assert time.monotonic() - t < 5 and stops(cloud) == ['/browsers/b1']
 
 
+async def test_a_cancelled_run_never_waits_for_cloud_download_collection(cloud, monkeypatch, tmp_path):
+	"""Cancellation must stop the billed browser even when listing completed downloads is stuck."""
+	import asyncio
+	import contextlib
+	import threading
+
+	from pydantic_ai.models.function import FunctionModel
+
+	entered, release = asyncio.Event(), threading.Event()
+	with_downloads(monkeypatch, [], lambda: release.wait(15))
+
+	async def model(messages, info):
+		entered.set()
+		await asyncio.Event().wait()
+
+	agent = Agent('Wait for cancellation', llm=FunctionModel(model), workspace=tmp_path)
+	task = asyncio.create_task(agent.run())
+	try:
+		await asyncio.wait_for(entered.wait(), 5)
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await asyncio.wait_for(asyncio.shield(task), 5)
+		assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
+	finally:
+		release.set()
+		if not task.done():
+			task.cancel()
+		with contextlib.suppress(asyncio.CancelledError):
+			await task
+
+
 async def test_start_after_a_cancelled_stop_never_overlaps_its_stop_thread(cloud, monkeypatch):
 	"""A stop() cancelled during the PATCH leaves its thread running; a start() right after must not run its own
 	_stop_now beside it (a second PATCH, and the late thread could disown the new browser)."""

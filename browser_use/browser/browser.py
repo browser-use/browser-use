@@ -1069,7 +1069,8 @@ class Browser:
 		"""Stop the daemon this Browser started, and the cloud browser or local Chrome it started. Never touches the
 		Chrome you have open.
 		downloads_dir: copy what the cloud browser downloaded there (default: the workspace/downloads of the last Agent
-		that ran on this Browser). Returns the local paths."""
+		that ran on this Browser). Cancellation skips cloud download collection so the browser can stop promptly.
+		Returns the local paths."""
 		async with self._lock:
 			await self._stopped()
 			return await self._stop(downloads_dir or self._downloads_dir)
@@ -1095,7 +1096,7 @@ class Browser:
 			# before the stop too: the API may not list a stopped session's files. The cloud lists a download about a
 			# second after it completes: retry until it lists them all, within one DOWNLOADS_TIMEOUT_S for all passes (a
 			# copy that kept failing, each pass with a deadline of its own, held the stop and the billing ~15 min)
-			if downloads_dir and self.use_cloud:
+			if downloads_dir and self.use_cloud and not cancelled:
 				deadline = time.monotonic() + DOWNLOADS_TIMEOUT_S
 				for _ in range(30):
 					await self._fetch_downloads(downloads_dir, fetched, files, browser_id, deadline)
@@ -1106,7 +1107,7 @@ class Browser:
 			self._stopping = asyncio.ensure_future(asyncio.to_thread(self._stop_now))
 			stopped = await asyncio.shield(self._stopping)
 			self._stopping = None
-		if downloads_dir and self.use_cloud:  # and after: files that finished while the browser stopped
+		if downloads_dir and self.use_cloud and not cancelled:  # and after: files that finished while the browser stopped
 			await self._fetch_downloads(downloads_dir, fetched, files, browser_id)
 		if stopped and self.id == browser_id:
 			self.id = None
