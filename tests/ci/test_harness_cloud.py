@@ -1213,13 +1213,36 @@ def test_a_cdp_url_nothing_listens_on_fails_at_once_naming_both_ways_out(monkeyp
 	monkeypatch.setenv('BU_CDP_URL', f'http://user:hunter2@127.0.0.1:{port}/?secret=s3')
 	monkeypatch.delenv('BU_CDP_WS', raising=False)
 	monkeypatch.setattr(admin, 'ensure_daemon', lambda **kw: pytest.fail('browser-harness retried BU_CDP_URL for 30 s'))
+	monkeypatch.setattr(harness_cloud, 'CDP_REFUSED_GRACE_S', 0.3)
+	name = f'butestcdprefused{os.getpid()}'
 	started = time.monotonic()
 	with pytest.raises(RuntimeError) as e:
-		harness_cloud.ensure_daemon(name=f'butestcdprefused{os.getpid()}')
-	assert time.monotonic() - started < 10
+		harness_cloud.ensure_daemon(name=name)
+	assert time.monotonic() - started < 5
 	msg = str(e.value)
 	assert f'BU_CDP_URL=http://127.0.0.1:{port} ' in msg and f'--remote-debugging-port={port}' in msg, msg
 	assert 'unset BU_CDP_URL' in msg and 'hunter2' not in msg and 's3' not in msg, msg
+
+	# our own no-display hint's literal http://127.0.0.1:PORT, and no port at all: never a guessed port to start Chrome on
+	monkeypatch.setenv('BU_CDP_URL', 'http://127.0.0.1:PORT')
+	with pytest.raises(
+		RuntimeError, match=r'is not a valid http://HOST:PORT URL\. Set it to http://127\.0\.0\.1:PORT where PORT'
+	):
+		harness_cloud.ensure_daemon(name=name)
+	with socket.socket() as s:
+		free80 = s.connect_ex(('127.0.0.1', 80)) != 0
+	if free80:
+		monkeypatch.setenv('BU_CDP_URL', 'http://127.0.0.1')
+		with pytest.raises(RuntimeError) as e:
+			harness_cloud.ensure_daemon(name=name)
+		assert 'names no port, so 80 was tried' in str(e.value) and '--remote-debugging-port=80' not in str(e.value)
+
+	# a healthy daemon under that name is reused without BU_CDP_URL, as before
+	monkeypatch.setenv('BU_CDP_URL', f'http://127.0.0.1:{port}')
+	monkeypatch.setattr(admin, 'daemon_alive', lambda n=None: True)
+	monkeypatch.setattr(harness_cloud, 'daemon_healthy', lambda n: True)
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda **kw: 'reused')
+	assert harness_cloud.ensure_daemon(name=name) == 'reused'
 
 
 def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(monkeypatch):
