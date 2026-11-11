@@ -224,12 +224,13 @@ CHROME_SETUP = (
 )
 
 
-def _setup_reason(e: RuntimeError) -> str:
-	"""Why --cli-mcp runs its own Chromium after the chrome://inspect setup failed, and how to get the user's Chrome."""
+def _setup_reason(e: RuntimeError, then: str = 'restart this MCP server') -> str:
+	"""Why --cli-mcp (or the CLI: then='run `browser-use --reload`') runs its own Chromium after the chrome://inspect
+	setup failed, and how to get the user's Chrome."""
 	text = str(e).removeprefix('remote-debugging-setup:').strip()
 	if text.startswith('none of your browsers'):
-		return CHROME_SETUP
-	return f'{text.rstrip(".").removesuffix(", then run again")}, then restart this MCP server'
+		return CHROME_SETUP.replace('restart this MCP server', then)
+	return f'{text.rstrip(".").removesuffix(", then run again")}, then {then}'
 
 
 def _utf8_open(file: Any, mode: str = 'r', buffering: int = -1, encoding: str | None = None, *args: Any, **kwargs: Any):

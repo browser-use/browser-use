@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from importlib.metadata import PackageNotFoundError, version
 from io import StringIO, TextIOWrapper
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 
@@ -273,10 +275,12 @@ def _run_doctor() -> int:
 		key_text = 'yes'
 	except RuntimeError:  # MissingAPIKeyError
 		key, key_text = False, 'none: browser-use login (Browser() and the bu-* models need it)'
-	chrome_text = 'yes' if admin._chrome_running() else "no (only Browser('chrome') and the CLI attach to it)"
+	chrome_text = 'yes' if admin._chrome_running() else "no (Browser('chrome') needs it; the CLI then runs its own Chromium)"
 	print(f'  local browser   {local_text}')
 	print(f'  Chrome running  {chrome_text}')
 	print(f'  daemon          {"running" if admin.daemon_alive() else "stopped (the next call starts it)"}')
+	if _own_chromium_ws():
+		print('  own Chromium    open: the CLI drives it, not your Chrome (browser-use --reload closes it)')
 	print(f'  cloud key       {key_text}')
 	return 0 if (local or key) else 1
 
@@ -547,6 +551,7 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 	from browser_use import harness_cloud
 
 	harness_cloud.install(vars(run))
+	vars(run)['ensure_daemon'] = _with_own_chromium(harness_cloud.ensure_daemon)
 	if (
 		code
 		and harness_cloud.calls_cloud_admin(code)
@@ -554,12 +559,129 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 	):
 		# browser-harness only skips its pre-run ensure_daemon() when the code *starts* with start_remote_daemon(; for
 		# `b = start_remote_daemon(...)` that call would attach the local Chrome first. Skip it once, here too.
-		guarded = harness_cloud.ensure_daemon
+		guarded = vars(run)['ensure_daemon']
 
 		def skip_pre_run_attach(*args, **kwargs) -> None:
 			vars(run)['ensure_daemon'] = guarded
 
 		vars(run)['ensure_daemon'] = skip_pre_run_attach
+
+
+def _own_chromium_dir() -> Path:
+	"""The profile of the CLI's own Chromium, next to the default daemon's pid file: the next call finds it there."""
+	from browser_harness import _ipc as ipc
+	from browser_harness import admin
+
+	return ipc.pid_path(admin.NAME).with_suffix('.chromium')
+
+
+def _own_chromium_ws() -> str | None:
+	"""The browser websocket of the CLI's own Chromium while it runs, read from its own profile (never a guessed port).
+	Only the Chromium that wrote that DevToolsActivePort answers with its websocket: a process that took the port after
+	it exited never matches (Windows too, where _left_over cannot tell)."""
+	import json
+	import urllib.request
+
+	from browser_use.browser import local
+
+	udd = _own_chromium_dir()
+	if not (ws := local._ws_url(udd, udd / 'none.log')):
+		return None
+	try:
+		opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # an HTTP_PROXY never sees localhost
+		with opener.open(f'http://{ws.split("/")[2]}/json/version', timeout=1) as r:
+			return ws if json.loads(r.read()).get('webSocketDebuggerUrl') == ws else None
+	except (OSError, ValueError, AttributeError):
+		return None
+
+
+def _start_own_chromium(why: str, setup: RuntimeError | None) -> str:
+	"""Launch the CLI's own Chromium (headless with no display) on a fresh profile, detached: it outlives this call.
+	As --cli-mcp: Playwright's Chromium is installed first only on a machine with no browser and no display."""
+	from browser_use.browser import local
+	from browser_use.mcp.cli_mcp import _install_chromium
+
+	udd, installed, chromium = _own_chromium_dir(), '', local.LocalBrowser()
+	shutil.rmtree(udd, ignore_errors=True)
+	try:
+		try:
+			ws = chromium.start(user_data_dir=udd)
+		except RuntimeError as e:
+			if not str(e).startswith('No Chrome, Chromium or Edge found') or local.has_display():
+				raise
+			installed = f" Installed Playwright's Chromium first ({_install_chromium():.0f} s)."
+			ws = chromium.start(user_data_dir=udd)
+	except Exception as e:
+		chromium.stop()  # one that did not open its DevTools port in time is still running
+		if setup is not None:  # a browser find_binary cannot launch (Brave, Arc): the setup steps are the way
+			raise setup from None
+		reason = ' '.join((str(e) or type(e).__name__).split()).rstrip('.')
+		raise RuntimeError(
+			f"No browser to drive: no Chrome to attach ({why}), and browser-use's own Chromium could not start: {reason}. "
+			'Install Google Chrome or Chromium (or run `browser-use install`), or start a cloud browser: start_remote_daemon()'
+		) from None
+	print(
+		f"browser-use: Browser: browser-use's own Chromium on a temp profile, not your Chrome ({why}). Later calls "
+		f'use it too; `browser-use --reload` closes it.{installed}',
+		file=sys.stderr,
+	)
+	return ws
+
+
+def _with_own_chromium(ensure_daemon: Any) -> Any:
+	"""The CLI's ensure_daemon: where the user's Chrome cannot be used (no display, remote debugging off, none installed),
+	a Chromium of the CLI's own, as --cli-mcp does (mcp/cli_mcp.py). The default daemon stays attached to it, so every
+	later call drives the same browser. An explicit choice is never replaced: BU_NAME, BU_CDP_URL / BU_CDP_WS, a cloud
+	daemon, a daemon already attached, a user's Chrome that is set up (or whose toggle is on and still starting)."""
+
+	def ensure(wait: float | None = None, name: str | None = None, env: dict[str, str] | None = None) -> None:
+		import os
+
+		from browser_harness import admin, daemon
+
+		from browser_use import harness_cloud
+
+		if name or env or os.environ.get('BU_NAME') or not admin._is_local_chrome_mode() or harness_cloud.was_cloud(admin.NAME):
+			return ensure_daemon(wait=wait, name=name, env=env)
+		try:
+			admin.require_existing_daemon()
+		except RuntimeError:
+			pass
+		else:
+			return ensure_daemon(wait=wait)
+		lock = admin._spawn_lock(timeout=90.0)  # concurrent cold calls: one launches the Chromium, the others attach it
+		lock.path = _own_chromium_dir().with_suffix('.chromiumlock')
+		with lock:
+			ws = _own_chromium_ws()  # still running from an earlier call, whose daemon died or was stopped
+			if ws is None:
+				try:
+					return ensure_daemon(wait=wait)
+				except RuntimeError as e:
+					if not str(e).startswith('remote-debugging-setup:'):
+						raise
+					from browser_use.mcp.cli_mcp import _no_chrome_here, _setup_reason
+
+					why, setup = _no_chrome_here(), None
+					if why is None:
+						if daemon.remote_debugging_toggle_profiles():  # Chrome is starting with it on: the next call attaches
+							raise
+						why, setup = _setup_reason(e, 'run `browser-use --reload`'), e
+					ws = _start_own_chromium(why, setup)
+			admin.ensure_daemon(wait=wait, env={'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0'})
+
+	return ensure
+
+
+def _close_own_chromium() -> None:
+	"""`browser-use --reload`: the CLI's own Chromium closes too, so the next call looks for the user's Chrome again."""
+	from browser_use.browser import local
+
+	if ws := _own_chromium_ws():
+		local._close_over_cdp(ws)
+		deadline = time.monotonic() + 5
+		while _own_chromium_ws() and time.monotonic() < deadline:
+			time.sleep(0.1)
+	shutil.rmtree(_own_chromium_dir(), ignore_errors=True)
 
 
 class _HarnessStderr:
@@ -613,6 +735,7 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 		from browser_use import harness_cloud
 
 		harness_cloud.forget(run.NAME)
+		_close_own_chromium()
 	if args and args[0] == 'doctor' and args[1:]:
 		if args[1:] in (['--help'], ['-h']):
 			print('usage: browser-use doctor [--fix-snap]')
@@ -790,7 +913,8 @@ HELP = """Browser Use CLI: your coding agent drives a browser with Python piped 
   print(page_info())
   PY
 
-Helpers are pre-imported; the daemon starts and attaches to your running Chrome by itself.
+Helpers are pre-imported; the daemon starts and attaches to your running Chrome by itself, or to a Chromium of its own
+where it cannot (no display, remote debugging off).
 
 Commands:
   browser-use login [--device-code | --api-key-stdin]   sign in to Browser Use Cloud (cloud browsers, default model)
@@ -799,7 +923,7 @@ Commands:
   browser-use --doctor                check install, daemon and browser
   browser-use doctor --fix-snap       how to fix Snap Chromium blocking CDP (Linux)
   browser-use mac-approve             approve Chrome's macOS remote-debugging prompt
-  browser-use --reload                restart the daemon
+  browser-use --reload                restart the daemon and close its own Chromium
   browser-use install                 install Chromium for the library's Browser('chromium') (Playwright's build)
   browser-use skill [show | install [--target NAME] [--path DIR] [--install-cli]]
                                       print or install the agent skill

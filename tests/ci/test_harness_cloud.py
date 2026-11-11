@@ -409,8 +409,8 @@ def test_a_cloud_daemon_that_ended_never_falls_back_to_the_local_chrome(fake_clo
 		mcp._screenshot(False, None)
 
 
-def _cli(*args: str, stdin: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-	full = {**os.environ, **env}
+def _cli(*args: str, stdin: str, env: dict[str, str], unset: tuple[str, ...] = ()) -> subprocess.CompletedProcess[str]:
+	full = {k: v for k, v in {**os.environ, **env}.items() if k not in unset}
 	full['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), full.get('PYTHONPATH', '')) if part)
 	full.pop('BROWSER_USE_API_KEY', None)
 	full['BH_UPDATE_CHECK'] = '0'
@@ -1081,6 +1081,31 @@ def test_cli_mcp_on_a_headless_box_opens_a_page_in_its_own_chromium(chrome_binar
 			import asyncio
 
 			asyncio.run(mcp._browser.stop())
+
+
+@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='only Linux runs with no display')
+def test_cli_on_a_headless_box_runs_its_own_chromium_and_the_next_call_gets_the_same_one(chrome_binary, tmp_path):
+	"""1.0.2: 171 devices' first script call failed on remote-debugging-setup (58 with no display) and stopped there;
+	--cli-mcp drove its own Chromium in that case, the CLI did not. A private HOME: no Chrome of the developer's is seen."""
+	from browser_harness import daemon
+
+	runtime = Path(tempfile.mkdtemp(prefix='bu', dir='/tmp'))  # AF_UNIX paths are short
+	env = {'BH_RUNTIME_DIR': str(runtime), 'BH_RUNTIME_DIR_SHARED': '1', 'HOME': str(tmp_path), 'BH_CHROME_PATH': chrome_binary}
+	unset = ('DISPLAY', 'WAYLAND_DISPLAY', 'BU_NAME', 'BU_CDP_URL', 'BU_CDP_WS')
+	try:
+		first = _cli(
+			stdin='new_tab("data:text/html,<title>first call</title>"); wait_for_load(); print(page_info()["title"])\n',
+			env=env,
+			unset=unset,
+		)
+		assert first.returncode == 0 and first.stdout == 'first call\n', first.stderr
+		assert "browser-use's own Chromium on a temp profile, not your Chrome (no display here" in first.stderr, first.stderr
+		second = _cli(stdin='print(page_info()["title"])\n', env=env, unset=unset)  # a new process: same browser and tab
+		assert second.returncode == 0 and second.stdout == 'first call\n' and 'own Chromium' not in second.stderr, second.stderr
+	finally:
+		reload = _cli('--reload', stdin='', env=env, unset=unset)
+	assert reload.returncode == 0, reload.stderr
+	assert not [d for d in runtime.glob('*.chromium') if daemon._devtools_port_live(d)], 'its Chromium outlived --reload'
 
 
 def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
