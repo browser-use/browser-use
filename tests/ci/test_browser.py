@@ -1570,20 +1570,15 @@ async def test_a_cdp_url_nothing_answers_on_names_the_cdp_url(url, tmp_path):
 	assert 'start_remote_daemon' not in result.error and 's3cret' not in result.error, result.error
 
 
-async def test_a_cancelled_run_never_copies_cloud_downloads_before_the_stop(cloud, monkeypatch, tmp_path):
-	"""1.0.2: a cancelled run still listed and copied the cloud browser's downloads, before and after the PATCH stop;
-	a slow listing held the stop, and the billing, up to DOWNLOADS_TIMEOUT_S each."""
+async def test_a_cancelled_stop_copies_downloads_within_a_short_budget(cloud, monkeypatch, tmp_path):
+	"""1.0.2: a cancelled run still listed and copied the cloud browser's downloads before and after the PATCH stop, each
+	pass up to DOWNLOADS_TIMEOUT_S, holding the stop and the billing. Now both passes share CANCEL_DOWNLOADS_TIMEOUT_S."""
 	import asyncio
+	import threading
 	import time
 
-	fake = browser_mod._cloud
-
-	def slow_listing(path, method='GET', body=None):
-		if 'downloads' in path:
-			time.sleep(2)
-		return fake(path, method, body)
-
-	monkeypatch.setattr(browser_mod, '_cloud', slow_listing)
+	with_downloads(monkeypatch, [{'path': '/d/a.csv', 'url': 'u1'}], list_hook=lambda: threading.Event().wait(2))  # the API hangs
+	monkeypatch.setattr(browser_mod, 'CANCEL_DOWNLOADS_TIMEOUT_S', 0.3)
 	browser = Browser()
 	await browser.start()
 
@@ -1600,4 +1595,99 @@ async def test_a_cancelled_run_never_copies_cloud_downloads_before_the_stop(clou
 	with pytest.raises(asyncio.CancelledError):
 		await task
 	assert time.monotonic() - t < 1.5 and stops(cloud) == ['/browsers/b1']
-	assert not [path for _, path, _ in cloud if 'downloads' in path]
+	assert len([path for _, path, _ in cloud if 'downloads' in path]) == 1
+
+
+async def test_a_cancelled_stop_still_copies_a_download_the_cloud_lists_late(cloud, monkeypatch, tmp_path):
+	"""Review of the cancel fix: the cloud lists a download ~1 s after it completes; skipping the pass after the stop on
+	cancel lost a file that had finished just before the cancel."""
+	import asyncio
+	import io
+
+	files, n = [], [0]
+
+	def listed_late():  # listed from the second listing on: the pass after the stop
+		n[0] += 1
+		if n[0] == 2:
+			files.append({'path': '/d/late.csv', 'url': 'u1'})
+
+	with_downloads(monkeypatch, files, list_hook=listed_late)
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: io.BytesIO(b'data'))
+	browser = Browser()
+	await browser.start()
+
+	async def run():
+		try:
+			await asyncio.sleep(30)
+		finally:
+			await browser.stop(downloads_dir=tmp_path / 'downloads')
+
+	task = asyncio.ensure_future(run())
+	await asyncio.sleep(0.05)
+	task.cancel()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	assert [p.name for p in (tmp_path / 'downloads').iterdir()] == ['late.csv']
+
+
+async def test_a_cancelled_keep_alive_run_keeps_its_downloads_in_its_own_workspace(cloud, monkeypatch, tmp_path):
+	"""Review of the cancel fix: skipping the copy on cancel left a keep_alive run's files to the next run, whose
+	result.downloads then listed them as its own. A cancelled run still copies what already finished."""
+	import asyncio
+	import io
+
+	from pydantic_ai.messages import ModelResponse, ToolCallPart
+	from pydantic_ai.models.function import FunctionModel
+
+	async def hang(messages, info):
+		await asyncio.sleep(30)
+		return ModelResponse(parts=[ToolCallPart('finish', {'success': True, 'result': 'ok'})])
+
+	with_downloads(monkeypatch, [{'path': '/d/a.csv', 'url': 'u1'}])
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: io.BytesIO(b'data'))
+	browser = Browser(keep_alive=True)
+	a = Agent('t', FunctionModel(hang), browser=browser, workspace=tmp_path / 'a')
+	task = asyncio.ensure_future(a.run())
+	while not browser.id:  # noqa: ASYNC110 - the run is past the browser start, in the model request
+		await asyncio.sleep(0.05)
+	await asyncio.sleep(0.2)
+	task.cancel()
+	with pytest.raises(asyncio.CancelledError):
+		await task
+	await a.close()
+	model, _ = script(('finish', {'success': True, 'result': 'ok'}))
+	b = Agent('t', model, browser=browser, workspace=tmp_path / 'b')
+	assert (await b.run()).downloads == []
+	await b.close()
+	assert [p.name for p in (tmp_path / 'a' / 'downloads').iterdir()] == ['a.csv']
+	assert await browser.stop() == []
+
+
+def test_a_download_whose_end_arrives_after_its_deadline_leaves_no_file(monkeypatch, tmp_path):
+	"""Review of the cancel fix: the deadline was only checked after a chunk, so a stream whose last bytes came in time
+	but whose end came late was kept; the caller had already timed out and never recorded it, and the next keep_alive
+	run copied it again."""
+	import time
+
+	class LateEnd:
+		headers = {}
+
+		def __init__(self):
+			self.chunks = [b'data']
+
+		def read1(self, n):
+			if self.chunks:
+				return self.chunks.pop()
+			time.sleep(0.3)  # the end of the stream, after the deadline
+			return b''
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *a):
+			return False
+
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, timeout=None, context=None: LateEnd())
+	with pytest.raises(TimeoutError):
+		browser_mod._download('u', tmp_path, 'r.csv', time.monotonic() + 0.1)
+	assert list(tmp_path.iterdir()) == []
