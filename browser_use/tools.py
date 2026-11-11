@@ -83,11 +83,14 @@ class ActionResult(BaseModel):
 			data = _without_0x_defaults(data)
 		if isinstance(data, dict) and (name := next((k for k in data if k in REMOVED_FIELDS), None)):
 			raise RemovedField(removed(f'ActionResult({name}=...)', REMOVED_FIELDS[name]))
-		if isinstance(data, dict) and (name := next((k for k in data if k in IGNORED_FIELDS), None)):
-			if name not in _warned:  # once: an action returns it on every call
-				_warned.add(name)
-				logger.warning(f'ActionResult({name}=...) is ignored in browser-use 1.0: {IGNORED_FIELDS[name]}')
-			data = {k: v for k, v in data.items() if k != name}
+		if isinstance(data, dict):
+			ignored = [k for k in data if k in IGNORED_FIELDS]
+			for name in ignored:
+				if name not in _warned:  # once: an action returns it on every call
+					_warned.add(name)
+					logger.warning(f'ActionResult({name}=...) is ignored in browser-use 1.0: {IGNORED_FIELDS[name]}')
+			if ignored:
+				data = {k: v for k, v in data.items() if k not in IGNORED_FIELDS}
 		return data
 
 
