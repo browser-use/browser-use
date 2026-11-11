@@ -165,6 +165,30 @@ def _is_multiple_of(value: int | float, multiple: int | float) -> bool:
 	return scaled_value % scaled_multiple == 0
 
 
+def _python_field_name(property_name: str, taken: set[str]) -> str:
+	"""A Pydantic-safe attribute name for a JSON property that is distinct from every name in `taken`.
+
+	The JSON name stays the field alias. Leading underscores and the model_ prefix are reserved by Pydantic, keywords
+	and BaseModel attributes are not names a field can use, and a fallback must not shadow another property's name."""
+	candidate = re.sub(r'\W', '_', property_name).lstrip('_')
+	if not candidate:
+		candidate = 'field'
+	elif candidate[0].isdigit() or candidate.startswith('model_'):  # model_ is Pydantic's protected namespace
+		candidate = f'field_{candidate}'
+
+	def usable(name: str) -> bool:
+		if keyword.iskeyword(name) or name in BaseModel.__dict__:
+			return False
+		return name not in taken or name == property_name  # its own JSON name is reserved for it
+
+	if not usable(candidate):
+		base, suffix = candidate, 1
+		while not usable(candidate := f'{base}_{suffix}'):
+			suffix += 1
+	taken.add(candidate)
+	return candidate
+
+
 def _schema_for_composed_object(schema: dict[str, Any]) -> dict[str, Any]:
 	"""Expose intersected allOf fields at the top level for action schemas."""
 	json_schema = dict(schema)
@@ -174,6 +198,8 @@ def _schema_for_composed_object(schema: dict[str, Any]) -> dict[str, Any]:
 	for branch in schema.get('allOf', []):
 		if not isinstance(branch, dict):
 			continue
+		if 'allOf' in branch:
+			branch = _schema_for_composed_object(branch)
 		for name, property_schema in branch.get('properties', {}).items():
 			if name in properties and properties[name] != property_schema:
 				existing_schema = properties[name]
@@ -204,18 +230,27 @@ def _with_input_schema(python_type: Any, schema: dict[str, Any] | bool) -> Any:
 	return Annotated[python_type, WithJsonSchema(json_schema)]
 
 
-def _normalize_schema_for_action(schema: dict[str, Any]) -> dict[str, Any]:
-	"""Translate JSON Schema type arrays to unions accepted by model tool providers."""
+def _normalize_schema_for_action(schema: dict[str, Any] | bool) -> dict[str, Any]:
+	"""Translate JSON Schema type arrays to unions accepted by model tool providers.
+
+	Boolean schemas (`true` accepts anything, `false` nothing) become their object spellings."""
+	if isinstance(schema, bool):
+		return {} if schema else {'not': {}}
 	result = dict(schema)
 	for key in ('properties', 'patternProperties'):
 		if isinstance(result.get(key), dict):
-			result[key] = {name: _normalize_schema_for_action(child) for name, child in result[key].items()}
+			result[key] = {
+				name: _normalize_schema_for_action(child) if isinstance(child, (dict, bool)) else child
+				for name, child in result[key].items()
+			}
 	for key in ('items', 'additionalProperties', 'contains', 'propertyNames', 'not', 'if', 'then', 'else'):
-		if isinstance(result.get(key), dict):
+		if isinstance(result.get(key), (dict, bool)):
 			result[key] = _normalize_schema_for_action(result[key])
 	for key in ('prefixItems', 'allOf', 'anyOf', 'oneOf'):
 		if isinstance(result.get(key), list):
-			result[key] = [_normalize_schema_for_action(child) if isinstance(child, dict) else child for child in result[key]]
+			result[key] = [
+				_normalize_schema_for_action(child) if isinstance(child, (dict, bool)) else child for child in result[key]
+			]
 
 	json_type = result.get('type')
 	if isinstance(json_type, list):
@@ -456,16 +491,19 @@ class MCPClient:
 			if schema:
 				return None
 			raise ValueError(f'MCP tool {tool.name!r} has a schema that rejects every input')
-		properties = schema.get('properties', {})
+		# a root allOf intersects object schemas: its members' properties are the tool's parameters too
+		field_schema = _schema_for_composed_object(schema) if isinstance(schema.get('allOf'), list) else schema
+		properties = field_schema.get('properties', {})
 		if not isinstance(properties, dict):
 			raise ValueError(f'MCP tool {tool.name!r} input schema properties must be an object')
 		if not properties:
 			return None
 
-		required = set(schema.get('required', []))
+		required = set(field_schema.get('required', []))
 		fields: dict[str, Any] = {}
 		nullable_fields: set[str] = set()
-		for index, (property_name, property_schema) in enumerate(properties.items()):
+		taken_names = set(properties)
+		for property_name, property_schema in properties.items():
 			if not isinstance(property_schema, (dict, bool)):
 				raise ValueError(f'MCP tool {tool.name!r} has an invalid schema for {property_name!r}')
 			field_type = self._json_schema_to_python_type(property_schema, f'{action_name}_{property_name}')
@@ -482,15 +520,7 @@ class MCPClient:
 			if description is not None:
 				field_kwargs['description'] = description
 			field_type = _with_input_schema(field_type, property_schema)
-			python_name = property_name
-			if (
-				not python_name.isidentifier()
-				or keyword.iskeyword(python_name)
-				or python_name in BaseModel.__dict__
-				or python_name in fields
-			):
-				python_name = f'field_{index}'
-			fields[python_name] = (field_type, Field(default, **field_kwargs))
+			fields[_python_field_name(property_name, taken_names)] = (field_type, Field(default, **field_kwargs))
 
 		model_name = re.sub(r'\W', '_', f'{action_name}_Params')
 		if not model_name or model_name[0].isdigit():
@@ -593,7 +623,8 @@ class MCPClient:
 				required_fields = set(schema.get('required', []))
 				nested_fields: dict[str, Any] = {}
 				nullable_fields: set[str] = set()
-				for index, (property_name, property_schema) in enumerate(properties.items()):
+				taken_names = set(properties)
+				for property_name, property_schema in properties.items():
 					if not isinstance(property_schema, (dict, bool)):
 						raise ValueError(f'Invalid JSON Schema for nested property {property_name!r}')
 					property_type = self._json_schema_to_python_type(property_schema, f'{model_name}_{property_name}')
@@ -609,15 +640,10 @@ class MCPClient:
 					if description is not None:
 						field_kwargs['description'] = description
 					property_type = _with_input_schema(property_type, property_schema)
-					python_name = property_name
-					if (
-						not python_name.isidentifier()
-						or keyword.iskeyword(python_name)
-						or python_name in BaseModel.__dict__
-						or python_name in nested_fields
-					):
-						python_name = f'field_{index}'
-					nested_fields[python_name] = (property_type, Field(default, **field_kwargs))
+					nested_fields[_python_field_name(property_name, taken_names)] = (
+						property_type,
+						Field(default, **field_kwargs),
+					)
 
 				nested_name = re.sub(r'\W', '_', model_name)
 				nested_model = create_model(nested_name, __base__=MCPToolParameters, **nested_fields)

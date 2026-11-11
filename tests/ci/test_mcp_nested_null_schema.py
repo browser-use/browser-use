@@ -1,14 +1,19 @@
 import inspect
+import json
 import sys
 import textwrap
 
 import pytest
+from conftest import script
 from mcp import types
 from pydantic import ValidationError
+from pydantic_ai.messages import ToolReturnPart
+from test_compaction import FakeRepl
 
+from browser_use.agent.loop import Session, build_agent, run
 from browser_use.mcp import MCPClient
 from browser_use.mcp.client import _serialize_mcp_params
-from browser_use.tools import Tools
+from browser_use.tools import ActionResult, Tools
 
 
 def _parameters_model(schema: dict) -> type:
@@ -305,3 +310,134 @@ async def test_stdio_mcp_tool_receives_explicit_nullable_value():
 	assert result.extracted_content == '{"note":null,"values":["first",null]}'
 	assert ping_result.error is None
 	assert ping_result.extracted_content == 'pong'
+
+
+def test_property_names_pydantic_rejects_keep_their_json_names_and_never_collide():
+	"""`_id` is an identifier but Pydantic refuses leading underscores; `class` fell back to `field_1`, which overwrote
+	the real `field_1` property, so the model advertised one field and rejected valid input as extra."""
+	properties = {
+		'_id': {'type': 'string'},
+		'field_1': {'type': 'string'},
+		'class': {'type': 'string'},
+		'model_dump': {'type': 'string'},
+		'id': {'type': 'string'},
+		'a-b': {'type': 'string'},
+		'nested': {'type': 'object', 'properties': {'_id': {'type': 'string'}, 'class': {'type': 'string'}}},
+	}
+	model = _parameters_model({'type': 'object', 'properties': properties, 'required': list(properties)})
+	value = {
+		'_id': 'x',
+		'field_1': 'original',
+		'class': 'member',
+		'model_dump': 'd',
+		'id': 'i',
+		'a-b': 'dash',
+		'nested': {'_id': 'n', 'class': 'c'},
+	}
+
+	assert list(model.model_json_schema(by_alias=True)['properties']) == list(properties)
+	assert _serialize_mcp_params(model.model_validate(value)) == value
+	assert model.model_fields['id'].alias == 'id'  # a valid name is kept as is, its underscore twin gets a fresh one
+
+
+def test_root_all_of_properties_become_parameters():
+	"""A root allOf with no root properties became a no-argument tool: `{"name": ...}` was rejected as extra."""
+	model = _parameters_model(
+		{
+			'type': 'object',
+			'allOf': [
+				{'properties': {'name': {'type': 'string'}}, 'required': ['name']},
+				{'properties': {'age': {'type': 'integer'}}},
+			],
+		}
+	)
+
+	schema = model.model_json_schema(by_alias=True)
+	assert (sorted(schema['properties']), schema['required']) == (['age', 'name'], ['name'])
+	assert _serialize_mcp_params(model.model_validate({'name': 'member'})) == {'name': 'member'}
+	with pytest.raises(ValidationError):
+		model.model_validate({'age': 3})
+
+
+def test_boolean_nested_property_schemas_register():
+	"""`{"any": true}` inside a nested object raised TypeError in schema normalization and aborted registration."""
+	model = _parameters_model(
+		{
+			'type': 'object',
+			'properties': {'payload': {'type': 'object', 'properties': {'any': True, 'never': False}}},
+			'required': ['payload'],
+		}
+	)
+
+	payload_schema = model.model_json_schema(by_alias=True)['properties']['payload']
+	assert payload_schema['properties'] == {'any': {}, 'never': {'not': {}}}
+	assert _serialize_mcp_params(model.model_validate({'payload': {'any': 3}})) == {'payload': {'any': 3}}
+	with pytest.raises(ValidationError):
+		model.model_validate({'payload': {'never': 3}})
+
+
+async def test_registered_mcp_tools_receive_model_arguments_unchanged_over_stdio(tmp_path):
+	"""register_to_tools() -> build_agent(tools=...) -> scripted model calls -> stdio server: the arguments the model
+	sends for renamed fields, a root allOf and a boolean property schema must reach the server as sent."""
+	server_code = textwrap.dedent(
+		"""
+		import asyncio
+		import json
+
+		from mcp import types
+		from mcp.server.lowlevel import Server
+		from mcp.server.stdio import stdio_server
+
+		SCHEMAS = {
+			'rename': {
+				'type': 'object',
+				'properties': {'_id': {'type': 'string'}, 'field_1': {'type': 'string'}, 'class': {'type': 'string'}},
+				'required': ['_id', 'field_1', 'class'],
+			},
+			'intersect': {'type': 'object', 'allOf': [{'properties': {'name': {'type': 'string'}}, 'required': ['name']}]},
+			'anything': {
+				'type': 'object',
+				'properties': {'payload': {'type': 'object', 'properties': {'any': True}}},
+				'required': ['payload'],
+			},
+		}
+
+		async def list_tools(ctx, params):
+			return types.ListToolsResult(tools=[types.Tool(name=n, inputSchema=s) for n, s in SCHEMAS.items()])
+
+		async def call_tool(ctx, params):
+			return types.CallToolResult(content=[types.TextContent(type='text', text=json.dumps(params.arguments))])
+
+		server = Server('schema-test', on_list_tools=list_tools, on_call_tool=call_tool)
+
+		async def main():
+			async with stdio_server() as (read, write):
+				await server.run(read, write, server.create_initialization_options())
+
+		asyncio.run(main())
+		"""
+	)
+	calls = [
+		('rename', {'_id': 'x', 'field_1': 'original', 'class': 'member'}),
+		('intersect', {'name': 'member'}),
+		('anything', {'payload': {'any': 3}}),
+	]
+	client = MCPClient(server_name='schema-test', command=sys.executable, args=['-c', server_code])
+	tools = Tools()
+	model, seen = script(calls, ('finish', {'result': 'ok', 'success': True}))
+
+	async with client:
+		await client.register_to_tools(tools)
+		assert [tool.name for tool in tools.functions] == [name for name, _ in calls]
+		result = await run(build_agent(model, tools=tools.functions), 'task', Session(repl=FakeRepl(tmp_path)), 'm')
+
+	assert (result.status, result.text) == ('completed', 'ok'), result.error
+	returns = {part.tool_name: part for part in seen[1][-1].parts if isinstance(part, ToolReturnPart)}
+	for name, arguments in calls:
+		content = returns[name].content
+		if isinstance(content, ActionResult):
+			content = content.model_dump()
+		if isinstance(content, str):
+			content = json.loads(content)
+		assert content.get('error') is None, content
+		assert json.loads(content['extracted_content']) == arguments
