@@ -1272,6 +1272,7 @@ async def run(
 	message_history continues an earlier transcript (follow-up task); usage and steps count only this run.
 	explain_error turns a provider exception into one actionable line (gateway 401/402/403/404)."""
 	status, output, error = 'completed', None, None
+	session.messages = list(message_history or [])
 	(session.repl.state / 'partial.json').unlink(missing_ok=True)  # a partial belongs to one run
 	search = session.repl.search
 	searched = len(search.charges) if search else 0
