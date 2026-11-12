@@ -1201,7 +1201,7 @@ class Browser:
 			return [{'name': p.name, 'size': p.stat().st_size} for p in files]
 		out, cursor = [], None
 		while self.id:
-			q = f'/browsers/{self.id}/downloads?limit=100' + (f'&cursor={cursor}' if cursor else '')
+			q = f'/browsers/{self.id}/downloads?limit=100' + (f'&cursor={urllib.parse.quote_plus(cursor)}' if cursor else '')
 			page = await asyncio.to_thread(_cloud, q)
 			for f in page.get('files', []):
 				if (name := Path(f['path']).name) not in self.json_page_copies:
@@ -1242,7 +1242,9 @@ class Browser:
 		dest, cursor, skip = Path(dest), None, set() if skip is None else skip
 		out = [] if out is None else out
 		while True:
-			q = f'/browsers/{browser_id}/downloads?includeUrls=true&limit=100' + (f'&cursor={cursor}' if cursor else '')
+			q = f'/browsers/{browser_id}/downloads?includeUrls=true&limit=100' + (
+				f'&cursor={urllib.parse.quote_plus(cursor)}' if cursor else ''
+			)
 			page = await asyncio.to_thread(_cloud, q)
 			for f in page.get('files', []):
 				if f['path'] in skip or Path(f['path']).name in self.json_page_copies:
