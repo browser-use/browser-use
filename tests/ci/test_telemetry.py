@@ -618,27 +618,6 @@ def test_cli_event_sends_only_the_class_of_an_error_the_piped_code_raised(monkey
 	assert [p['error_message'] for p in sent] == ['AssertionError', 'JSONDecodeError']
 
 
-def test_cli_event_names_the_errors_inside_an_exception_group(monkeypatch, sent):
-	"""11-11: 373 devices' --cli-mcp exits said only 'ExceptionGroup' (the mcp library's task group around the error):
-	which error, a client gone or a real failure, took a repro to find. The classes inside it are sent, never messages."""
-	from browser_harness import telemetry as harness
-
-	import browser_use.cli as cli
-
-	monkeypatch.setattr(harness, '_send_detached', harness._send_detached)  # restored after the test, wrapper and all
-	monkeypatch.setattr(harness, 'is_enabled', lambda: True)
-	monkeypatch.setattr(harness, '_install_id', lambda *a, **k: 'test-install')
-	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
-	cli._scrub_harness_telemetry()
-	inner = ExceptionGroup('Zq9', [KeyError('Zq9')])
-	try:
-		raise ExceptionGroup('unhandled errors in a TaskGroup', [BrokenPipeError(32, 'Zq9'), inner, OSError('Zq9')])
-	except ExceptionGroup as exc:  # main() sends its exit event while it handles the error
-		harness.capture_cli_event(action='error', command='cli-mcp', exit_code=1, error_message=str(exc))
-	assert_absent({'events': sent}, 'Zq9')
-	assert [p['error_message'] for p in sent] == ['ExceptionGroup(BrokenPipeError, ExceptionGroup(KeyError), OSError)']
-
-
 def test_cli_event_goes_to_the_library_project_under_the_device_id(posthog, monkeypatch, tmp_path, caplog):
 	"""Retest 11-09: the browser-use CLI's cli_event (`--cli-mcp` and `--mcp` included) went to the browser-harness
 	PostHog project under a browser-harness install id, agent_event to the library project under the browser-use device

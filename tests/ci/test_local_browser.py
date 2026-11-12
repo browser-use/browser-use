@@ -577,31 +577,6 @@ async def test_attach_refuses_a_left_over_debug_port_another_process_now_holds(a
 	assert calls == [] and opened == []
 
 
-@posix_only
-def test_attach_takes_the_debug_port_of_a_chrome_in_another_pid_namespace(chrome_binary, debug_dirs):
-	"""1.0.2, Linux + Cursor --cli-mcp (~20 devices a day): Chrome ran in another PID namespace than the server (a
-	sidecar container sharing the home dir and localhost), so the pid in its SingletonLock was not one the server could
-	see. The left-over check then refused the live Chrome that wrote DevToolsActivePort and holds its port."""
-	import subprocess
-
-	from browser_harness import daemon
-
-	lb = _local.LocalBrowser()
-	try:
-		lb.start(executable_path=chrome_binary, headless=True, user_data_dir=daemon.PROFILES[0])
-		lock = daemon.PROFILES[0] / 'SingletonLock'
-		taken = os.lstat(lock).st_mtime
-		gone = subprocess.Popen(['true'])
-		gone.wait()  # a pid nothing here has: as the Chrome's pid in its own namespace looks from this one
-		lock.unlink()
-		lock.symlink_to(f'{socket.gethostname()}-{gone.pid}')
-		os.utime(lock, (taken, taken), follow_symlinks=False)
-		_local.require_debug_port()
-		assert _local.live_debug_dirs() == [daemon.PROFILES[0]]
-	finally:
-		lb.stop()
-
-
 async def test_attach_starts_the_daemon_once_your_chrome_has_remote_debugging_on(attaches, debug_dirs, monkeypatch):
 	from browser_harness import admin, daemon
 

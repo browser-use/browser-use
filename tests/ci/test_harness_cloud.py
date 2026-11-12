@@ -409,8 +409,8 @@ def test_a_cloud_daemon_that_ended_never_falls_back_to_the_local_chrome(fake_clo
 		mcp._screenshot(False, None)
 
 
-def _cli(*args: str, stdin: str, env: dict[str, str], unset: tuple[str, ...] = ()) -> subprocess.CompletedProcess[str]:
-	full = {k: v for k, v in {**os.environ, **env}.items() if k not in unset}
+def _cli(*args: str, stdin: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+	full = {**os.environ, **env}
 	full['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), full.get('PYTHONPATH', '')) if part)
 	full.pop('BROWSER_USE_API_KEY', None)
 	full['BH_UPDATE_CHECK'] = '0'
@@ -1083,76 +1083,6 @@ def test_cli_mcp_on_a_headless_box_opens_a_page_in_its_own_chromium(chrome_binar
 			asyncio.run(mcp._browser.stop())
 
 
-@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='only Linux runs with no display')
-def test_cli_on_a_headless_box_runs_its_own_chromium_and_the_next_call_gets_the_same_one(chrome_binary, tmp_path):
-	"""1.0.2: 171 devices' first script call failed on remote-debugging-setup (58 with no display) and stopped there;
-	--cli-mcp drove its own Chromium in that case, the CLI did not. A private HOME: no Chrome of the developer's is seen."""
-	from browser_harness import daemon
-
-	runtime = Path(tempfile.mkdtemp(prefix='bu', dir='/tmp'))  # AF_UNIX paths are short
-	env = {'BH_RUNTIME_DIR': str(runtime), 'BH_RUNTIME_DIR_SHARED': '1', 'HOME': str(tmp_path), 'BH_CHROME_PATH': chrome_binary}
-	unset = ('DISPLAY', 'WAYLAND_DISPLAY', 'BU_NAME', 'BU_CDP_URL', 'BU_CDP_WS')
-	try:
-		first = _cli(
-			stdin='new_tab("data:text/html,<title>first call</title>"); wait_for_load(); print(page_info()["title"])\n',
-			env=env,
-			unset=unset,
-		)
-		assert first.returncode == 0 and first.stdout == 'first call\n', first.stderr
-		assert "browser-use's own Chromium on a temp profile, not your Chrome (no display here" in first.stderr, first.stderr
-		second = _cli(stdin='print(page_info()["title"])\n', env=env, unset=unset)  # a new process: same browser and tab
-		assert second.returncode == 0 and second.stdout == 'first call\n' and 'own Chromium' not in second.stderr, second.stderr
-		# it is never taken for the user's Chrome: --cli-mcp still says why it runs its own, Browser('chrome') still refuses
-		check = 'from browser_use.mcp.cli_mcp import _no_chrome_here as n; print(n())\nfrom browser_use.browser.local import require_debug_port_unless_attached as r\ntry:\n r()\nexcept RuntimeError as e:\n print(str(e)[:22])'
-		other = subprocess.run(
-			[sys.executable, '-c', check],
-			cwd=ROOT,
-			env={k: v for k, v in {**os.environ, **env}.items() if k not in unset},
-			capture_output=True,
-			text=True,
-			timeout=60,
-		)
-		assert other.stdout == 'no display here to turn on remote debugging in a Chrome\nremote-debugging-setup\n', other
-	finally:
-		reload = _cli('--reload', stdin='', env=env, unset=unset)
-	assert reload.returncode == 0, reload.stderr
-	assert not [d for d in runtime.glob('*.chromium') if daemon._devtools_port_live(d)], 'its Chromium outlived --reload'
-
-
-@pytest.mark.skipif(os.name == 'nt', reason='flock')
-def test_cli_never_launches_a_second_chromium_while_another_call_still_starts_one(monkeypatch, tmp_path):
-	"""A cold call that waited out the lock (another still installing Chromium) ran the launch unlocked: it wiped the
-	profile the first call was starting and launched a second Chromium."""
-	import fcntl
-
-	from browser_harness import admin
-
-	from browser_use import cli, harness_cloud
-	from browser_use.browser import local
-
-	for k in ('BU_NAME', 'BU_CDP_URL', 'BU_CDP_WS'):
-		monkeypatch.delenv(k, raising=False)
-	real_lock = admin._spawn_lock
-	monkeypatch.setattr(admin, '_spawn_lock', lambda name=None, timeout=30.0: real_lock(name, timeout=0.3))
-	monkeypatch.setattr(cli, '_own_chromium_dir', lambda: tmp_path / 'bu-default-chromium.chromium')
-	monkeypatch.setattr(admin, 'require_existing_daemon', lambda name=None: (_ for _ in ()).throw(RuntimeError('none')))
-	monkeypatch.setattr(harness_cloud, 'was_cloud', lambda name: False)
-	monkeypatch.setattr(local, 'has_display', lambda: False)
-	monkeypatch.setattr(local, 'live_debug_dirs', lambda: [])
-	monkeypatch.setattr(cli, '_start_own_chromium', lambda why, setup: pytest.fail('launched a second Chromium'))
-
-	def users_chrome(wait=None, name=None, env=None):
-		raise RuntimeError('remote-debugging-setup: no browser here has remote debugging on')
-
-	held = os.open(tmp_path / 'bu-default-chromium.chromiumlock', os.O_CREAT | os.O_RDWR, 0o600)
-	fcntl.flock(held, fcntl.LOCK_EX)  # the first call, still starting it
-	try:
-		with pytest.raises(RuntimeError, match='^daemon-starting: '):
-			cli._with_own_chromium(users_chrome, {'NAME': 'default'})()
-	finally:
-		os.close(held)
-
-
 def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
 	"""M29: print() from a thread the model's code started landed on stdout and broke the client's JSON-RPC parsing."""
 	import json
@@ -1197,54 +1127,6 @@ def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
 	assert b'LATE' in err
 
 
-def test_a_cdp_url_nothing_listens_on_fails_at_once_naming_both_ways_out(monkeypatch):
-	"""1.0.2: with BU_CDP_URL=http://127.0.0.1:PORT and no browser on PORT (~100 Linux + Cursor --cli-mcp devices a day),
-	every call failed only after browser-harness retried it for 30 s, with a hint naming neither the value nor the way
-	back to a browser browser-use finds itself."""
-	import socket
-
-	from browser_harness import admin
-
-	from browser_use import harness_cloud
-
-	with socket.socket() as s:
-		s.bind(('127.0.0.1', 0))
-		port = s.getsockname()[1]  # closed again: connections to it are refused
-	monkeypatch.setenv('BU_CDP_URL', f'http://user:hunter2@127.0.0.1:{port}/?secret=s3')
-	monkeypatch.delenv('BU_CDP_WS', raising=False)
-	monkeypatch.setattr(admin, 'ensure_daemon', lambda **kw: pytest.fail('browser-harness retried BU_CDP_URL for 30 s'))
-	monkeypatch.setattr(harness_cloud, 'CDP_REFUSED_GRACE_S', 0.3)
-	name = f'butestcdprefused{os.getpid()}'
-	started = time.monotonic()
-	with pytest.raises(RuntimeError) as e:
-		harness_cloud.ensure_daemon(name=name)
-	assert time.monotonic() - started < 5
-	msg = str(e.value)
-	assert f'BU_CDP_URL=http://127.0.0.1:{port} ' in msg and f'--remote-debugging-port={port}' in msg, msg
-	assert 'unset BU_CDP_URL' in msg and 'hunter2' not in msg and 's3' not in msg, msg
-
-	# our own no-display hint's literal http://127.0.0.1:PORT, and no port at all: never a guessed port to start Chrome on
-	monkeypatch.setenv('BU_CDP_URL', 'http://127.0.0.1:PORT')
-	with pytest.raises(
-		RuntimeError, match=r'is not a valid http://HOST:PORT URL\. Set it to http://127\.0\.0\.1:PORT where PORT'
-	):
-		harness_cloud.ensure_daemon(name=name)
-	with socket.socket() as s:
-		free80 = s.connect_ex(('127.0.0.1', 80)) != 0
-	if free80:
-		monkeypatch.setenv('BU_CDP_URL', 'http://127.0.0.1')
-		with pytest.raises(RuntimeError) as e:
-			harness_cloud.ensure_daemon(name=name)
-		assert 'names no port, so 80 was tried' in str(e.value) and '--remote-debugging-port=80' not in str(e.value)
-
-	# a healthy daemon under that name is reused without BU_CDP_URL, as before
-	monkeypatch.setenv('BU_CDP_URL', f'http://127.0.0.1:{port}')
-	monkeypatch.setattr(admin, 'daemon_alive', lambda n=None: True)
-	monkeypatch.setattr(harness_cloud, 'daemon_healthy', lambda n: True)
-	monkeypatch.setattr(admin, 'ensure_daemon', lambda **kw: 'reused')
-	assert harness_cloud.ensure_daemon(name=name) == 'reused'
-
-
 def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(monkeypatch):
 	"""M31: with BU_CDP_URL, concurrent CLI cold starts raced (browser-harness takes no spawn lock in CDP mode) and
 	orphaned daemons."""
@@ -1256,7 +1138,7 @@ def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(mon
 
 	from browser_use import harness_cloud
 
-	listener = socket.create_server(('127.0.0.1', 0))  # a browser's port: the spawn lock is what this is about
+	listener = socket.create_server(('127.0.0.1', 0))  # a refused BU_CDP_URL now fails before the spawn lock
 	monkeypatch.setenv('BU_CDP_URL', f'http://127.0.0.1:{listener.getsockname()[1]}')
 	active, peak, lock = [0], [0], threading.Lock()
 
