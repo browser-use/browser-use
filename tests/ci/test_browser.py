@@ -624,6 +624,26 @@ async def test_the_cloud_browser_id_is_never_logged_whole_or_put_in_a_command_li
 		assert secret_id not in ' '.join(args) and env['BU_CLEANUP_BROWSER_ID'] == secret_id
 
 
+async def test_cloud_download_pagination_preserves_the_cursor(monkeypatch, tmp_path):
+	from urllib.parse import parse_qs, urlsplit
+
+	cursor = 'page+2/report&part#1'
+
+	def page(path):
+		query = parse_qs(urlsplit(path).query)
+		if 'cursor' not in query:
+			return {'files': [], 'hasMore': True, 'nextCursor': cursor}
+		assert query['cursor'] == [cursor]
+		return {'files': [{'path': 'report.txt', 'size': 4, 'url': 'data:text/plain,done'}], 'hasMore': False}
+
+	monkeypatch.setattr(browser_mod, '_cloud', page)
+	browser = Browser()
+	browser.id = 'test-browser'
+	assert await browser.list_downloads() == [{'name': 'report.txt', 'size': 4}]
+	assert await browser.download_files(tmp_path) == [tmp_path / 'report.txt']
+	assert (tmp_path / 'report.txt').read_bytes() == b'done'
+
+
 async def test_downloads_lists_a_cloud_browsers_finished_files(cloud, monkeypatch, tmp_path):
 	"""Docs runs, 3 of 3 on a cloud browser: the model looked for the Browser.downloadProgress events the prompt promised,
 	drained them before they arrived, found downloads/ empty (cloud files are copied at the end) and clicked again
