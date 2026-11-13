@@ -449,6 +449,13 @@ def error_class(e: BaseException | type) -> str:
 	return cls.__name__[:MAX_NAME] if known else 'custom'
 
 
+def group_class(e: BaseException) -> str:
+	"""An exception group's class with the classes inside it (error_class each), 'ExceptionGroup(BrokenPipeError)'."""
+	if not isinstance(e, BaseExceptionGroup):
+		return error_class(e)
+	return f'{error_class(e)}({", ".join(sorted({group_class(inner) for inner in e.exceptions}))})'[:MAX_ERROR]
+
+
 CDP_PART = re.compile(r'[A-Za-z][A-Za-z0-9]{0,63}')
 CLOUD_METHODS = frozenset({'BrowserUse.setCaptchaSolverEnabled', 'BrowserUse.getCaptchaSolverEnabled'})
 
@@ -607,7 +614,9 @@ def scrub_cli_event(payload: dict, error: BaseException | None = None) -> dict:
 		return payload
 	steps = [s for s in props.get('steps') or [] if isinstance(s, dict)]
 	clean = {k: v for k, v in props.items() if k not in CLI_CONTENT}
-	if clean.get('error_message') is not None and error is not None and raised_by_cell(error):
+	if clean.get('error_message') is not None and isinstance(error, BaseExceptionGroup):
+		clean['error_message'] = group_class(error)  # 'ExceptionGroup' (11-11, 3% of --cli-mcp devices) named no cause
+	elif clean.get('error_message') is not None and error is not None and raised_by_cell(error):
 		clean['error_message'] = error_class(error)
 	elif clean.get('error_message') is not None:  # a traceback's frames quote the code: its last line only
 		clean['error_message'] = scrub(error_line(clean['error_message']), [], MAX_ERROR) or None

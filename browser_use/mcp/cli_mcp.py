@@ -5,6 +5,7 @@ Run with: browser-use --cli-mcp
 import asyncio
 import base64
 import contextvars
+import errno
 import functools
 import locale
 import os
@@ -143,6 +144,14 @@ _call_errors: contextvars.ContextVar[list[tuple[str, str]] | None] = contextvars
 TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login', 'browser_feedback')
 
 
+def _client_gone(e: BaseException) -> bool:
+	"""Writing to the client failed because it closed its end of the pipe: it quit, or gave up waiting for a reply (a
+	slow first start). Windows can report that as EINVAL instead of EPIPE (CPython bpo-35754)."""
+	if isinstance(e, BrokenPipeError | ConnectionResetError):
+		return True
+	return os.name == 'nt' and isinstance(e, OSError) and e.errno == errno.EINVAL
+
+
 def _error_class(e: BaseException) -> str:
 	"""The exception's class for telemetry, and its message unless the cell's own code raised it: Claude's code raises
 	with what it typed or read from the page (`assert name in text, f'{name} missing'`), which no scrub can know."""
@@ -215,12 +224,13 @@ CHROME_SETUP = (
 )
 
 
-def _setup_reason(e: RuntimeError) -> str:
-	"""Why --cli-mcp runs its own Chromium after the chrome://inspect setup failed, and how to get the user's Chrome."""
+def _setup_reason(e: RuntimeError, then: str = 'restart this MCP server') -> str:
+	"""Why --cli-mcp (or the CLI: then='run `browser-use --reload`') runs its own Chromium after the chrome://inspect
+	setup failed, and how to get the user's Chrome."""
 	text = str(e).removeprefix('remote-debugging-setup:').strip()
 	if text.startswith('none of your browsers'):
-		return CHROME_SETUP
-	return f'{text.rstrip(".").removesuffix(", then run again")}, then restart this MCP server'
+		return CHROME_SETUP.replace('restart this MCP server', then)
+	return f'{text.rstrip(".").removesuffix(", then run again")}, then {then}'
 
 
 def _utf8_open(file: Any, mode: str = 'r', buffering: int = -1, encoding: str | None = None, *args: Any, **kwargs: Any):
@@ -261,6 +271,19 @@ def _install_chromium() -> float:
 			last = next((line.strip() for line in reversed((r.stdout + r.stderr).splitlines()) if line.strip()), '')
 			raise RuntimeError(f'`{" ".join([os.path.basename(cmd[0]), *cmd[1:]])}` failed (exit {r.returncode}): {last[-300:]}')
 	return time.monotonic() - started
+
+
+def no_browser_text(what: str, e: Exception, cloud: str) -> str:
+	"""One line (a Chrome log tail has several) when nothing can be driven: what could not start, why, and the fix.
+	--cli-mcp and the CLI."""
+	reason = ' '.join((str(e) or type(e).__name__).split()).rstrip('.')
+	how = (
+		'sudo apt-get install -y libatomic1 && browser-use install' if sys.platform.startswith('linux') else 'browser-use install'
+	)
+	return (
+		f'No browser to drive: {what} could not start: {reason}. Install Google Chrome or Chromium on this machine (or run '
+		f'`{how}`){cloud}.'
+	)
 
 
 def _cloud_hint() -> str:
@@ -671,19 +694,9 @@ class CLIMCPServer:
 		return await browser.start()
 
 	def _no_browser(self, e: Exception) -> NoBrowserError:
-		reason = ' '.join((str(e) or type(e).__name__).split()).rstrip('.')  # one line: a Chrome log tail has several
 		chrome = f'no Chrome to attach ({self._fallback}), and ' if self._fallback else ''
 		rules = self._browser is not None and self._browser.domains
-		cloud = '' if rules else f', or {_cloud_hint()}'
-		how = (
-			'sudo apt-get install -y libatomic1 && browser-use install'
-			if sys.platform.startswith('linux')
-			else 'browser-use install'
-		)
-		return NoBrowserError(
-			f"No browser to drive: {chrome}this server's own Chromium could not start: {reason}. Install Google Chrome or "
-			f'Chromium on this machine (or run `{how}`){cloud}.'
-		)
+		return NoBrowserError(no_browser_text(f"{chrome}this server's own Chromium", e, '' if rules else f', or {_cloud_hint()}'))
 
 	def _browser_note(self) -> str | None:
 		"""The browser now in use, once per change, for the browser_exec result: None for a cloud browser (its start said)."""
@@ -858,8 +871,6 @@ class CLIMCPServer:
 					write_stream,
 					self.server.create_initialization_options(),
 				)
-			except BrokenPipeError:
-				pass
 			finally:
 				sys.stdout = stdout
 				# Windows: the client closed the session; stop the cloud browser before exiting, not only from the reaper (the
@@ -876,7 +887,11 @@ async def main(own_browser: bool = False, **browser_options: Any):
 	os.environ.setdefault('BH_CLIENT', 'browser-use-mcp')
 	os.environ['BU_MODEL_CODE'] = '1'  # browser_exec runs the client model's code: its browser_use.feedback() is not consent
 	server = CLIMCPServer(own_browser, **browser_options)
-	await server.run()
+	try:
+		await server.run()
+	except* OSError as group:  # the mcp library's task group raises a failed write inside an ExceptionGroup
+		if (rest := group.split(_client_gone)[1]) is not None:
+			raise rest from None
 
 
 if __name__ == '__main__':
