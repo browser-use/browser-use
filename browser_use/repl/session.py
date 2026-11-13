@@ -197,11 +197,18 @@ def redact_forms(text: Any, forms: list[tuple[str, str]]) -> Any:
 		return {redact_forms(k, forms): redact_forms(v, forms) for k, v in text.items()}
 	if not isinstance(text, str):
 		return text
+	# skip <secret:name> placeholders already in the text: admin_user='admin' must not turn <secret:admin_password> into
+	# <secret:<secret:admin_user>_password> (the same text is redacted several times). Only names of these secrets: a
+	# page showing '<secret:VALUE>' still has VALUE redacted.
+	placeholders = '|'.join(re.escape(f'<secret:{n}>') for n in sorted({n for _, n in forms}, key=len, reverse=True))
 	for form, name in forms:
+		if form not in text:
+			continue
 		if len(form) < SHORT_SECRET:  # a 1-3 character value only as a whole word: '9' must not turn 2019 into 201<secret>
-			text = re.sub(rf'(?<![^\W_]){re.escape(form)}(?![^\W_])', f'<secret:{name}>', text)
+			pattern = rf'(?<![^\W_]){re.escape(form)}(?![^\W_])'
 		else:
-			text = text.replace(form, f'<secret:{name}>')
+			pattern = re.escape(form)
+		text = re.sub(f'({placeholders})|{pattern}', lambda m, r=f'<secret:{name}>': m[1] or r, text)
 	return text
 
 

@@ -161,6 +161,16 @@ def test_redact_longest_first():
 	assert redact(None, {'a': 'b'}) is None
 
 
+def test_a_secret_inside_a_placeholder_name_is_not_redacted_again():
+	"""admin_user='admin' turned <secret:admin_password> into <secret:<secret:admin_user>_password>, one level deeper on
+	each of the passes the same text gets (worker, Repl.call, the loop, the result), as 0.x #5135 did."""
+	secrets = {'admin_user': 'admin', 'admin_password': 'S3cure-Pass!', 'a_pin': 'pin'}
+	once = redact('user=admin pass=S3cure-Pass! pin', secrets)
+	assert once == 'user=<secret:admin_user> pass=<secret:admin_password> <secret:a_pin>'
+	assert redact(once, secrets) == once
+	assert redact('<secret:S3cure-Pass!>', secrets) == '<secret:<secret:admin_password>>'  # no such name: still redacted
+
+
 @pytest.mark.parametrize('mode', ['bad'])
 def test_bad_mode_raises(tmp_path, mode):
 	with pytest.raises(ValueError):
