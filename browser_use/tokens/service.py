@@ -408,6 +408,9 @@ class TokenCost:
 		# OrcaRouter is a gateway with its own pricing; never attribute upstream prices to it.
 		if llm.provider == 'orcarouter' or base_url == 'https://api.orcarouter.ai/v1':
 			return f'orcarouter/{model}'
+		# GMI is a gateway with its own pricing; its ids (e.g. `google/gemini-3.6-flash`) look like OpenRouter ids.
+		if llm.provider == 'gmi' or base_url == 'https://api.gmi-serving.com/v1':
+			return f'gmi/{model}'
 
 		return model
 
