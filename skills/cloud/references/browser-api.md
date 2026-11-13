@@ -119,4 +119,6 @@ await client.browsers.stop(browser_session.id)
 
 - Free: 15 minutes max
 - Paid: 4 hours max
-- Pricing: $0.02/hour, billed upfront, proportional refund on early stop, min 1 minute
+- Pricing: $0.06/hour, billed upfront, proportional refund on early stop, min 1 minute
+
+[For enterprise we offer cheaper prices; save with a commitment.](https://browser-use.com/enterprise#talk-to-sales)

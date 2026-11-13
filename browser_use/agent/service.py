@@ -25,6 +25,7 @@ from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT,
 from browser_use.agent.views import AgentHistoryList
 from browser_use.auth import browser_use_api_key
 from browser_use.browser import Browser
+from browser_use.browser import browser as browser_module
 from browser_use.config import load_env
 from browser_use.exceptions import BrowserConfigError, MissingAPIKeyError, removed
 from browser_use.llm import (
@@ -541,9 +542,13 @@ class Agent:
 					await self._shutdown()
 				else:
 					await asyncio.to_thread(self.browser.remember_tab)  # a daemon that dies before the next run reattaches it
-					if self.browser.use_cloud and self.browser.id:  # each run's files land in its own workspace
+					# each run's files land in its own workspace; a cancelled run copies what already finished, within
+					# CANCEL_DOWNLOADS_TIMEOUT_S (a file still copying then goes to the next run or browser.stop())
+					cancelled = (task := asyncio.current_task()) is not None and task.cancelling() > 0
+					if self.browser.use_cloud and self.browser.id:
+						deadline = time.monotonic() + browser_module.CANCEL_DOWNLOADS_TIMEOUT_S if cancelled else None
 						await self.browser._fetch_downloads(
-							self.workspace / 'downloads', self.browser._fetched, self._downloads, self.browser.id
+							self.workspace / 'downloads', self.browser._fetched, self._downloads, self.browser.id, deadline
 						)
 				if result is not None:
 					result.downloads = sorted(

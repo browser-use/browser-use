@@ -78,6 +78,11 @@ except ImportError:  # optional: Pydantic AI needs only httpx2
 	httpx = None
 
 logger = logging.getLogger(__name__)
+# Screenshots pile up until PRUNE_IMAGES_AT tool results carry one, then all but the newest KEEP_IMAGE_RESULTS lose them
+# in one go. Pruning rewrites an earlier message, which breaks the provider's prompt cache from there on: pruning on
+# every new screenshot made each such request a cache miss (BU Bench 1.0.3: 705 steps, 27.8M input, 1.6M cached).
+# Not never: Anthropic rejects a request with more than 100 images.
+PRUNE_IMAGES_AT = 20
 KEEP_IMAGE_RESULTS = 2
 DELIVER_NOW = (
 	'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_repl. '
@@ -412,7 +417,7 @@ def _outputs(output_type: Any) -> list[Any]:
 
 
 class BrowserLoop(AbstractCapability[Session]):
-	"""Keep only recent screenshots; one delivery-only turn near the time/step budget or after a structured text reply;
+	"""Drop old screenshots in batches; one delivery-only turn near the time/step budget or after a structured text reply;
 	one retry of a transient provider error per run; a deadline per model request."""
 
 	async def before_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
@@ -1023,7 +1028,16 @@ def _is_image(c: Any) -> bool:
 
 
 def _prune_images(messages: list[ModelMessage]) -> list[ModelMessage] | None:
-	"""Keep images only in the last KEEP_IMAGE_RESULTS tool results. Returns None when nothing changes."""
+	"""Once more than PRUNE_IMAGES_AT tool results carry images, keep images only in the last KEEP_IMAGE_RESULTS. Returns
+	None when nothing changes, so the history (and the provider's cached prefix) stays byte-identical between prunes."""
+	with_images = sum(
+		isinstance(p, ToolReturnPart) and isinstance(p.content, list) and any(map(_is_image, p.content))
+		for m in messages
+		if isinstance(m, ModelRequest)
+		for p in m.parts
+	)
+	if with_images <= PRUNE_IMAGES_AT:
+		return None
 	out, seen, changed = list(messages), 0, False
 	for i in range(len(out) - 1, -1, -1):
 		m = out[i]
