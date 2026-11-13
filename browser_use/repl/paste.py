@@ -7,20 +7,19 @@ from browser_use.repl.frames import _call, _deadline, _document, _frames
 # At worst, one Unicode code point takes 12 bytes in JSON (a surrogate pair).
 _CHUNK_CHARS = 4096
 _MAX_BYTES = 1024 * 1024
-_PASTE = """function(selector) {
+_PASTE = """function() {
     if (this.document !== document) throw new Error('Stale frame document');
-    const matches = document.querySelectorAll(selector);
     const reject = reason => ({status:'not_dispatched', reason, input_verified:false, persistence_verified:false});
-    if (matches.length !== 1) return reject('Selector must match exactly one element; matched ' + matches.length);
-    const target = matches[0];
-    if (!target.isConnected || target.disabled || target.readOnly || target.getAttribute('aria-disabled') === 'true')
+    if (this.reason) return reject(this.reason);
+    const target = this.target;
+    if (!target.isConnected || target.ownerDocument !== document || target.disabled || target.readOnly || target.getAttribute('aria-disabled') === 'true')
         return reject('Target is detached, disabled or read-only');
     target.focus();
     if (document.activeElement !== target) return reject('Target could not receive focus');
     const data = new DataTransfer();
     data.setData('text/plain', this.text);
     if (this.html !== null) data.setData('text/html', this.html);
-    const event = new ClipboardEvent('paste', {clipboardData:data, bubbles:true, cancelable:true});
+    const event = new ClipboardEvent('paste', {clipboardData:data, bubbles:true, cancelable:true, composed:true});
     target.dispatchEvent(event);
     return {status:'dispatched', default_prevented:event.defaultPrevented,
             input_verified:false, persistence_verified:false};
@@ -53,8 +52,14 @@ def dispatch_paste(selector, text, *, frame=None, html=None, timeout_s=10):
 				sid,
 				objectId=doc,
 				objectGroup=group,
-				functionDeclaration='function(hasHtml) { if(this !== document) throw new Error("Stale frame document"); return {document:this, text:"", html:hasHtml ? "" : null}; }',
-				arguments=[{'value': html is not None}],
+				functionDeclaration="""function(selector, hasHtml) {
+                    if (this !== document) throw new Error("Stale frame document");
+                    const matches = document.querySelectorAll(selector);
+                    return {document:this, target:matches.length === 1 ? matches[0] : null,
+                            reason:matches.length === 1 ? null : 'Selector must match exactly one element; matched ' + matches.length,
+                            text:"", html:hasHtml ? "" : null};
+                }""",
+				arguments=[{'value': selector}, {'value': html is not None}],
 			)
 			helpers._runtime_value(response, 'initialize paste transfer')
 			holder = response['result']['objectId']
@@ -77,7 +82,6 @@ def dispatch_paste(selector, text, *, frame=None, html=None, timeout_s=10):
 				sid,
 				objectId=holder,
 				functionDeclaration=_PASTE,
-				arguments=[{'value': selector}],
 				returnByValue=True,
 			)
 			return helpers._runtime_value(result, 'dispatch editor paste')

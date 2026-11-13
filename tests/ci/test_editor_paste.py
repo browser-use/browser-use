@@ -183,3 +183,30 @@ async def test_transfer_failure_never_dispatches_partial_text(daemon, tmp_path, 
 		await cell(r, "h.cdp=original\nassert js('window.pastes')==0\nassert js('saved.textContent')==''")
 	finally:
 		await r.close()
+
+
+async def test_replaced_editor_during_transfer_does_not_receive_paste(daemon, tmp_path, editor_site):
+	r = Repl(tmp_path, daemon)
+	try:
+		await cell(
+			r,
+			f'new_tab({editor_site!r}); wait_for_load()\n'
+			'import browser_harness.helpers as h\nraw = h.cdp\nreplaced = False\n'
+			'def replace_during_transfer(method, *a, **kw):\n'
+			'    global replaced\n'
+			'    result = raw(method, *a, **kw)\n'
+			"    if 'this[name] += chunk' in kw.get('functionDeclaration', '') and not replaced:\n"
+			'        replaced = True\n'
+			"""        raw('Runtime.evaluate', expression="window.oldEdit=edit; const replacement=edit.cloneNode(); replacement.addEventListener('paste',e=>{e.preventDefault();window.pastes++;saved.textContent=e.clipboardData.getData('text/plain')}); edit.replaceWith(replacement)")
+"""
+			'    return result\nh.cdp = replace_during_transfer',
+		)
+		await cell(
+			r,
+			"receipt = dispatch_paste('#edit', 'a'*100000)\nh.cdp = raw\n"
+			"assert replaced and receipt['status'] == 'not_dispatched', receipt\n"
+			"assert js('window.pastes') == 0\nassert js('saved.textContent') == ''\n"
+			"assert js('oldEdit.isConnected') is False\nassert js('edit.value') == ''",
+		)
+	finally:
+		await r.close()
