@@ -198,6 +198,7 @@ REMOVED_METHODS = {  # 0.x BrowserSession methods and attributes -> the 1.0 alte
 CREATE_TIMEOUT_S = 120  # total for the cloud create; start() fails past it, and a browser that lands later is stopped
 LOCAL_START_WAIT_S = 120  # Browser('chrome'): Chrome start plus the user clicking Allow on its remote-debugging prompt
 DOWNLOADS_TIMEOUT_S = 300  # all download passes before a stop (and one after); a slow download never holds the billing longer
+CANCEL_DOWNLOADS_TIMEOUT_S = 10  # cancelled: all copy passes of a stop (or of a keep_alive run) share it, so it stays prompt
 _LIVE: set[Browser] = set()  # browsers this process owns that still need stopping
 _POOL = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='browser-use-cloud')  # joined at exit
 _atexit_installed = _signals_installed = False
@@ -253,6 +254,8 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 					size += len(chunk)
 					if time.monotonic() > deadline:
 						raise TimeoutError(f'download did not finish within its deadline ({name})')
+				if time.monotonic() > deadline:  # EOF came after it: the caller already gave up and never records the file
+					raise TimeoutError(f'download did not finish within its deadline ({name})')
 				expected = (getattr(r, 'headers', None) or {}).get('Content-Length')
 				if expected is not None and expected.isdigit() and size != int(expected):  # EOF before the end: truncated
 					raise ConnectionError(f'download of {name} ended after {size} of {expected} bytes')
@@ -1069,7 +1072,7 @@ class Browser:
 		"""Stop the daemon this Browser started, and the cloud browser or local Chrome it started. Never touches the
 		Chrome you have open.
 		downloads_dir: copy what the cloud browser downloaded there (default: the workspace/downloads of the last Agent
-		that ran on this Browser). Returns the local paths."""
+		that ran on this Browser); a cancelled stop copies within CANCEL_DOWNLOADS_TIMEOUT_S. Returns the local paths."""
 		async with self._lock:
 			await self._stopped()
 			return await self._stop(downloads_dir or self._downloads_dir)
@@ -1090,13 +1093,16 @@ class Browser:
 			# no wait when cancelled (task.cancel(), Ctrl-C: the stop must be prompt, a cloud browser bills) or when the
 			# Chrome this Browser launched died (its downloads never send progress again)
 			cancelled = (task := asyncio.current_task()) is not None and task.cancelling() > 0
+			# cancelled: every copy pass, before and after the stop, shares one CANCEL_DOWNLOADS_TIMEOUT_S (each could hold
+			# the stop, and the billing, up to DOWNLOADS_TIMEOUT_S); a pass that runs out of time is logged
+			cancel_deadline = time.monotonic() + CANCEL_DOWNLOADS_TIMEOUT_S if cancelled else None
 			dead = self._local is not None and self._local.proc is not None and self._local.proc.poll() is not None
 			completed = await self._finish_downloads() if ending and not cancelled and not dead else 0
 			# before the stop too: the API may not list a stopped session's files. The cloud lists a download about a
 			# second after it completes: retry until it lists them all, within one DOWNLOADS_TIMEOUT_S for all passes (a
 			# copy that kept failing, each pass with a deadline of its own, held the stop and the billing ~15 min)
 			if downloads_dir and self.use_cloud:
-				deadline = time.monotonic() + DOWNLOADS_TIMEOUT_S
+				deadline = cancel_deadline or time.monotonic() + DOWNLOADS_TIMEOUT_S
 				for _ in range(30):
 					await self._fetch_downloads(downloads_dir, fetched, files, browser_id, deadline)
 					if len(fetched) >= completed or time.monotonic() >= deadline:
@@ -1106,8 +1112,9 @@ class Browser:
 			self._stopping = asyncio.ensure_future(asyncio.to_thread(self._stop_now))
 			stopped = await asyncio.shield(self._stopping)
 			self._stopping = None
-		if downloads_dir and self.use_cloud:  # and after: files that finished while the browser stopped
-			await self._fetch_downloads(downloads_dir, fetched, files, browser_id)
+		# and after: files that finished while the browser stopped (the cloud lists a download ~1 s after it completes)
+		if downloads_dir and self.use_cloud and (cancel_deadline is None or time.monotonic() < cancel_deadline):
+			await self._fetch_downloads(downloads_dir, fetched, files, browser_id, cancel_deadline)
 		if stopped and self.id == browser_id:
 			self.id = None
 			self._download_records, self.json_page_copies, self._fetched = [], set(), set()  # the next session starts anew
@@ -1212,7 +1219,7 @@ class Browser:
 			async with asyncio.timeout(max(deadline - time.monotonic(), 0)):
 				await self.download_files(dest, skip, out=out, browser_id=browser_id, deadline=deadline)
 		except Exception as e:  # - the result is already delivered
-			logger.warning('Could not fetch cloud browser downloads: %s', e or type(e).__name__)
+			logger.warning('Could not fetch cloud browser downloads: %s', str(e) or type(e).__name__)
 
 	async def download_files(
 		self,
