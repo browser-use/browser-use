@@ -4,7 +4,14 @@ import {
   type AgentTool,
   type StreamFn,
 } from '@earendil-works/pi-agent-core';
-import type { Model, Api, ToolChoice, Usage } from '@earendil-works/pi-ai';
+import {
+  validateToolArguments,
+  type Model,
+  type Api,
+  type ToolChoice,
+  type ToolCall,
+  type Usage,
+} from '@earendil-works/pi-ai';
 import { Type, type TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
 import { CellError, type BrowserRuntime } from './runtime.js';
@@ -168,10 +175,22 @@ export async function runAgent(
       };
     },
   };
+  const rejectedDelivery = (reason: string, rejected: unknown) => {
+    let value: string | undefined;
+    try {
+      value = JSON.stringify(rejected)?.slice(0, 2000);
+    } catch {
+      value = '[Non-JSON value; provide a JSON-serializable result.]';
+    }
+    return new Error(
+      `Final delivery rejected: ${reason}\nOriginal result schema: ${JSON.stringify(schema)}\nRejected value or arguments: ${value}\nFor finish, put every result field inside the single result property: {"result": <value matching the schema>}. For finish_from_js, return that value directly. Repair this delivery in the current session; do not repeat completed browser actions.`,
+    );
+  };
   const acceptResult = async (output: unknown, signal?: AbortSignal) => {
     if (!Check(schema, output))
-      throw new Error(
+      throw rejectedDelivery(
         `Final result does not match schema: ${JSON.stringify(Errors(schema, output).slice(0, 5)).slice(0, 2000)}`,
+        output,
       );
     if (config.validateResult) {
       const feedback = await bounded(
@@ -179,7 +198,7 @@ export async function runAgent(
         hookTimeout,
         signal,
       );
-      if (feedback) throw new Error(`Result rejected: ${feedback}`);
+      if (feedback) throw rejectedDelivery(`Result rejected: ${feedback}`, output);
     }
     signal?.throwIfAborted();
     const text = typeof output === 'string' ? output : JSON.stringify(output);
@@ -198,6 +217,24 @@ export async function runAgent(
     description:
       'Submit the verified final result, matching this schema. For data already in JavaScript, prefer finish_from_js to avoid rewriting it. This ends the task.',
     parameters: resultParameters,
+    // Argument validation failures bypass afterToolCall in Pi's loop.
+    prepareArguments: (args) => {
+      try {
+        return validateToolArguments(finish, {
+          type: 'toolCall',
+          id: 'finish-validation',
+          name: 'finish',
+          arguments: args as ToolCall['arguments'],
+        });
+      } catch (error) {
+        // Pi appends the full arguments; rejectedDelivery already echoes them, capped.
+        const reason = (error instanceof Error ? error.message : String(error)).replace(
+          /\n\nReceived arguments:[\s\S]*$/,
+          '',
+        );
+        throw rejectedDelivery(reason, args);
+      }
+    },
     executionMode: 'sequential',
     execute: async (_id, params: { result: unknown }, signal) =>
       acceptResult(params.result, signal),
@@ -211,11 +248,20 @@ export async function runAgent(
     parameters: expressionParameters,
     executionMode: 'sequential',
     replay: 'never',
-    execute: async (_id, params: { expression: string }, signal) =>
-      acceptResult(
-        await runtime.readResult(params.expression, config.cellTimeoutMs ?? 30_000, signal),
-        signal,
-      ),
+    execute: async (_id, params: { expression: string }, signal) => {
+      let output;
+      try {
+        output = await runtime.readResult(
+          params.expression,
+          config.cellTimeoutMs ?? 30_000,
+          signal,
+        );
+      } catch (error) {
+        signal?.throwIfAborted();
+        throw rejectedDelivery(error instanceof Error ? error.message : String(error), params);
+      }
+      return acceptResult(output, signal);
+    },
   };
   // OpenAI restricts delivery turns with allowed_tools, so the tool list (part of the cached prompt prefix) stays.
   // Other providers on this api (xAI, gateways) reject allowed_tools; a baseUrl proxy for openai must pass it through.
@@ -474,17 +520,20 @@ export async function runAgent(
       );
       return { ...evidence, ...override };
     },
-    finishTurn: ({ message, context }): { action: 'end' } | undefined => {
+    finishTurn: ({ message, context, toolResults }): { action: 'end' } | undefined => {
       // Error and aborted responses are hard exits; the old shouldStopAfterTurn never saw them.
       if (message.stopReason === 'error' || message.stopReason === 'aborted') return undefined;
       if (completion || stopped) return { action: 'end' };
-      return checkBudgets(
-        context.messages,
-        agent.state.systemPrompt,
-        message.stopReason !== 'stop',
-      ) || finishRepairs > 0
-        ? { action: 'end' }
-        : undefined;
+      if (checkBudgets(context.messages, agent.state.systemPrompt, message.stopReason !== 'stop'))
+        return { action: 'end' };
+      if (
+        finishRepairs === 1 &&
+        toolResults.some((result) => result.isError && deliveryTools.includes(result.toolName))
+      ) {
+        finishRepairs++;
+        return undefined;
+      }
+      return finishRepairs > 0 ? { action: 'end' } : undefined;
     },
   });
   refreshToolBudget();
@@ -567,7 +616,7 @@ export async function runAgent(
           content: [
             {
               type: 'text',
-              text: 'The run ended without a validated delivery. Use finish_from_js for an existing result or finish for a concise answer. Preserve all verified records; report missing evidence honestly. Do not repeat browser actions. This is the single delivery repair turn.',
+              text: 'The run ended without a validated delivery. Use finish_from_js for an existing result or finish for a concise answer. Preserve all verified records; report missing evidence honestly. Do not repeat browser actions. This is the single delivery repair; one correction may follow a rejected delivery.',
             },
           ],
           timestamp: Date.now(),

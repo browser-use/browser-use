@@ -122,7 +122,7 @@ export interface ContextMetrics {
 }
 export interface RunMetrics {
   context?: ContextMetrics;
-  /** Additional delivery-only model turns, within the original budgets (0 or 1). */
+  /** Delivery repair turns taken within the original budgets: zero, one, or two. */
   finishRepairs: number;
   compactions?: number;
   providerRetries?: number;
