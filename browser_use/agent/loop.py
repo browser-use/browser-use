@@ -1211,8 +1211,12 @@ def openrouter_cost(m: ModelResponse) -> float | None:
 	"""USD OpenRouter reported for this response (usage.cost). With BYOK, cost is only OpenRouter's fee and the provider
 	bills upstream_inference_cost to your own key: both are counted."""
 	details = m.provider_details or {}
-	if m.provider_name != 'openrouter' or (cost := parse_usd(details.get('cost'))) is None:
+	if m.provider_name != 'openrouter':
 		return None
+	if (cost := parse_usd(details.get('cost'))) is None:
+		if 'is_byok' not in details:  # no usage accounting in this response
+			return None
+		cost = 0.0  # pydantic-ai leaves out a reported cost of 0 (a free model)
 	if details.get('is_byok') and (upstream := parse_usd(details.get('upstream_inference_cost'))) is not None:
 		cost += upstream
 	return cost
@@ -1253,8 +1257,13 @@ def request_costs(messages: list[ModelMessage], model_ref: str) -> list[float | 
 	return costs
 
 
-def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[str, int], float | None]:
-	"""Tokens and USD cost of these messages (see request_costs). Cost is None when any request has no known cost."""
+def total_cost(costs: list[float | None]) -> float | None:
+	"""Sum of request_costs(), or None when any request has no known cost."""
+	known = [c for c in costs if c is not None]
+	return sum(known, 0.0) if len(known) == len(costs) else None
+
+
+def token_usage(messages: list[ModelMessage]) -> dict[str, int]:
 	total = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
 	for m in messages:
 		if isinstance(m, ModelResponse):
@@ -1264,9 +1273,12 @@ def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[s
 			total['cache_read'] += u.cache_read_tokens
 			total['cache_write'] += u.cache_write_tokens
 			total['requests'] += 1
-	costs = request_costs(messages, model_ref)
-	known = [c for c in costs if c is not None]
-	return total, sum(known, 0.0) if len(known) == len(costs) else None
+	return total
+
+
+def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[str, int], float | None]:
+	"""Tokens and USD cost of these messages (see request_costs). Cost is None when any request has no known cost."""
+	return token_usage(messages), total_cost(request_costs(messages, model_ref))
 
 
 def last_text(messages: list[ModelMessage]) -> str:
@@ -1338,11 +1350,12 @@ async def run(
 	text = redact(as_text(output), session.repl.secrets)
 	error = redact(error, session.repl.secrets)  # provider/tool exceptions can quote a secret; Agent.run logs this
 	session.rec.loop_ended()
-	usage, cost = usage_and_cost(new + session.summaries, model_ref)
+	costs, summary_costs = request_costs(new, model_ref), request_costs(list(session.summaries), model_ref)
+	usage, cost = token_usage(new + session.summaries), total_cost(costs + summary_costs)
 	if search:
 		session.rec.cost_search = sum(search.charges[searched:])
 	if session.summaries:
-		session.rec.cost_compaction = usage_and_cost(list(session.summaries), model_ref)[1]
+		session.rec.cost_compaction = total_cost(summary_costs)
 	if cost is not None and search:  # web searches that named a charge; an unknown model cost stays unknown
 		cost += sum(search.charges[searched:])
 	steps = sum(isinstance(m, ModelResponse) for m in new)
@@ -1354,7 +1367,7 @@ async def run(
 		# them back in requests: the delivery repair turn quotes the reply, a schema error echoes the rejected input
 		messages = [replace(m, parts=[redact_part(p, forms) for p in m.parts]) for m in messages]
 	result = AgentHistoryList(status, text, output, steps, duration, usage, cost, partial, error, messages, success)
-	result.request_costs = request_costs(new, model_ref)
+	result.request_costs = costs
 	return result
 
 

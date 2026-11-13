@@ -897,6 +897,8 @@ def test_openrouter_cost_is_what_openrouter_reported():
 	byok = reply({'cost': 0.0001, 'is_byok': True, 'upstream_inference_cost': 0.002})  # fee + what your own key paid
 	assert request_costs([byok], ref) == [pytest.approx(0.0021)]
 	assert request_costs([reply(None)], ref)[0]  # no reported cost: still priced by genai-prices
+	free = reply({'is_byok': False, 'upstream_inference_cost': 0.0}, model='some-lab/not-in-genai-prices:free')
+	assert request_costs([free], 'openrouter:some-lab/not-in-genai-prices:free') == [0.0]  # pydantic-ai drops cost 0
 
 
 async def test_result_has_cost_per_request(tmp_path):
