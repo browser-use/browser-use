@@ -126,8 +126,10 @@ Typical task: 10 steps = ~$0.03 (with Browser Use LLM)
 | BU Max (Claude Sonnet 4.6) | ~$3.60 | ~$18.00 |
 
 ### Browser Sessions
-- All plans: $0.02/hour
+- Browser sessions: $0.06/hour
 - Billed upfront, proportional refund on stop. Min 1 minute.
+
+[For enterprise we offer cheaper prices; save with a commitment.](https://browser-use.com/enterprise#talk-to-sales)
 
 ### Skills
 - Creation: $2 (PAYG), $1 (Business). Refinements free.
