@@ -57,6 +57,15 @@ async def test_nested_frame_main_world_and_no_global_switch(daemon, tmp_path, fr
 		assert out['stats']['helpers']['frame_eval'] == 3
 		# The application's global was defined only in its main world, not the isolated inspection world.
 		await cell(r, "assert len(frames) == 3; assert frames[0]['frame_id'] != f['frame_id']")
+		await cell(
+			r,
+			"targets = {t['targetId'] for t in cdp('Target.getTargets')['targetInfos'] if t['type'] == 'iframe'}\n"
+			+ (
+				"assert f['target_id'] != f['tab_id'] and f['target_id'] in targets"
+				if path == '/cross'
+				else "assert f['target_id'] == f['tab_id']"
+			),
+		)
 	finally:
 		await r.close()
 
@@ -97,6 +106,39 @@ async def test_tab_ownership_and_duplicate_urls(daemon, tmp_path, frame_site):
 			"same = [f for f in frame_list() if f['url'].endswith('/outer')]\n"
 			"assert len(same) == 2 and same[0]['frame_id'] != same[1]['frame_id']\n"
 			"frame_eval(same[0], 'window.selected = true')\nassert frame_eval(same[1], '!!window.selected') is False",
+		)
+	finally:
+		await r.close()
+
+
+async def test_navigation_during_document_resolution_rejects_old_ref(daemon, tmp_path, frame_site):
+	r = Repl(tmp_path, daemon)
+	try:
+		await cell(
+			r,
+			f'new_tab({frame_site + "/same"!r}); wait_for_load()\n'
+			"f = next(f for f in frame_list() if f['url'].endswith('/outer'))\n"
+			'import browser_harness.helpers as h, time\nraw = h.cdp\nmoved = False\n'
+			'def navigate_during_resolution(method, *a, **kw):\n'
+			'    global moved\n'
+			"    if method == 'Page.createIsolatedWorld' and not moved:\n"
+			'        moved = True\n'
+			f"        raw('Page.navigate', frameId=f['frame_id'], url={frame_site + '/outer?new'!r})\n"
+			'        end = time.monotonic() + 3\n'
+			'        while time.monotonic() < end:\n'
+			"            if any(x['id'] == f['frame_id'] and x['loaderId'] != f['loader_id'] for x in [raw('Page.getFrameTree')['frameTree']['childFrames'][0]['frame']]): break\n"
+			'            time.sleep(.01)\n'
+			"        assert raw('Page.getFrameTree')['frameTree']['childFrames'][0]['frame']['loaderId'] != f['loader_id']\n"
+			'    return raw(method, *a, **kw)\n'
+			'h.cdp = navigate_during_resolution',
+		)
+		out = await r.call('exec', "frame_eval(f, 'window.unexpected = true')", 30)
+		assert out['error'] and 'changed' in out['error'], out
+		await cell(
+			r,
+			'h.cdp = raw\nassert moved\n'
+			"fresh = next(x for x in frame_list() if '/outer?new' in x['url'])\n"
+			"assert frame_eval(fresh, '!!window.unexpected') is False\nassert js('!!window.unexpected') is False",
 		)
 	finally:
 		await r.close()

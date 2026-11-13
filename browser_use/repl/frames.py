@@ -122,6 +122,11 @@ def _document(frame, deadline):
 			backend = _call(deadline, 'DOM.describeNode', sid, objectId=isolated['result']['objectId'])['node']['backendNodeId']
 			# Omitting executionContextId resolves the document into its own main world, where app globals live.
 			doc = _call(deadline, 'DOM.resolveNode', sid, backendNodeId=backend, objectGroup=group)['object']['objectId']
+			tree = _call(deadline, 'Page.getFrameTree', sid)['frameTree']
+			if not any(f['id'] == frame['frame_id'] and f['loaderId'] == frame['loader_id'] for f in _walk(tree)):
+				raise RuntimeError(
+					'Frame changed during document resolution; call frame_list() again. No expression was executed.'
+				)
 			yield sid, doc, group
 		finally:
 			with contextlib.suppress(Exception):
