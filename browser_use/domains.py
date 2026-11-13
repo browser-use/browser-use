@@ -66,8 +66,9 @@ def canonical_host(host: str) -> str:
 		return str(ipaddress.ip_address(h))
 	labels = h.split('.')
 	if re.fullmatch(r'\d+|0x[0-9a-f]*', labels[-1]):  # WHATWG: a host ending in a number is an IPv4 address
+		# a bare '0x' part is 0 (Chrome: http://1.0x/ is 1.0.0.0); inet_aton refuses it last (macOS)
 		with contextlib.suppress(OSError):
-			return socket.inet_ntoa(socket.inet_aton(h))
+			return socket.inet_ntoa(socket.inet_aton('.'.join('0' if label == '0x' else label for label in labels)))
 	if not h.isascii():
 		with contextlib.suppress(idna.IDNAError, UnicodeError):
 			return idna.encode(h, uts46=True, transitional=False).decode('ascii')
