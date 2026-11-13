@@ -9,10 +9,12 @@ on:
   push:
     branches:
       - main
+      - v1
       - stable
       - 'releases/**'
     tags:
       - '*'
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -23,10 +25,10 @@ jobs:
     name: pip-build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - run: uv build --python 3.12
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist-artifact
           path: |
@@ -45,9 +47,9 @@ jobs:
       ANONYMIZED_TELEMETRY: 'false'
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist-artifact
 
@@ -60,5 +62,16 @@ jobs:
           else
             source /tmp/testenv/bin/activate
           fi
-          uv pip install *.whl
-          python -c 'from browser_use import Agent, BrowserProfile, BrowserSession, Tools, ActionModel, ActionResult'
+          uv pip install ./*.whl
+          # Outside the checkout, so the installed wheel is imported, not the source tree.
+          cd "$RUNNER_TEMP"
+          python - <<'PY'
+          import os
+          import browser_use
+          from browser_use import Agent, Browser, Tools, ActionResult, ChatOpenAI, ChatBrowserUse
+          import browser_use.agent.loop, browser_use.repl.worker, browser_use.ax, browser_use.cli, browser_use.mcp.cli_mcp
+          checkout = os.path.normcase(os.path.realpath(os.environ['GITHUB_WORKSPACE']))
+          assert not os.path.normcase(os.path.realpath(browser_use.__file__)).startswith(checkout), browser_use.__file__
+          print('installed wheel OK:', browser_use.__file__)
+          PY
+          browser-use --help > /dev/null

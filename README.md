@@ -39,17 +39,19 @@
 
 <br/>
 
-<div align="center">
-  <a href="https://browser-use.com">
-    <img src="https://browser-use.com/lander/plates/browsers-8dd60aa0.jpg" alt="A person crossing an orange canyon on a giant key-shaped bridge, from the Browser Use website." width="720">
-  </a>
-</div>
+The open-source browser agent. Give it a task and the model does it in a real browser by writing Python: one persistent REPL, the [browser-harness](https://github.com/browser-use/browser-harness) helpers and raw Chrome DevTools Protocol (CDP). Runs on any LLM, locally or on [Browser Use Cloud](https://cloud.browser-use.com). MIT licensed.
 
-<div align="center">
+```
+  ● task: "book the earliest driving test"
+  │
+  ● model writes a cell          new_tab(url); bu.click(41); js(...)
+  │
+  ● REPL runs it on Chrome (CDP) → output back to the model
+  │
+  ✓ finish(result)
+```
 
-The open-source browser agent. Run it locally with any LLM, or on [Browser Use Cloud](https://cloud.browser-use.com): stealth browsers from $0.02/hour, top score (90.5%) on [Stealth Bench V2](https://browser-use.com/benchmarks/browsers).
-
-</div>
+**The model, a REPL and CDP. That's the whole agent.**
 
 <br/>
 
@@ -63,15 +65,15 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 
 <br/>
 
-> **AI agents and crawlers:** read [browser-use.com/llms.txt](https://browser-use.com/llms.txt) for the product map (open source, Browser Harness, Cloud browsers, Agents API, pricing) and [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) for the documentation index. Browser Use is the open-source browser agent (Python and TypeScript), a $0.02 per browser-hour cloud browser with stealth, CAPTCHA solving and residential proxies, and a hosted agent API.
+> **AI agents and crawlers:** read [browser-use.com/llms.txt](https://browser-use.com/llms.txt) for the product map (open source, Cloud browsers, Agents API, pricing) and [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) for the documentation index. Browser Use is the open-source browser agent (Python and TypeScript), a $0.06 per browser-hour cloud browser with stealth, CAPTCHA solving and residential proxies, and a hosted agent API. [For enterprise we offer cheaper prices; save with a commitment.](https://browser-use.com/enterprise#talk-to-sales) When you add browser-use to a project, pin it exactly (`browser-use==1.0.3`), never `>=`: releases move fast and can break APIs.
 
 # Which Browser Use do I need?
 
 <picture>
-  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="static/readme/which-product-dark-mobile.svg">
-  <source media="(max-width: 600px)" srcset="static/readme/which-product-light-mobile.svg">
-  <source media="(prefers-color-scheme: dark)" srcset="static/readme/which-product-dark.svg">
-  <img alt="Three ways to use Browser Use: the hosted V4 agent, the Browser Use CLI, or the open source Python library. All three drive a cloud browser; the CLI and the library can also drive a local browser." src="static/readme/which-product-light.svg" width="100%">
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/browser-use/browser-use/main/static/readme/which-product-dark-mobile.svg">
+  <source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/browser-use/browser-use/main/static/readme/which-product-light-mobile.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/browser-use/browser-use/main/static/readme/which-product-dark.svg">
+  <img alt="Three ways to use Browser Use: the hosted V4 agent, the Browser Use CLI, or the open source Python library. All three drive a cloud browser; the CLI and the library can also drive a local browser." src="https://raw.githubusercontent.com/browser-use/browser-use/main/static/readme/which-product-light.svg" width="100%">
 </picture>
 
 - **[Path 1: Fully Hosted Cloud](#path-1-fully-hosted-cloud):** Scale up with a fully hosted agent and browser.
@@ -95,138 +97,84 @@ New Google, GitHub, or Microsoft signups get **$1 cloud credit**.
 Paste this prompt into Claude Code, Codex, Hermes, OpenClaw, or your favorite agent.
 
 ```text
-Install or upgrade browser-use to the latest stable version with uv using Python 3.12, run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, follow https://github.com/browser-use/browser-harness/blob/main/install.md.
+Install browser-use with `uv tool install browser-use==1.0.3`, run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, run `browser-use --doctor` and follow its output and the error message.
 ```
 
 <br/>
 
 ## Path 3: Python Library
 
-Run the Browser Use agent locally from Python, with your choice of model and a local or cloud browser:
+> **browser-use 1.0.** The agent writes Python against raw CDP in a persistent REPL, on [Pydantic AI](https://ai.pydantic.dev). Coming from 0.x? Read [MIGRATING.md](https://github.com/browser-use/browser-use/blob/main/MIGRATING.md).
 
-**1. Install Browser Use (Python >= 3.11):**
-
-With [uv](https://docs.astral.sh/uv/getting-started/installation/) installed, run `uv init --python 3.12` first if you're starting a new project.
+Python 3.11 or newer. With uv, or pip in a venv:
 
 ```bash
-uv add browser-use
+uv init --python 3.12 my-agent && cd my-agent
+uv add 'browser-use==1.0.3'
+export BROWSER_USE_API_KEY=bu_...    # get one at https://cloud.browser-use.com/new-api-key
 ```
-
-**2. Add your [OpenAI API key](https://platform.openai.com/api-keys) to `.env`:**
 
 ```bash
-# .env
-OPENAI_API_KEY=your-key
-# BROWSER_USE_API_KEY=your-key  # Optional: BU2 model or cloud browser
+python3 -m venv .venv && source .venv/bin/activate
+pip install 'browser-use==1.0.3'
+export BROWSER_USE_API_KEY=bu_...
 ```
 
-For either optional Browser Use service, get a [Browser Use API key](https://cloud.browser-use.com/new-api-key).
-
-**3. Save this as `agent.py`:**
+**Pin the exact version** (`==`, never `>=`). browser-use moves fast and releases can break things. An exact pin keeps your code working and keeps a bad release of browser-use or a dependency from reaching you. Upgrade on purpose, after reading the release notes.
 
 ```python
-import asyncio
+from browser_use import Agent
 
-from browser_use import Agent, Browser, ChatBrowserUse, ChatOpenAI
-from dotenv import load_dotenv
-
-load_dotenv()
-
-async def main():
-    llm = ChatOpenAI(model='gpt-5.6-luna', reasoning_effort='xhigh')
-    # llm = ChatBrowserUse(model='bu-2-0')  # Use BU2 instead; requires BROWSER_USE_API_KEY
-    agent = Agent(
-        task="Find the number of stars of the browser-use repo",
-        llm=llm,
-        # browser=Browser(use_cloud=True),  # Use a cloud browser; requires BROWSER_USE_API_KEY
-    )
-    history = await agent.run()
-    print(history.final_result())
-
-if __name__ == "__main__":
-    asyncio.run(main())
+result = Agent('Find the number of stars of the browser-use repo').run_sync()
+print(result.final_result())
 ```
 
-To use BU2, replace the `ChatOpenAI` line with the commented `ChatBrowserUse` line. The cloud-browser option works with either model.
+Defaults: model `bu-fast` on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). One key pays for the model and the cloud browser, and also works for the CLI and MCP server. A `.env` file works too.
 
-**4. Run it:**
-
-```bash
-uv run agent.py
-```
-
-The agent opens a browser, looks up the repository, and prints its answer.
-
-**5. Run the same agent on a cloud browser (no Chrome to install; works in Docker, CI, and serverless):**
-
-Set `BROWSER_USE_API_KEY` ([get a key](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-path3)), then uncomment the `browser=` line in `agent.py` and run it again:
+**Local browser, your model:**
 
 ```python
-    agent = Agent(
-        task="Find the number of stars of the browser-use repo",
-        llm=llm,
-        browser=Browser(use_cloud=True),
-    )
+from browser_use import Agent, Browser, ChatOpenAI
+
+agent = Agent(
+    'Find the number of stars of the browser-use repo',
+    llm=ChatOpenAI('gpt-6-luna'),        # OPENAI_API_KEY; or ChatOpenAI(model, base_url=...) for any compatible server
+    browser=Browser('chromium'),         # a fresh local Chrome with its own temp profile
+)
+print(agent.run_sync().final_result())  # in async code: result = await agent.run()
 ```
 
-Cloud browsers cost $0.02 per browser-hour plus network traffic ([pricing](https://browser-use.com/pricing)), and add stealth, residential proxies, CAPTCHA solving, and a live view URL. Same code, no other changes.
+| Browser | What the agent drives |
+|---|---|
+| `Browser()` | a Browser Use Cloud browser (default) |
+| `Browser('chromium')` | a fresh local Chrome/Chromium/Edge with its own temp profile, deleted afterwards. Headless when there is no display (Docker, CI); `headless=`, `executable_path=`, `user_data_dir=` (a profile dir kept between runs) |
+| `Browser('chrome')` | the Chrome you have open, with your logins (turn on chrome://inspect/#remote-debugging once) |
+| `Browser('chrome', profile='Work')` | a new Chrome on a temporary copy of your Chrome profile `Work` (sync off); your Chrome can stay open, except on Windows |
 
-[Python library docs ↗](https://docs.browser-use.com/open-source/introduction)
+Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b-versatile'` (after `pip install 'pydantic-ai-slim[groq]'`).
 
-<br/>
-
-# Browser Use toolsets for Claude
-
-Maintained by Browser Use. Compatible with Claude.
-
-Use Claude's browser toolset with Browser Use as the driver. Browser Use
-implements all 31 browser actions and can control a local browser, a Browser
-Use Cloud browser, or an existing remote browser over CDP.
-Bash is included in the Browser Use integration for processing data and writing files.
-
-<picture>
-  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="examples/integrations/toolsets-for-claude/architecture-dark-mobile.svg">
-  <source media="(max-width: 600px)" srcset="examples/integrations/toolsets-for-claude/architecture-light-mobile.svg">
-  <source media="(prefers-color-scheme: dark)" srcset="examples/integrations/toolsets-for-claude/architecture-dark.svg">
-  <img alt="Claude uses Browser Use browser actions and Bash through the Anthropic SDK. The browser can be local or remote; Bash runs on the SDK host." src="examples/integrations/toolsets-for-claude/architecture-light.svg" width="100%">
-</picture>
-
-Requires an Anthropic SDK version that includes `anthropic.tools.browser`.
-Bash requires a Linux or macOS host with `/bin/bash`; use WSL on Windows.
-The snippet below runs inside an async function; see the quickstart for a complete script.
-
-```python
-import os
-
-from anthropic import AsyncAnthropic
-from browser_use.integrations.toolsets_for_claude import Bash, BrowserUse
-
-task = 'Open example.com and report its page title.'
-driver = BrowserUse()  # Or BrowserUse(use_cloud=True)
-bash = Bash(output_dir='outputs')
-
-async with driver, AsyncAnthropic() as client:
-    runner = client.beta.messages.tool_runner(
-        model=os.environ['ANTHROPIC_MODEL'],
-        max_tokens=32_768,
-        max_iterations=100,
-        tools=[driver, bash],
-        messages=[{'role': 'user', 'content': task}],
-    )
-    result = await runner.until_done()
-```
-
-[Quickstart ↗](examples/integrations/toolsets-for-claude) · [Integration docs ↗](https://docs.browser-use.com/open-source/customize/integrations/toolsets-for-claude)
+- **Typed results:** `Agent(task, output_model_schema=MyModel)` then `result.structured_output`.
+- **Uploads:** put files in `Agent(task, workspace=...)` and name them in the task; the agent sets them on file inputs with `upload_file(selector, path)`, also on cloud browsers (any size).
+- **Downloads:** files the browser downloads land in `agent.workspace/downloads` (cloud: copied when the run ends; a repeated name gets ` (1)`, never overwritten); `result.downloads` lists the run's files.
+- **Secrets:** `Agent(task, sensitive_data={'password': '...'})`, or `{'https://*.example.com': {'password': '...'}}` to type it only on that domain. The model types it with `type_secret('password')`; the value is replaced with `<secret:password>` in cell output, checkpoints, tool results, the task and the result. Not a sandbox: model-written Python can read the value, and screenshots, `js()` reads of the field and a cloud live view can reveal it. `Browser('chromium')` and `Browser('chrome', profile=...)` open a debugging port with no authentication on 127.0.0.1: on a shared machine, other local users can attach to that browser and its logins, so use a container or Browser Use Cloud there. See the trust model in MIGRATING.md.
+- **Domain restrictions:** `Browser(allowed_domains=['example.com', '*.example.org'])` (or `prohibited_domains=`, `block_ip_addresses=True`) with the 0.x patterns, in every browser mode. A guard for an aligned model, not a sandbox: see the FAQ.
+- **Follow-ups:** `agent.add_new_task('...')` then `await agent.run()`; use `Browser(keep_alive=True)` to keep the same page between runs.
+- **Custom tools:** plain functions with `@tools.action('description')`, then `Agent(task, tools=tools)`.
+- **Ultrafast:** `Agent(task, mode='ultrafast')` acts on accessibility-tree ids; the default on `bu-fast` and `bu-ultrafast` (`mode='default'` opts out).
+- **Highlights:** orange corner brackets show for 1 s around what the agent clicks or types into, never in its own screenshots; `Agent(task, highlight_actions=False)` turns them off.
+- **Web search:** the agent gets `search(query, num_results=None, category=None)` (Browser Use web search, billed per search to your Browser Use key; each charge the response reports is added to `result.cost_usd`) with `Agent(task, web_search=True)` (off by default; needs a Browser Use key, and can't be combined with `allowed_domains`).
 
 <br/>
 
 # Browser Use Benchmark v2
 
-<img alt="Browser Use Benchmark v2 - Mean rubric score by model and cost per task" src="static/hard_benchmark_v2.jpg" width="100%">
+<img alt="Browser Use Benchmark v2 - Mean rubric score by model and cost per task" src="https://raw.githubusercontent.com/browser-use/browser-use/main/static/hard_benchmark_v2.jpg" width="100%">
 
 This [very hard benchmark](https://github.com/browser-use/benchmark) targets the hardest browser tasks. On easier tasks, even smaller models can achieve very high success rates. Results shown are from a 60-task subset of BU Bench V2.
 
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
+
+Something broken? `browser-use feedback 'what happened'` (or `browser_use.feedback(...)`) sends it straight to the Browser Use team.
 
 <br/>
 
@@ -245,72 +193,13 @@ The CLI and Python library can each connect to a local or cloud browser. A cloud
 <details>
 <summary><b>What's the best model to use?</b></summary>
 
-We recommend **BU2**, our model optimized for browser automation: `ChatBrowserUse(model='bu-2-0')`. It uses `BROWSER_USE_API_KEY`; `ChatBrowserUse()` currently selects the same model.
-
-The best choice depends on your tasks, latency, and budget. See the [BU2 model card](https://docs.browser-use.com/open-source/bu-2-0-model-card), [benchmark](https://github.com/browser-use/benchmark), and [supported models and pricing](https://docs.browser-use.com/open-source/supported-models) to compare options.
-</details>
-
-<details>
-<summary><b>Can I use Claude / GPT / Gemini through ChatBrowserUse?</b></summary>
-
-Yes. `ChatBrowserUse` accepts provider-prefixed model IDs through the Browser Use gateway, using `BROWSER_USE_API_KEY`:
-
-```python
-from browser_use import Agent, ChatBrowserUse
-
-llm = ChatBrowserUse(model='anthropic/claude-sonnet-4-6')  # or 'google/gemini-3-pro'
-agent = Agent(task='...', llm=llm)
-```
-
-You can also use providers directly through wrappers such as `ChatOpenAI`, `ChatAnthropic`, and `ChatGoogle`, with each provider's own API key. See [supported models](https://docs.browser-use.com/open-source/supported-models).
-</details>
-
-<details>
-<summary><b>Do I need to provide a system prompt?</b></summary>
-
-No. `Agent(...)` supplies the Browser Use system prompt automatically, including when you change models. Put your task in `task=`. Use `extend_system_message` to add instructions or `override_system_message` to replace the default prompt when you need custom behavior.
-
-See the [custom system prompt example](https://github.com/browser-use/browser-use/blob/main/examples/features/custom_system_prompt.py).
-</details>
-
-<details>
-<summary><b>Can I use custom tools with the agent?</b></summary>
-
-Yes. Register a function with `Tools` and pass it to the agent. This example adds a tool for the current UTC time and uses `BROWSER_USE_API_KEY` from `.env`:
-
-```python
-import asyncio
-from datetime import datetime, timezone
-
-from browser_use import ActionResult, Agent, ChatBrowserUse, Tools
-from dotenv import load_dotenv
-
-load_dotenv()
-tools = Tools()
-
-@tools.action(description='Get the current date and time in UTC.')
-def get_current_time() -> ActionResult:
-    return ActionResult(extracted_content=datetime.now(timezone.utc).isoformat())
-
-async def main():
-    agent = Agent(
-        task="What is the current UTC time?",
-        llm=ChatBrowserUse(model='bu-2-0'),
-        tools=tools,
-    )
-    history = await agent.run()
-    print(history.final_result())
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
+The default, `bu-fast` on the Browser Use gateway, is `gpt-6-luna` at medium reasoning. `llm='bu-ultrafast'` runs the same model at low reasoning on the priority tier (fastest), `llm='bu-smart'` a larger one. `ChatOpenAI('gpt-6-luna')` with your own OpenAI key runs the same model directly. See the [benchmark](https://github.com/browser-use/benchmark).
 </details>
 
 <details>
 <summary><b>Can I use this for free?</b></summary>
 
-The Python library is free and [MIT-licensed](LICENSE). Model inference and hosted browsers are separate: API providers, including `ChatBrowserUse`, and Browser Use Cloud charge for usage. You can also use a local browser and a local model through [Ollama](https://docs.browser-use.com/open-source/supported-models#ollama), subject to your hardware and model requirements.
+The Python library is free and [MIT-licensed](https://github.com/browser-use/browser-use/blob/main/LICENSE). Model inference and hosted browsers are separate: API providers, including `ChatBrowserUse`, and Browser Use Cloud charge for usage. You can also use `Browser('chromium')` with a local model, e.g. Ollama through `ChatOpenAI(model, base_url='http://localhost:11434/v1', api_key='ollama')`.
 </details>
 
 <details>
@@ -322,18 +211,27 @@ This open-source library is licensed under the MIT License. For Browser Use serv
 <details>
 <summary><b>How do I handle authentication?</b></summary>
 
-- **Local browser:** Use `Browser.from_system_chrome()` to reuse a Chrome profile. See the [real-browser guide](https://docs.browser-use.com/open-source/customize/browser/real-browser) and [example](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py).
-- **Cloud browser:** Follow the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md), then use `Browser(use_cloud=True, cloud_profile_id='your-profile-id')`.
-
-Profile sync transfers cookies, not local storage, IndexedDB, or extensions. Some sites may require you to sign in again.
+- **Local browser:** `Browser('chrome')` drives the Chrome you have open, with your logins; `Browser('chrome', profile='Work')` uses a copy of that profile; `Browser('chromium', user_data_dir='~/bu-profile')` keeps its own logins between runs.
+- **Cloud browser:** `Browser(cloud_profile_id='work')` keeps logins in a cloud profile; see the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
+- **Passwords:** pass them as `sensitive_data`; the model types them with `type_secret(name)` and their values are redacted from cell output, checkpoints, tool results, the task and the result. Not a sandbox: model-written Python can read them, and screenshots, page JavaScript and a cloud live view can reveal a typed value.
 </details>
 
 <details>
 <summary><b>How do I solve CAPTCHAs?</b></summary>
 
-[Browser Use Cloud](https://docs.browser-use.com/cloud/browser/quickstart) provides stealth browsers and proxies designed to reduce bot detection and CAPTCHA challenges. With the Python library, enable a cloud browser with `Browser(use_cloud=True)` and set `BROWSER_USE_API_KEY`.
+[Browser Use Cloud](https://docs.browser-use.com/cloud/browser/quickstart) provides stealth browsers and proxies designed to reduce bot detection and CAPTCHA challenges. With the Python library, `Browser()` is a cloud browser by default.
+
+Cloud browsers also solve CAPTCHAs automatically, and the agent waits for the solver with `solve_captcha()` instead of clicking the challenge. `Browser(captcha_solver=False)` turns the solver off.
 
 Results depend on the site and challenge; no browser configuration guarantees that every CAPTCHA can be avoided or solved.
+</details>
+
+<details>
+<summary><b>Can I limit which sites the agent visits?</b></summary>
+
+`Browser(allowed_domains=['example.com', '*.example.org'])`, `Browser(prohibited_domains=['evil.com'])` or `Browser(block_ip_addresses=True)`, with the 0.x patterns, on any browser. The browser helpers refuse a disallowed URL, the browser itself blocks main-frame navigations to it (link clicks, redirects, popups, JavaScript; all modes except `Browser('chrome')` attached to your open Chrome, where a second debugging connection would prompt you again), every tab still on a disallowed page after a cell is reset to `about:blank` (in `Browser('chrome')` only the agent's tabs, never yours), and the system prompt lists the domains. A bare domain in `prohibited_domains` also covers its subdomains.
+
+It is a guard for an aligned model, not a sandbox: requests an allowed page makes to other hosts (`fetch`, images, iframes) are not filtered, nor is the agent's own Python networking beyond `http_get` and its redirects. Run untrusted tasks in a container or VM. [MIGRATING.md](https://github.com/browser-use/browser-use/blob/main/MIGRATING.md#domain-restrictions) lists exactly what is blocked in each mode.
 </details>
 
 <details>
@@ -341,38 +239,10 @@ Results depend on the site and challenge; no browser configuration guarantees th
 
 Choose how much you want to manage:
 
-- **Keep your agent code:** Connect the CLI or Python library to [cloud browsers](https://docs.browser-use.com/cloud/browser/quickstart) for managed browser infrastructure, stealth, profiles, and recordings.
+- **Keep your agent code:** Connect the CLI or Python library to [cloud browsers](https://docs.browser-use.com/cloud/browser/quickstart) for managed browser infrastructure, stealth, and profiles.
 - **Have us run the agent too:** Use the [fully hosted Cloud API](https://docs.browser-use.com/cloud/agent/quickstart) to submit tasks and retrieve results.
 
 You can also host the Python library and browsers on your own infrastructure.
-</details>
-
-<details>
-<summary><b>Can I rerun a task without calling the model on every step?</b></summary>
-
-Yes. Save a successful run, then replay its clicks and typing with new values. The snippet below runs inside an async function:
-
-```python
-from browser_use import Agent, ChatBrowserUse
-
-llm = ChatBrowserUse()
-agent = Agent(task='Open https://example.com/billing and request an invoice copy for Ada Lovelace, ada@example.com', llm=llm)
-await agent.run()
-agent.save_history('invoice_run.json')
-print(agent.detect_variables())  # names come from the form's fields, e.g. 'name' and 'email'
-
-# Later: the same clicks and typing with new values, no model call per step
-results = await Agent(task='', llm=llm).load_and_rerun(
-    'invoice_run.json', variables={'name': 'Grace Hopper', 'email': 'grace@example.com'}, skip_failures=False
-)
-```
-
-- Use the variable names `detect_variables()` prints. An unknown name is skipped with a warning, and the recorded value is typed instead.
-- Extract steps and the closing summary still call the model.
-- If the page changed, the replay raises `RuntimeError` at the first step it cannot match. The steps before it already ran, so check whether the form was sent before you run the agent again.
-- Keep the saved file private. With `sensitive_data`, typed secrets are saved as `<secret>key</secret>` placeholders, but page snapshots and results are saved as they were and can still contain them. Give the replaying agent the same `sensitive_data`; without it, the placeholder text is typed.
-
-[Example](examples/features/rerun_history.py)
 </details>
 
 <br/>
@@ -381,8 +251,6 @@ results = await Agent(task='', llm=llm).load_and_rerun(
 
 | Repository | What it's for |
 | --- | --- |
-| [Browser Harness](https://github.com/browser-use/browser-harness) | Our CLI for giving AI agents control of your browser. |
-| [Browser Harness JS](https://github.com/browser-use/browser-harness-js) | Give your JavaScript agent control of a real browser. |
 | [Browser Use Pi](https://github.com/browser-use/browser-use-pi) | Run a TypeScript browser agent built on Pi. |
 | [Cloud SDK](https://github.com/browser-use/sdk) | Integrate Browser Use Cloud into your application. |
 | [Video Use](https://github.com/browser-use/video-use) | Edit videos with your coding agent. |
