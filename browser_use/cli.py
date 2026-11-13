@@ -551,7 +551,7 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 	from browser_use import harness_cloud
 
 	harness_cloud.install(vars(run))
-	vars(run)['ensure_daemon'] = _with_own_chromium(harness_cloud.ensure_daemon, vars(run))
+	vars(run)['ensure_daemon'] = _with_upgrade_hint(_with_own_chromium(harness_cloud.ensure_daemon, vars(run)))
 	if (
 		code
 		and harness_cloud.calls_cloud_admin(code)
@@ -715,6 +715,24 @@ def _with_own_chromium(ensure_daemon: Any, namespace: dict[str, Any]) -> Any:
 		_route(own, namespace)
 
 	return ensure
+
+
+def _with_upgrade_hint(ensure: Any) -> Any:
+	"""ensure_daemon that prints the upgrade line to stderr when attaching fails (no browser, remote debugging off, a dead
+	CDP URL) and PyPI has a newer browser-use (update_check.py). The exception is re-raised unchanged: browser-harness
+	prints it after this line, so it stays the last line of stderr that its error event keeps."""
+
+	def ensure_or_hint(*args: Any, **kwargs: Any) -> None:
+		try:
+			return ensure(*args, **kwargs)
+		except RuntimeError as e:
+			from browser_use.update_check import upgrade_hint
+
+			if hint := upgrade_hint(e):
+				print(hint, file=sys.stderr)
+			raise
+
+	return ensure_or_hint
 
 
 def _close_own_chromium() -> None:
@@ -985,7 +1003,8 @@ Commands:
                                       tell the Browser Use team what went wrong with browser-use
   browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback)
   browser-use --version               print the versions
-Update: uv tool upgrade browser-use (or pip install -U browser-use).
+Update: uv tool install browser-use@latest (or pip install -U browser-use). A call that cannot reach a browser asks
+PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=1 turns that off.
 Library: from browser_use import Agent, see https://github.com/browser-use/browser-use"""
 
 

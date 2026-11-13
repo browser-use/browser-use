@@ -39,6 +39,7 @@ from browser_use.repl.capture import install as install_capture
 from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
 from browser_use.telemetry import feedback
+from browser_use.update_check import upgrade_hint
 from browser_use.utils import get_browser_use_version
 
 _NAMESPACE_IMPORTS = (
@@ -758,6 +759,8 @@ class CLIMCPServer:
 			except Exception as e:  # attaching the browser, before any of the code ran: one line, not harness internals
 				_error_class(e)
 				print(self._error(e), file=buffer)
+				if hint := upgrade_hint(e, mcp=True):
+					print(hint, file=buffer)
 				return buffer.getvalue(), failed
 			try:
 				exec(code, ns)
