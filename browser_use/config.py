@@ -184,6 +184,10 @@ class OldConfig:
 		return os.getenv('BROWSER_USE_VERSION_CHECK', 'true').lower()[:1] in 'ty1'
 
 	@property
+	def BROWSER_USE_CLOUD_HINTS(self) -> bool:
+		return os.getenv('BROWSER_USE_CLOUD_HINTS', 'true').lower()[:1] in 'ty1'
+
+	@property
 	def WIN_FONT_DIR(self) -> str:
 		return os.getenv('WIN_FONT_DIR', 'C:\\Windows\\Fonts')
 
@@ -226,10 +230,12 @@ class FlatEnvConfig(BaseSettings):
 	IS_IN_EVALS: bool = Field(default=False)
 	WIN_FONT_DIR: str = Field(default='C:\\Windows\\Fonts')
 	BROWSER_USE_VERSION_CHECK: bool = Field(default=True)
+	BROWSER_USE_CLOUD_HINTS: bool = Field(default=True)
 
 	# MCP-specific env vars
 	BROWSER_USE_CONFIG_PATH: str | None = Field(default=None)
 	BROWSER_USE_HEADLESS: bool | None = Field(default=None)
+	BROWSER_USE_DISABLE_SECURITY: bool | None = Field(default=None)
 	BROWSER_USE_ALLOWED_DOMAINS: str | None = Field(default=None)
 	BROWSER_USE_LLM_MODEL: str | None = Field(default=None)
 
@@ -471,6 +477,9 @@ class Config:
 		# Apply MCP-specific env var overrides
 		if env_config.BROWSER_USE_HEADLESS is not None:
 			config['browser_profile']['headless'] = env_config.BROWSER_USE_HEADLESS
+
+		if env_config.BROWSER_USE_DISABLE_SECURITY is not None:
+			config['browser_profile']['disable_security'] = env_config.BROWSER_USE_DISABLE_SECURITY
 
 		if env_config.BROWSER_USE_ALLOWED_DOMAINS:
 			domains = [d.strip() for d in env_config.BROWSER_USE_ALLOWED_DOMAINS.split(',') if d.strip()]

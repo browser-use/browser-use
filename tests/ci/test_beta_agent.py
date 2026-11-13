@@ -4297,6 +4297,10 @@ def test_beta_agent_exposes_task_helper_methods():
 	assert 'Expected output format: Answer' in enhanced
 	assert '"answer"' in enhanced
 	assert agent._extract_start_url('Open example.com and report the title.') == 'https://example.com'
+	assert agent._extract_start_url('Open this notable site: https://example.com') == 'https://example.com'
+	assert browser_use_agent._extract_start_url('Open this notable site: https://example.com') == 'https://example.com'
+	assert agent._extract_start_url('Do not open https://example.com.') is None
+	assert browser_use_agent._extract_start_url('Do not open https://example.com.') is None
 	assert agent._extract_start_url('Email support@example.com only.') is None
 	assert agent._extract_start_url('Open https://example.com/report.pdf and summarize it.') is None
 	assert agent._extract_start_url('Use https://XXX.XX as a placeholder in the table.') is None
@@ -4304,6 +4308,15 @@ def test_beta_agent_exposes_task_helper_methods():
 	numbered_task = '1. Navigate to https://elibrary.ferc.gov/eLibrary/search.\\n2. Ensure "General Search" is selected.'
 	assert agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 	assert browser_use_agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
+
+	# A closing bracket the URL opened itself is part of the path, not prose.
+	wikipedia_task = 'Summarize https://en.wikipedia.org/wiki/Python_(programming_language)'
+	assert agent._extract_start_url(wikipedia_task) == 'https://en.wikipedia.org/wiki/Python_(programming_language)'
+	assert browser_use_agent._extract_start_url(wikipedia_task) == 'https://en.wikipedia.org/wiki/Python_(programming_language)'
+	assert agent._extract_start_url('Check https://example.com/a[1] please') == 'https://example.com/a[1]'
+	# ...but one the prose opened is still dropped, however many there are.
+	assert agent._extract_start_url('See the docs (https://example.com/guide) for details.') == 'https://example.com/guide'
+	assert agent._extract_start_url('Read ((see https://example.com/a)) now') == 'https://example.com/a'
 
 
 def test_beta_agent_exposes_url_text_helper_methods():

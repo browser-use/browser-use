@@ -811,6 +811,20 @@ class DomService:
 			# Get snapshot data and calculate absolute position
 			snapshot_data = snapshot_lookup.get(node['backendNodeId'], None)
 
+			# Show the value a field currently holds, not only the static attribute.
+			# JS, autofill, and framework bindings set the property without touching
+			# the attribute, so the agent used to see pre-filled fields as empty (#5647).
+			if snapshot_data and node['nodeName'].upper() in ('INPUT', 'TEXTAREA'):
+				if snapshot_data.input_value is not None:
+					attributes = dict(attributes or {})
+					attributes['value'] = snapshot_data.input_value
+				if snapshot_data.input_checked is not None:
+					attributes = dict(attributes or {})
+					if snapshot_data.input_checked:
+						attributes['checked'] = 'true'
+					else:
+						attributes.pop('checked', None)
+
 			# DIAGNOSTIC: Log when interactive elements don't have snapshot data
 			if not snapshot_data and node['nodeName'].upper() in ['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'A']:
 				parent_has_shadow = False

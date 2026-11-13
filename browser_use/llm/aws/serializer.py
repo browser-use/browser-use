@@ -2,6 +2,7 @@ import base64
 import json
 import re
 from typing import Any, overload
+from urllib.parse import urlsplit
 
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -26,8 +27,17 @@ class AWSBedrockMessageSerializer:
 	@staticmethod
 	def _is_url_image(url: str) -> bool:
 		"""Check if the URL is a regular HTTP/HTTPS image URL."""
-		return url.startswith(('http://', 'https://')) and any(
-			url.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
+		try:
+			parsed_url = urlsplit(url)
+			has_valid_authority = bool(parsed_url.hostname)
+			_ = parsed_url.port
+		except ValueError:
+			return False
+
+		return (
+			parsed_url.scheme.lower() in {'http', 'https'}
+			and has_valid_authority
+			and parsed_url.path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp'))
 		)
 
 	@staticmethod
@@ -71,13 +81,22 @@ class AWSBedrockMessageSerializer:
 
 			# Detect format from content type or URL
 			content_type = response.headers.get('content-type', '').lower()
-			if 'jpeg' in content_type or url.lower().endswith(('.jpg', '.jpeg')):
+			url_path = urlsplit(url).path.lower()
+			if 'jpeg' in content_type:
 				image_format = 'jpeg'
-			elif 'png' in content_type or url.lower().endswith('.png'):
+			elif 'png' in content_type:
 				image_format = 'png'
-			elif 'gif' in content_type or url.lower().endswith('.gif'):
+			elif 'gif' in content_type:
 				image_format = 'gif'
-			elif 'webp' in content_type or url.lower().endswith('.webp'):
+			elif 'webp' in content_type:
+				image_format = 'webp'
+			elif url_path.endswith(('.jpg', '.jpeg')):
+				image_format = 'jpeg'
+			elif url_path.endswith('.png'):
+				image_format = 'png'
+			elif url_path.endswith('.gif'):
+				image_format = 'gif'
+			elif url_path.endswith('.webp'):
 				image_format = 'webp'
 			else:
 				image_format = 'jpeg'  # Default format

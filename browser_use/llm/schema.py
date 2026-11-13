@@ -45,11 +45,16 @@ class SchemaOptimizer:
 				skip_fields = ['additionalProperties', '$defs']
 
 				for key, value in obj.items():
+					# Keys inside `properties` are user field names, not schema keywords.
+					if in_properties:
+						optimized[key] = optimize_schema(value, defs_lookup)
+						continue
+
 					if key in skip_fields:
 						continue
 
-					# Skip metadata "title" unless we're iterating inside an actual `properties` map
-					if key == 'title' and not in_properties:
+					# Skip metadata "title"
+					if key == 'title':
 						continue
 
 					# Preserve FULL descriptions without truncation, skip empty ones

@@ -1,5 +1,9 @@
 # Cloud Quickstart, Pricing & FAQ
 
+> This page keeps the v2 quickstart for existing integrations. For a new
+> hosted-agent integration, use [API v4](api-v4.md). V4 is the current API and
+> SDK path.
+
 ## Table of Contents
 - [Overview](#overview)
 - [Setup](#setup)
@@ -122,8 +126,7 @@ Typical task: 10 steps = ~$0.03 (with Browser Use LLM)
 | BU Max (Claude Sonnet 4.6) | ~$3.60 | ~$18.00 |
 
 ### Browser Sessions
-- PAYG: $0.06/hour
-- Business: $0.03/hour
+- All plans: $0.02/hour
 - Billed upfront, proportional refund on stop. Min 1 minute.
 
 ### Skills
@@ -131,12 +134,15 @@ Typical task: 10 steps = ~$0.03 (with Browser Use LLM)
 - Execution: $0.02 (PAYG), $0.01 (Business)
 
 ### Proxies
-- PAYG: $10/GB, Business: $5/GB, Scaleup: $4/GB
+- Managed residential proxy: $5/GB
+- Direct connection or your own proxy: $0.20/GB
 
-### Tiers
-- **Business**: 25% off per-step, 50% off sessions/skills/proxy
-- **Scaleup**: 50% off per-step, 60% off proxy
+### Plans
+- Pay as you go, no subscription. Concurrency grows with lifetime spend (10 to 1,000 sessions).
+- Legacy Business and Scaleup subscriptions keep their discounted rates.
 - **Enterprise**: Contact for ZDR, compliance, on-prem
+
+Current prices: https://browser-use.com/pricing.md
 
 ---
 
