@@ -219,7 +219,6 @@ def test_removed_classes_raise_with_pointer():
 		('browser_use.browser.events', "logging.getLogger('browser_use')"),  # the 0.x hooks docs, verbatim
 		('browser_use.browser.session', 'from browser_use import Browser'),
 		('browser_use.browser.watchdogs.dom_watchdog', 'from browser_use import Browser'),
-		('browser_use.mcp.client', '@tools.action'),
 		('browser_use.controller.service', 'from browser_use import Tools'),
 		('browser_use.tools.service', 'from browser_use import Tools'),  # browser_use.tools is a module in 1.0
 		('browser_use.tools.registry.views', 'from browser_use import Tools'),
@@ -243,8 +242,7 @@ def test_removed_classes_raise_with_pointer():
 	],
 )
 def test_0x_module_paths_name_their_replacement(path, instead):
-	"""rr-legacy: 157 of 178 0.13.14 module paths (and older 0.x ones) gave a bare ModuleNotFoundError (the 0.x hooks docs,
-	MCPClient, every deep import); each names its 1.0 replacement and links MIGRATING.md. Still an ImportError, for
+	"""0.x module paths removed in 1.0 name their replacement and link MIGRATING.md. Still an ImportError for
 	`except ImportError` fallbacks."""
 	import importlib
 
@@ -264,7 +262,6 @@ def test_0x_module_paths_name_their_replacement(path, instead):
 		('browser_use.llm', 'openai'),
 		('browser_use.agent', 'message_manager'),
 		('browser_use.tools', 'registry'),  # browser_use.tools is a module in 1.0
-		('browser_use.mcp', 'client'),
 	],
 )
 def test_0x_submodules_imported_from_their_package_name_their_replacement(package, module):
@@ -293,7 +290,6 @@ def test_0x_names_and_members_name_their_replacement():
 		('browser_use.agent.views', 'AgentState', 'AgentHistoryList'),
 		('browser_use.llm', 'BaseChatModel', 'pydantic_ai.models.Model'),
 		('browser_use.llm', 'UserMessage', 'pydantic_ai.Agent(llm.pydantic_model())'),
-		('browser_use.mcp', 'MCPClient', '@tools.action'),
 		('browser_use.utils', 'time_execution_async', 'internal helper'),
 		('browser_use', 'BrowserContextConfig', 'Browser(...)'),  # 0.1.x-0.5.x
 		('browser_use.browser.browser', 'BrowserContextConfig', 'Browser(...)'),
