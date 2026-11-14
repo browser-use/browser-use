@@ -640,7 +640,7 @@ def test_page_info_preserves_the_original_error_without_a_known_dialog(monkeypat
 	def fail():
 		raise error
 
-	def probe(req):
+	def probe(req, **kwargs):
 		if probe_fails:
 			raise RuntimeError('daemon disconnected')
 		return {'dialog': None}
@@ -651,6 +651,42 @@ def test_page_info_preserves_the_original_error_without_a_known_dialog(monkeypat
 	with pytest.raises(RuntimeError) as raised:
 		helpers.page_info()
 	assert raised.value is error
+
+
+@pytest.mark.timeout(1, func_only=True)
+@pytest.mark.parametrize('elapsed', [4.95, 5.0, 5.1])
+def test_page_info_dialog_probe_respects_the_root_deadline(monkeypatch, elapsed):
+	"""A daemon that accepts IPC but never replies must not add its full response timeout to the root wait."""
+	import socket
+	from types import SimpleNamespace
+
+	from browser_harness import helpers
+
+	from browser_use.repl import page_info
+
+	error = RuntimeError("Cannot read properties of null (reading 'scrollWidth')")
+	clock = iter([0.0, elapsed, page_info.ROOT_WAIT_S])
+	monkeypatch.setattr(page_info, 'time', SimpleNamespace(monotonic=lambda: next(clock)))
+
+	def fail():
+		raise error
+
+	client, peer = socket.socketpair()
+	monkeypatch.setattr(helpers.ipc, 'connect', lambda *a, **kw: (client, None))
+	monkeypatch.setattr(helpers, 'page_info', fail)
+	page_info.install()
+	try:
+		with pytest.raises(RuntimeError) as raised:
+			helpers.page_info()
+		assert raised.value is error
+		if elapsed < page_info.ROOT_WAIT_S:
+			assert client.gettimeout() == pytest.approx(page_info.ROOT_WAIT_S - elapsed)
+			assert json.loads(peer.recv(1024)) == {'meta': 'pending_dialog'}
+		else:
+			assert client.fileno() != -1  # no probe was started after the deadline
+	finally:
+		client.close()
+		peer.close()
 
 
 def test_a_malformed_bh_dir_override_keeps_the_bh_home_hint(monkeypatch, tmp_path):
