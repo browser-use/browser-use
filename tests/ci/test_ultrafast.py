@@ -160,7 +160,7 @@ def test_default_prompt_unchanged():
 	tells the Browser Use team when browser-use gets in the agent's way, a missing helper included: library_feedback; explicit frame helpers use fixed instructions without selected-frame state)."""
 	default = static_instructions(build_agent())
 	assert default == [SYSTEM_PROMPT] == static_instructions(build_agent(mode='default'))
-	assert hashlib.sha256(default[0].encode()).hexdigest() == '4fa4fc69e574a60c30315274736a33faaf1ce0c4a3ffefe75985208ecc7199ba'
+	assert hashlib.sha256(default[0].encode()).hexdigest() == '5fe5c30b0c5fa9e80dcecb75c7eba70530db02fbc5fca51dc982701863a24ed7'
 	assert static_instructions(build_agent(instructions='X')) == [f'{SYSTEM_PROMPT}\nX']
 	assert static_instructions(build_agent(mode='ultrafast')) == [(SYSTEM_PROMPT + AX_PROMPT).rstrip()]
 	assert static_instructions(build_agent(mode='ultrafast', instructions='X')) == [f'{SYSTEM_PROMPT}{AX_PROMPT}\nX']
