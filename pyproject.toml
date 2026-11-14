@@ -22,7 +22,7 @@ dependencies = [
     "google-genai==2.34.0",
     "genai-prices==0.2.1",
     "idna==3.20",
-    "pillow==12.3.0",
+    "pillow==13.0.0",
     "python-dotenv==1.2.4",
     "uuid7==0.1.0",
     "mcp==2.3.0",
