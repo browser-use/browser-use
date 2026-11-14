@@ -146,7 +146,6 @@ def test_browser_use_tui_is_deprecated_alias(monkeypatch, capsys):
 	assert capsys.readouterr().err == 'browser-use-tui is deprecated; use browser-use instead.\n'
 
 
-<<<<<<< HEAD
 def test_install_downloads_playwright_chromium_like_0x(monkeypatch, capsys):
 	"""Kept from 0.x: local-browser users (QA, CI) still get a Chromium from `browser-use install`."""
 	import platform
