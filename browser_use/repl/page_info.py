@@ -34,6 +34,13 @@ def install() -> None:
 			try:
 				return original()
 			except RuntimeError as e:
+				# A dialog can open after original's check, while its evaluate is starting or waiting for the page.
+				try:
+					dialog = helpers._send({'meta': 'pending_dialog'}).get('dialog')
+				except Exception:  # a failed probe must not replace the original page/daemon error
+					dialog = None
+				if dialog:
+					return {'dialog': dialog}
 				if NO_ROOT not in str(e) or time.monotonic() >= deadline:
 					raise
 			time.sleep(0.05)

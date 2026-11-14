@@ -593,6 +593,66 @@ async def test_page_info_waiting_for_the_document_still_reports_a_dialog(daemon,
 	assert not failed and "'dialog'" in out and "'hi'" in out, out
 
 
+def test_page_info_reports_a_dialog_opened_after_its_initial_check(daemon, monkeypatch):
+	"""A dialog can open between page_info's pending-dialog check and its Runtime.evaluate."""
+	import time
+
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setattr(admin, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'page_info', helpers.page_info)
+	server = cli_mcp.CLIMCPServer()
+	out, failed = server._execute("new_tab('about:blank')")
+	assert not failed, out
+	raw_send, opened = helpers._send, []
+
+	def open_after_check(req, **kwargs):
+		reply = raw_send(req, **kwargs)
+		if req.get('meta') == 'pending_dialog' and not reply.get('dialog') and not opened:
+			opened.append(True)
+			raw_send({'method': 'Runtime.evaluate', 'params': {'expression': 'setTimeout(() => alert("late dialog"), 0)'}})
+			deadline = time.monotonic() + 5
+			while not raw_send({'meta': 'pending_dialog'}).get('dialog'):
+				assert time.monotonic() < deadline, 'Chrome did not open the dialog'
+				time.sleep(0.01)
+		return reply  # page_info saw no dialog; its evaluate now runs with a real alert open
+
+	monkeypatch.setattr(helpers, '_send', open_after_check)
+	try:
+		out, failed = server._execute('print(page_info())')
+	finally:
+		monkeypatch.setattr(helpers, '_send', raw_send)
+		server._execute('cdp("Page.handleJavaScriptDialog", accept=True)\nclose_tab()')
+	assert opened and not failed and "'dialog'" in out and "'late dialog'" in out, out
+
+
+@pytest.mark.parametrize('probe_fails', [False, True])
+def test_page_info_preserves_the_original_error_without_a_known_dialog(monkeypatch, probe_fails):
+	from browser_harness import helpers
+
+	from browser_use.repl.page_info import install
+
+	error = RuntimeError('page evaluation failed')
+
+	def fail():
+		raise error
+
+	def probe(req):
+		if probe_fails:
+			raise RuntimeError('daemon disconnected')
+		return {'dialog': None}
+
+	monkeypatch.setattr(helpers, 'page_info', fail)
+	monkeypatch.setattr(helpers, '_send', probe)
+	install()
+	with pytest.raises(RuntimeError) as raised:
+		helpers.page_info()
+	assert raised.value is error
+
+
 def test_a_malformed_bh_dir_override_keeps_the_bh_home_hint(monkeypatch, tmp_path):
 	"""Retest 1.0.1 review: picking the hint resolved every BH_* override, so '~nosuchuser_x/dir' (RuntimeError) raised inside the handler that reports the unwritable dir."""
 	from browser_use.auth import harness_dir_setting
