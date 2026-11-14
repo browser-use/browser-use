@@ -710,6 +710,15 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	captcha = Captcha(cdp, STATE / 'captcha.json', off=os.environ.get('BU_CAPTCHA_SOLVER') == 'off')
 	exec('from browser_harness.helpers import *', ns)
 
+	def list_tabs(include_chrome=True, *, include_extensions=False):
+		"""List tabs without extension pages unless they are explicitly requested."""
+		tabs = helpers.list_tabs(include_chrome=include_chrome)
+		if include_extensions:
+			return tabs
+		return [tab for tab in tabs if not tab.get('url', '').startswith('chrome-extension://')]
+
+	ns['list_tabs'] = list_tabs
+
 	@functools.wraps(cdp)
 	def agent_cdp(method, session_id=None, **params):  # the agent's own cdp() calls, counted by method
 		stats.count('cdp', str(method))

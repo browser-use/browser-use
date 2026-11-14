@@ -90,7 +90,11 @@ Chrome, write `Browser('chrome')`. Options that do not fit the browser (`headles
 `Browser('chrome')` attaches where browser-harness does: its running default daemon, else the first browser with
 remote debugging on, Google Chrome first. When several are on and none is Google Chrome it raises instead of guessing.
 
-Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` naming it, and every other 0.x `BrowserSession` / `BrowserContext` method or attribute (0.1 to 0.13: `get_current_page`, `navigate_to`, `get_tabs`, `take_screenshot`, `get_state_summary`, `get_or_create_cdp_session`, `new_context`, `cookies`, ...) raises `AttributeError` naming the 1.0 answer: the agent drives pages in Python (browser-harness helpers and raw CDP). What to do instead for the options:
+Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` naming it, and every other 0.x `BrowserSession` / `BrowserContext` method or attribute (0.1 to 0.13: `get_current_page`, `navigate_to`, `get_tabs`, `take_screenshot`, `get_state_summary`, `get_or_create_cdp_session`, `new_context`, `cookies`, ...) raises `AttributeError` naming the 1.0 answer: the agent drives pages in Python (browser-harness helpers and raw CDP).
+
+In the agent REPL, `list_tabs()` excludes Chrome extension pages by default. Use `list_tabs(include_extensions=True)` to list them; a previously selected extension tab can still be restored after reconnect.
+
+What to do instead for the options:
 
 | 0.x options | 1.0 |
 |---|---|
