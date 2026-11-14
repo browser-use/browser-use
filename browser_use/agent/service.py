@@ -548,8 +548,13 @@ class Agent:
 			self._history = session.messages  # raw: result.messages has secrets redacted
 			# the judge sees the page as the run left it, before the browser stops
 			judged = self.judge and self.use_vision and result.steps
-			shot = await asyncio.to_thread(self.browser._screenshot, FINAL_SCREENSHOT_TIMEOUT_S) if judged else None
-			self._final_page = BinaryContent(shot, media_type='image/jpeg') if shot else None
+			self._final_page = None
+			if judged:
+				with contextlib.suppress(TimeoutError):  # a slow page: the thread ends with its socket timeout
+					shot = await asyncio.wait_for(
+						asyncio.to_thread(self.browser._screenshot, FINAL_SCREENSHOT_TIMEOUT_S), FINAL_SCREENSHOT_TIMEOUT_S
+					)
+					self._final_page = BinaryContent(shot, media_type='image/jpeg') if shot else None
 			self._compacted = {'checkpoint': session.checkpoint, 'covered': session.covered, 'usage_after': session.usage_after}
 			result.output_schema = self.output_model_schema
 			if result.status == 'error':

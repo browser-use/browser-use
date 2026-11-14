@@ -44,7 +44,7 @@ MAX_PART_CHARS = 5_000  # one tool result or argument, the error, the final resu
 MAX_TASK_CHARS = 20_000  # the task, and the judge_context
 MAX_GOTCHAS = 5
 MAX_SCREENSHOTS = 4  # the last distinct ones of the run (the Browser Use Cloud judge keeps 20)
-FINAL_SCREENSHOT_TIMEOUT_S = 5  # per daemon request (connecting has its own 5 s)
+FINAL_SCREENSHOT_TIMEOUT_S = 10  # the whole capture; past it the judge goes without the final page
 JUDGE_TIMEOUT_S = 180
 EFFORT_KEYS = ('thinking', 'openai_reasoning_effort')
 DROPPED = ('tool_choice', 'parallel_tool_calls', 'cache', 'openai_context_management', 'request_timeout', 'first_event_timeout')
@@ -162,7 +162,7 @@ async def judge_run(
 				try:
 					run = await judge.run(content if shots else text)  # text alone: as before, without images
 				except ModelHTTPError as e:  # a text-only model rejects the images: judge the trace alone
-					if not (shots and e.status_code in (400, 404, 415, 422)):
+					if not (shots and 400 <= e.status_code < 500 and 'image' in f'{e.message} {e.body}'.lower()):
 						raise
 					run = await judge.run(text)
 		except Exception as e:  # a provider error, an answer that does not fit the schema, the timeout

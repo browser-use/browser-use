@@ -273,7 +273,7 @@ async def test_a_text_only_model_that_rejects_the_images_is_judged_from_the_text
 		async def run(self, content):
 			sent.append(content)
 			if not isinstance(content, str):
-				raise ModelHTTPError(400, 'm', {'error': 'image input is not supported'})
+				raise ModelHTTPError(400, 'm', {'error': 'image input is not supported'} if not sent[1:] else {'error': 'x'})
 			return SimpleNamespace(output=Judgement.model_validate(VERDICT), all_messages=lambda: ['judged'])
 
 	monkeypatch.setattr(judge, 'Agent', TextOnly)
@@ -292,13 +292,15 @@ async def test_the_final_page_is_taken_through_the_daemon_and_never_fails_the_ru
 	asked = []
 
 	def daemon(name, request, timeout=30):
-		asked.append((request['method'], timeout))
+		asked.append(request['method'])
+		if request['method'] == 'Runtime.evaluate':
+			return {'result': {'result': {'value': 'visible'}}}
 		return {'result': {'data': base64.b64encode(b'jpeg').decode()}}
 
 	monkeypatch.setattr(browser_module, '_daemon_request', daemon)
 	model, seen = script(FINISH, ('final_result', VERDICT))
 	result = await agent(model, tmp_path).run()
-	assert result.judgement is not None and asked == [('Page.captureScreenshot', 5)]
+	assert result.judgement is not None and asked == ['Runtime.evaluate', 'Page.captureScreenshot']
 	assert seen[1][0].parts[0].content[-1].data == b'jpeg'
 
 	def gone(name, request, timeout=30):
@@ -320,3 +322,45 @@ async def test_the_final_page_is_taken_through_the_daemon_and_never_fails_the_ru
 
 def test_the_prompt_asks_for_gotchas_on_a_success_too():
 	assert 'on a success as on a failure' in JUDGE_PROMPT and 'write at least one' in JUDGE_PROMPT
+
+
+async def test_an_error_that_is_not_about_images_is_not_retried(monkeypatch):
+	from types import SimpleNamespace
+
+	from pydantic_ai import BinaryContent
+	from pydantic_ai.exceptions import ModelHTTPError
+	from pydantic_ai.models.test import TestModel
+
+	import browser_use.agent.judge as judge
+	from browser_use.agent.judge import judge_run
+
+	sent = []
+
+	class Missing:
+		def __init__(self, model, **kwargs):
+			pass
+
+		async def run(self, content):
+			sent.append(content)
+			raise ModelHTTPError(404, 'm', {'error': 'model not found'})
+
+	monkeypatch.setattr(judge, 'Agent', Missing)
+	result = AgentHistoryList('completed', 'done', 'done', 1, 1.0, {}, None, None, None, [], True)
+	final = BinaryContent(b'page', media_type='image/jpeg')
+	assert (await judge_run(SimpleNamespace(model=TestModel(), model_settings={}), 't', result, None, {}, final))[0] is None
+	assert len(sent) == 1
+
+
+def test_a_hidden_tab_is_not_captured(monkeypatch):
+	import browser_use.browser.browser as browser_module
+	from browser_use import Browser
+
+	asked = []
+
+	def daemon(name, request, timeout=30):
+		asked.append(request['method'])
+		return {'result': {'result': {'value': 'hidden'}}}
+
+	monkeypatch.setattr(browser_module, '_daemon_request', daemon)
+	assert Browser(local=True)._screenshot(10) is None
+	assert asked == ['Runtime.evaluate']  # never activated, never captured

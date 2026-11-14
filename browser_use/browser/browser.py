@@ -817,10 +817,15 @@ class Browser:
 
 	def _screenshot(self, timeout: float) -> bytes | None:
 		"""The agent's tab as JPEG, taken from this process through our daemon, never through the agent's REPL (its state,
-		notices and stats stay as they are). None when there is no daemon, or the capture fails or times out."""
-		request = {'method': 'Page.captureScreenshot', 'params': {'format': 'jpeg', 'quality': 70}, 'session_id': None}
+		notices and stats stay as they are). None when there is no daemon, the capture fails, or the tab is hidden: a
+		hidden tab's capture can hang (Linux headless, cloud), and activating it would switch the user's visible tab."""
+		name = self._daemon_name()
 		try:
-			return base64.b64decode(_daemon_request(self._daemon_name(), request, timeout=timeout)['result']['data'])
+			state = _daemon_cdp(name, 'Runtime.evaluate', expression='document.visibilityState', returnByValue=True)
+			if state['result'].get('value') == 'hidden':
+				return None
+			request = {'method': 'Page.captureScreenshot', 'params': {'format': 'jpeg', 'quality': 70}, 'session_id': None}
+			return base64.b64decode(_daemon_request(name, request, timeout=timeout)['result']['data'])
 		except Exception:  # - no daemon, a gone browser or tab, a timeout: the judge goes without
 			return None
 
