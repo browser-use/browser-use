@@ -307,7 +307,18 @@ class ChatOpenAI(_Chat):
 		provider = OpenAIProvider(api_key=self.api_key or _env_key('OPENAI_API_KEY'), base_url=self.base_url)
 		if self.is_official:  # Responses API + server-side compaction: what we evaluate
 			return OpenAIResponsesModel(self.model, provider=provider)
-		return OpenAIChatModel(self.model, provider=provider, profile=compatible_profile())  # no OpenAI-only settings
+
+		class CompatibleChatModel(OpenAIChatModel):
+			def _map_usage(self, response: Any) -> Any:
+				"""Keep DeepSeek's cache-hit count when the standard cached-token field is absent."""
+				usage = super()._map_usage(response)
+				raw = response.usage
+				if raw is not None and getattr(raw.prompt_tokens_details, 'cached_tokens', None) is None:
+					if isinstance(hit := (raw.model_extra or {}).get('prompt_cache_hit_tokens'), int):
+						usage.cache_read_tokens = hit
+				return usage
+
+		return CompatibleChatModel(self.model, provider=provider, profile=compatible_profile())  # no OpenAI-only settings
 
 	def model_settings(self) -> dict:
 		settings: dict = {}

@@ -1372,3 +1372,35 @@ def test_openai_compatible_backends_are_priced_as_the_provider_at_their_url():
 	agent = Agent('t', ChatOpenAI('my-model', api_key='x', base_url='http://localhost:11434/v1'))
 	agent._build()
 	assert agent._model_ref == 'openai:my-model'  # unknown backend: unchanged, no made-up price
+
+
+@pytest.mark.parametrize(
+	('details', 'cache_read'),
+	[
+		({'prompt_cache_hit_tokens': 4}, 4),
+		({'prompt_cache_hit_tokens': 4, 'prompt_tokens_details': {'cached_tokens': 2}}, 2),
+		({'prompt_cache_hit_tokens': 4, 'prompt_tokens_details': {'cached_tokens': 0}}, 0),
+	],
+)
+async def test_custom_endpoint_reports_deepseek_cache_reads(monkeypatch, details, cache_read):
+	"""A compatible endpoint's DeepSeek cache-hit field reaches the public run usage."""
+	from unittest.mock import AsyncMock
+
+	from openai.types.chat import ChatCompletion
+	from pydantic_ai import Agent as PydanticAgent
+
+	model, _ = resolve_model(ChatOpenAI('deepseek-chat', api_key='test', base_url='http://127.0.0.1:8000/v1'))
+	response = ChatCompletion.model_validate(
+		{
+			'id': 'test',
+			'object': 'chat.completion',
+			'created': 0,
+			'model': 'deepseek-chat',
+			'choices': [{'index': 0, 'finish_reason': 'stop', 'message': {'role': 'assistant', 'content': 'ok'}}],
+			'usage': {'prompt_tokens': 11, 'completion_tokens': 7, 'total_tokens': 18, **details},
+		}
+	)
+	monkeypatch.setattr(model.client.chat.completions, 'create', AsyncMock(return_value=response))
+	result = await PydanticAgent(model).run('test')
+	usage = result.usage
+	assert (usage.input_tokens, usage.output_tokens, usage.cache_read_tokens) == (11, 7, cache_read)
