@@ -550,7 +550,7 @@ class Agent:
 			judged = self.judge and self.use_vision and result.steps
 			self._final_page = None
 			if judged:
-				with contextlib.suppress(TimeoutError):  # a slow page: the thread ends with its socket timeout
+				with contextlib.suppress(TimeoutError):  # a slow page: the thread ends at its socket timeouts
 					shot = await asyncio.wait_for(
 						asyncio.to_thread(self.browser._screenshot, FINAL_SCREENSHOT_TIMEOUT_S), FINAL_SCREENSHOT_TIMEOUT_S
 					)

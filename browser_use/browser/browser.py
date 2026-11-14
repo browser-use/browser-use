@@ -819,13 +819,19 @@ class Browser:
 		"""The agent's tab as JPEG, taken from this process through our daemon, never through the agent's REPL (its state,
 		notices and stats stay as they are). None when there is no daemon, the capture fails, or the tab is hidden: a
 		hidden tab's capture can hang (Linux headless, cloud), and activating it would switch the user's visible tab."""
-		name = self._daemon_name()
+
+		def cdp(method: str, **params) -> dict:
+			return _daemon_request(
+				self._daemon_name(), {'method': method, 'params': params, 'session_id': None}, timeout=timeout
+			)['result']
+
 		try:
-			state = _daemon_cdp(name, 'Runtime.evaluate', expression='document.visibilityState', returnByValue=True)
-			if state['result'].get('value') == 'hidden':
+			if (
+				cdp('Runtime.evaluate', expression='document.visibilityState', returnByValue=True)['result'].get('value')
+				== 'hidden'
+			):
 				return None
-			request = {'method': 'Page.captureScreenshot', 'params': {'format': 'jpeg', 'quality': 70}, 'session_id': None}
-			return base64.b64decode(_daemon_request(name, request, timeout=timeout)['result']['data'])
+			return base64.b64decode(cdp('Page.captureScreenshot', format='jpeg', quality=70)['data'])
 		except Exception:  # - no daemon, a gone browser or tab, a timeout: the judge goes without
 			return None
 

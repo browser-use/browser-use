@@ -220,7 +220,7 @@ def test_the_judge_gets_the_last_distinct_screenshots_and_the_final_page():
 
 	messages = [cell(shot(1)), cell(shot(2), shot(3)), cell(shot(3)), cell(shot(4))]  # 3 twice: an unchanged page
 	assert [s.data[0] for s in screenshots(messages)] == [1, 2, 3, 4]
-	assert [s.data[0] for s in screenshots(messages, shot(5))] == [2, 3, 4, 5][-MAX_SCREENSHOTS:]
+	assert MAX_SCREENSHOTS == 4 and [s.data[0] for s in screenshots(messages, shot(5))] == [2, 3, 4, 5]  # the final page counts
 	assert [s.data[0] for s in screenshots(messages, shot(4))] == [1, 2, 3, 4]  # the final page as the last screenshot
 	assert screenshots([]) == []
 

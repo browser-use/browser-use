@@ -32,7 +32,7 @@ JUDGE_PROMPT = (
 	'screenshots, when there are any, are the last pages the agent saw, oldest first; the agent also read pages as text '
 	"that the screenshots do not show. When <judge_context> is given, it is the user's own criteria and comes first.\n\n"
 	'gotchas: at most 5 short lessons for the next agent on the same websites, on a success as on a failure. Whenever '
-	'the trace shows the site rejecting an input, an error from the site, a retry, a block, a CAPTCHA or a rate limit, '
+	'the trace shows the site rejecting an input, an error from the site, a retry the site caused, a block, a CAPTCHA or a rate limit, '
 	'write at least one: what the site wanted or did and, if the agent found it, what worked (the format a field '
 	'accepts, an order of pages that avoids a block, the way a widget has to be driven, a page that needs a wait). '
 	"Write the lesson, not the event. Only what this run showed about the website, never about the agent's own code, "
@@ -164,6 +164,7 @@ async def judge_run(
 				except ModelHTTPError as e:  # a text-only model rejects the images: judge the trace alone
 					if not (shots and 400 <= e.status_code < 500 and 'image' in f'{e.message} {e.body}'.lower()):
 						raise
+					logger.info(f'The model rejected the screenshots ({e.status_code}): judging the run from the text alone')
 					run = await judge.run(text)
 		except Exception as e:  # a provider error, an answer that does not fit the schema, the timeout
 			# the class and HTTP status only: a provider's message can quote what it was sent
