@@ -254,26 +254,68 @@ async def test_the_screenshots_go_to_the_judge_as_images_after_the_text(monkeypa
 	assert isinstance(sent[1], str)  # no screenshots: the text alone
 
 
-async def test_the_final_screenshot_never_fails_the_judge():
+async def test_a_text_only_model_that_rejects_the_images_is_judged_from_the_text(monkeypatch):
+	from types import SimpleNamespace
+
+	from pydantic_ai import BinaryContent
+	from pydantic_ai.exceptions import ModelHTTPError
+	from pydantic_ai.models.test import TestModel
+
+	import browser_use.agent.judge as judge
+	from browser_use.agent.judge import judge_run
+
+	sent = []
+
+	class TextOnly:
+		def __init__(self, model, **kwargs):
+			pass
+
+		async def run(self, content):
+			sent.append(content)
+			if not isinstance(content, str):
+				raise ModelHTTPError(400, 'm', {'error': 'image input is not supported'})
+			return SimpleNamespace(output=Judgement.model_validate(VERDICT), all_messages=lambda: ['judged'])
+
+	monkeypatch.setattr(judge, 'Agent', TextOnly)
+	result = AgentHistoryList('completed', 'done', 'done', 1, 1.0, {}, None, None, None, [], True)
+	final = BinaryContent(b'page', media_type='image/jpeg')
+	judgement, messages = await judge_run(SimpleNamespace(model=TestModel(), model_settings={}), 't', result, None, {}, final)
+	assert judgement is not None and judgement.success and messages == ['judged']
+	assert [type(c) for c in sent] == [list, str]
+
+
+async def test_the_final_page_is_taken_through_the_daemon_and_never_fails_the_run(fake_browser, tmp_path, monkeypatch):
 	import base64
 
-	from browser_use.agent.judge import final_screenshot
+	import browser_use.browser.browser as browser_module
 
-	class Repl:
-		def __init__(self, answer):
-			self.answer = answer
+	asked = []
 
-		async def call(self, op, code, timeout):
-			if isinstance(self.answer, Exception):
-				raise self.answer
-			return self.answer
+	def daemon(name, request, timeout=30):
+		asked.append((request['method'], timeout))
+		return {'result': {'data': base64.b64encode(b'jpeg').decode()}}
 
-	image = {'data': base64.b64encode(b'jpeg').decode(), 'media_type': 'image/jpeg'}
-	shot = await final_screenshot(Repl({'error': None, 'images': [image]}))
-	assert shot is not None and shot.data == b'jpeg' and shot.media_type == 'image/jpeg'
-	assert await final_screenshot(Repl({'error': 'BrowserConnectionLost', 'images': []})) is None
-	assert await final_screenshot(Repl(ConnectionError('worker'))) is None
-	assert await final_screenshot(None) is None
+	monkeypatch.setattr(browser_module, '_daemon_request', daemon)
+	model, seen = script(FINISH, ('final_result', VERDICT))
+	result = await agent(model, tmp_path).run()
+	assert result.judgement is not None and asked == [('Page.captureScreenshot', 5)]
+	assert seen[1][0].parts[0].content[-1].data == b'jpeg'
+
+	def gone(name, request, timeout=30):
+		raise ConnectionError('no daemon')
+
+	monkeypatch.setattr(browser_module, '_daemon_request', gone)
+	model, seen = script(FINISH, ('final_result', VERDICT))
+	assert (await agent(model, tmp_path).run()).judgement is not None
+	assert isinstance(seen[1][0].parts[0].content, str)  # no final page: the text alone
+
+	asked.clear()
+	monkeypatch.setattr(browser_module, '_daemon_request', daemon)
+	model, seen = script(FINISH)
+	await agent(model, tmp_path, judge=False).run()
+	model, seen = script(FINISH, ('final_result', VERDICT))
+	await agent(model, tmp_path, use_vision=False).run()
+	assert asked == []  # judge=False or use_vision=False: no capture
 
 
 def test_the_prompt_asks_for_gotchas_on_a_success_too():

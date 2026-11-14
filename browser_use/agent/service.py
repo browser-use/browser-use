@@ -28,7 +28,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from browser_use.agent.judge import final_screenshot, judge_run
+from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_run
 from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run, usage_and_cost
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
 from browser_use.agent.views import AgentHistoryList
@@ -548,7 +548,8 @@ class Agent:
 			self._history = session.messages  # raw: result.messages has secrets redacted
 			# the judge sees the page as the run left it, before the browser stops
 			judged = self.judge and self.use_vision and result.steps
-			self._final_page = await final_screenshot(self._repl) if judged else None
+			shot = await asyncio.to_thread(self.browser._screenshot, FINAL_SCREENSHOT_TIMEOUT_S) if judged else None
+			self._final_page = BinaryContent(shot, media_type='image/jpeg') if shot else None
 			self._compacted = {'checkpoint': session.checkpoint, 'covered': session.covered, 'usage_after': session.usage_after}
 			result.output_schema = self.output_model_schema
 			if result.status == 'error':

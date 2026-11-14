@@ -4,7 +4,6 @@ turns it off). Its gotchas are short, general lessons about the websites, for th
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
 import json
 import logging
@@ -12,6 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent, BinaryContent, capture_run_messages
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelMessage, ModelRequest, ToolReturnPart, UserContent
 from pydantic_ai.models.openai import OpenAIResponsesModel
 
@@ -20,7 +20,6 @@ from browser_use.repl import redact
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentHistoryList
-	from browser_use.repl import Repl
 
 __all__ = ['JUDGE_PROMPT', 'Judgement', 'judge_run']
 
@@ -45,7 +44,7 @@ MAX_PART_CHARS = 5_000  # one tool result or argument, the error, the final resu
 MAX_TASK_CHARS = 20_000  # the task, and the judge_context
 MAX_GOTCHAS = 5
 MAX_SCREENSHOTS = 4  # the last distinct ones of the run (the Browser Use Cloud judge keeps 20)
-FINAL_SCREENSHOT_TIMEOUT_S = 10
+FINAL_SCREENSHOT_TIMEOUT_S = 5  # per daemon request (connecting has its own 5 s)
 JUDGE_TIMEOUT_S = 180
 EFFORT_KEYS = ('thinking', 'openai_reasoning_effort')
 DROPPED = ('tool_choice', 'parallel_tool_calls', 'cache', 'openai_context_management', 'request_timeout', 'first_event_timeout')
@@ -112,21 +111,6 @@ def screenshots(messages: list[ModelMessage], final: BinaryContent | None = None
 	return shots[:MAX_SCREENSHOTS][::-1]
 
 
-async def final_screenshot(repl: Repl | None) -> BinaryContent | None:
-	"""The page as the run left it, for the judge: one screenshot through the agent's REPL before the browser stops.
-	None when there is no REPL, or the capture fails or takes longer than FINAL_SCREENSHOT_TIMEOUT_S."""
-	if repl is None:
-		return None
-	try:
-		r = await repl.call('exec', 'screenshot()', FINAL_SCREENSHOT_TIMEOUT_S)
-	except Exception:  # - a worker that cannot start or answer: the judge goes without
-		return None
-	if r.get('error') or not r.get('images'):
-		return None
-	image = r['images'][-1]
-	return BinaryContent(base64.b64decode(image['data']), media_type=image['media_type'])
-
-
 def prompt(task: str, result: AgentHistoryList, judge_context: str | None) -> str:
 	final = f'status: {result.status}\nsuccess reported by the agent: {result.success}\n'
 	if result.error:
@@ -175,7 +159,12 @@ async def judge_run(
 	with capture_run_messages() as messages:
 		try:
 			async with asyncio.timeout(JUDGE_TIMEOUT_S):
-				run = await judge.run(content if shots else text)  # text alone: as before, without images
+				try:
+					run = await judge.run(content if shots else text)  # text alone: as before, without images
+				except ModelHTTPError as e:  # a text-only model rejects the images: judge the trace alone
+					if not (shots and e.status_code in (400, 404, 415, 422)):
+						raise
+					run = await judge.run(text)
 		except Exception as e:  # a provider error, an answer that does not fit the schema, the timeout
 			# the class and HTTP status only: a provider's message can quote what it was sent
 			status = getattr(e, 'status_code', None)

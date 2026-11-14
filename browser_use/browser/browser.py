@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import base64
 import concurrent.futures
 import contextlib
 import functools
@@ -813,6 +814,15 @@ class Browser:
 		if self.name:
 			with contextlib.suppress(Exception):  # the daemon is gone: the last tab known stays
 				self._agent_tab = _daemon_request(self.name, {'meta': 'current_tab'}, timeout=5)['targetId']
+
+	def _screenshot(self, timeout: float) -> bytes | None:
+		"""The agent's tab as JPEG, taken from this process through our daemon, never through the agent's REPL (its state,
+		notices and stats stay as they are). None when there is no daemon, or the capture fails or times out."""
+		request = {'method': 'Page.captureScreenshot', 'params': {'format': 'jpeg', 'quality': 70}, 'session_id': None}
+		try:
+			return base64.b64decode(_daemon_request(self._daemon_name(), request, timeout=timeout)['result']['data'])
+		except Exception:  # - no daemon, a gone browser or tab, a timeout: the judge goes without
+			return None
 
 	def _attach_agent_tab(self) -> None:
 		"""A daemon started again attaches a new blank tab of its own, so the next run saw about:blank, the agent's page
