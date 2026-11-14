@@ -1886,20 +1886,31 @@ def test_the_telemetry_thread_does_not_list_every_package_or_cdp_method():
 	cdp-use). Holding the GIL, that slowed the first run of a process by ~40 ms (a local Chromium run: 2153 -> 2192 ms).
 	Names are now checked one at a time: the same answers, without importing cdp-use."""
 	code = (
-		'import sys, time\n'
+		'import sys, json, importlib.metadata as metadata\n'
+		'scans = []\n'
+		'recording = False\n'
+		'def tracked(fn):\n'
+		'    def call(*args, **kwargs):\n'
+		'        if recording and not kwargs.get("name"): scans.append(fn.__name__)\n'
+		'        return fn(*args, **kwargs)\n'
+		'    return call\n'
+		'for name in ("distributions", "packages_distributions"):\n'
+		'    setattr(metadata, name, tracked(getattr(metadata, name)))\n'
 		'import browser_use.telemetry.service as s\n'
 		'from browser_use.telemetry.stats import known_cdp_method, known_module\n'
-		't = time.perf_counter()\n'
+		'recording = True\n'
 		's.telemetry()._warm()\n'
 		"names = [known_module(n) for n in ('json', 'PIL', 'pydantic_ai', 'zqnotinstalled', 'os.path')]\n"
 		"names += [known_cdp_method(m) for m in ('Page.navigate', 'page.navigate', 'DOM.getBoxModel', 'Page.zq', 'Zq.navigate',"
 		" 'BrowserUse.setCaptchaSolverEnabled', '../x.navigate', 'Page.navigate(')]\n"
-		"print(round((time.perf_counter() - t) * 1000, 2), 'cdp_use' in sys.modules, names)"
+		"print(json.dumps({'imported': 'cdp_use' in sys.modules, 'names': names, 'scans': scans}))"
 	)
 	out = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=True).stdout
-	ms, imported, names = out.split(' ', 2)
-	assert imported == 'False' and float(ms) < 60, out
-	assert names.strip() == str([True, True, True, False, False, True, False, True, False, False, True, False, False])
+	assert json.loads(out) == {
+		'imported': False,
+		'names': [True, True, True, False, False, True, False, True, False, False, True, False, False],
+		'scans': [],
+	}
 
 
 def test_cdp_methods_and_modules_allowed_are_the_protocols_and_the_installed_ones():
