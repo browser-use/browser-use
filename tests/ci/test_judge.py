@@ -120,6 +120,64 @@ async def test_a_responses_model_is_judged_streamed_at_low_effort(monkeypatch):
 	assert built['retries'] == {'output': 0}
 
 
+async def test_model_owned_thinking_is_lowered_for_the_judge():
+	import json
+
+	import httpx2
+	from anthropic import AsyncAnthropic
+	from pydantic_ai.models.anthropic import AnthropicModel
+	from pydantic_ai.providers.anthropic import AnthropicProvider
+
+	from browser_use.agent.judge import judge_run
+	from browser_use.agent.loop import build_agent
+
+	requests = []
+
+	def reply(request):
+		requests.append(json.loads(request.content))
+		events = [
+			{
+				'type': 'message_start',
+				'message': {
+					'id': 'msg_test',
+					'type': 'message',
+					'role': 'assistant',
+					'model': 'claude-sonnet-4-6',
+					'content': [],
+					'stop_reason': None,
+					'stop_sequence': None,
+					'usage': {'input_tokens': 10, 'output_tokens': 0},
+				},
+			},
+			{'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'text', 'text': ''}},
+			{'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': json.dumps(VERDICT)}},
+			{'type': 'content_block_stop', 'index': 0},
+			{
+				'type': 'message_delta',
+				'delta': {'stop_reason': 'end_turn', 'stop_sequence': None},
+				'usage': {'output_tokens': 10},
+			},
+			{'type': 'message_stop'},
+		]
+		return httpx2.Response(
+			200,
+			content=''.join(f'event: {e["type"]}\ndata: {json.dumps(e)}\n\n' for e in events),
+			headers={'content-type': 'text/event-stream'},
+		)
+
+	async with httpx2.AsyncClient(transport=httpx2.MockTransport(reply)) as http:
+		sdk = AsyncAnthropic(api_key='test-key', http_client=http, max_retries=0)
+		model = AnthropicModel(
+			'claude-sonnet-4-6', provider=AnthropicProvider(anthropic_client=sdk), settings={'thinking': 'high'}
+		)
+		result = AgentHistoryList('completed', 'done', 'done', 1, 1.0, {}, None, None, None, [], True)
+		judgement, _ = await judge_run(build_agent(model), 't', result, None, {})
+	assert judgement == Judgement(**VERDICT)
+	assert len(requests) == 1
+	assert requests[0]['output_config']['effort'] == 'low'
+	assert model.settings == {'thinking': 'high'}  # judging must not change the run's own configuration
+
+
 def test_the_schema_rejects_an_incomplete_judgement():
 	with pytest.raises(ValidationError):
 		Judgement.model_validate({'success': True})

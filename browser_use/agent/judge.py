@@ -135,7 +135,10 @@ async def judge_run(
 	One request: an answer that does not fit the schema is not retried. -> (the judgement with secrets redacted, or None
 	when the judge failed (logged); the judge's messages, also a failed one's, for usage and cost). The task, the context
 	and the trace are redacted before they are sent; the last screenshots and the final page (final) go with them as images."""
-	settings = {k: v for k, v in (agent.model_settings or {}).items() if k not in DROPPED}
+	# build_agent leaves model-owned overrides off agent.model_settings: normalize their effective values too.
+	inherited = dict(getattr(agent.model, 'settings', None) or {})
+	inherited.update((agent.model_settings or {}).items())
+	settings = {k: v for k, v in inherited.items() if k not in DROPPED}
 	for key in EFFORT_KEYS:
 		if settings.get(key) and settings[key] != 'none':
 			settings[key] = 'low'
