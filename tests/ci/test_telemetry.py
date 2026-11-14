@@ -1527,12 +1527,21 @@ async def test_run_end_does_not_wait_for_a_dead_posthog(dead_posthog, tmp_path, 
 	assert took['_capture'] < 50 and took['_telemetry_started'] < 50, took
 
 
-EXIT_SCRIPT = """
+EXIT_SCRIPT = r"""
 import atexit, os, sys, time
 atexit.register(lambda: print(f'EXIT {(time.perf_counter() - marks[0]) * 1000:.1f}', flush=True))  # runs last
 marks = []
 import browser_use.telemetry.service as service
 service.POSTHOG_HOST = sys.argv[1]
+if len(sys.argv) > 2:  # this script also drives the outbox test, without a gate
+    service.EXIT_SENDER = (
+        'import pathlib, time\n'
+        f'gate = pathlib.Path({sys.argv[2]!r})\n'
+        'deadline = time.monotonic() + 90\n'
+        'while not gate.exists():\n'
+        '    if time.monotonic() >= deadline: raise SystemExit(1)\n'
+        '    time.sleep(0.01)\n'
+    ) + service.EXIT_SENDER
 from browser_use.telemetry.views import AgentTelemetryEvent
 service.ProductTelemetry._loop = lambda self: None  # only the exit path: the thread racing it is tested apart
 t = service.telemetry()
@@ -1542,20 +1551,25 @@ atexit.register(lambda: marks.append(time.perf_counter()))  # runs first: before
 
 
 @pytest.mark.parametrize('live', [False, True])
-def test_a_one_shot_script_exits_fast_and_its_event_still_arrives(posthog, live, tmp_path):
+def test_a_one_shot_script_exits_before_its_sender_and_its_event_still_arrives(posthog, live, tmp_path):
 	"""A script that runs one Agent and exits: telemetry's exit handler hands the queued event to a detached sender
-	(< 150 ms), and the event reaches PostHog after the process is gone. With PostHog down it waits in the outbox for
-	the next process."""
+	without waiting for it, and the event reaches PostHog after the process is gone. With PostHog down it waits in the
+	outbox for the next process."""
 	import browser_use.telemetry.service as service
 
 	posthog.state.down = not live
 	env = {**os.environ, 'ANONYMIZED_TELEMETRY': 'true', 'BROWSER_USE_CONFIG_DIR': str(posthog.config)}
-	cmd = [sys.executable, '-c', EXIT_SCRIPT, service.POSTHOG_HOST]
-	out = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+	gate = tmp_path / 'sender.release'
+	cmd = [sys.executable, '-c', EXIT_SCRIPT, service.POSTHOG_HOST, str(gate)]
+	try:
+		out = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+		assert out.returncode == 0, out
+		assert posthog.state.attempts == 0  # the parent exited while the real sender still could not POST
+	finally:
+		gate.touch()  # release it even if the parent failed or timed out
 	assert 'EXIT' in out.stdout, (out.stdout, out.stderr[-3000:])
 	exit_ms = float(re.search(r'EXIT ([\d.]+)', out.stdout)[1])
 	print(f'\nexit handler with a queued event: {exit_ms:.1f} ms')
-	assert exit_ms < 150, out
 	if live:
 		(event,) = posthog.events()
 		assert event['properties']['model'] == 'exit-test'
