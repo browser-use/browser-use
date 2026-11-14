@@ -55,6 +55,7 @@ async def test_nested_frame_main_world_and_no_global_switch(daemon, tmp_path, fr
 		)
 		assert '42 inner' in out['output'] and '43' in out['output'] and out['output'].endswith('top\n')
 		assert out['stats']['helpers']['frame_eval'] == 3
+		assert out['output'].count('[frame ') == 3 and '/inner' in out['output']
 		# The application's global was defined only in its main world, not the isolated inspection world.
 		await cell(r, "assert len(frames) == 3; assert frames[0]['frame_id'] != f['frame_id']")
 		await cell(

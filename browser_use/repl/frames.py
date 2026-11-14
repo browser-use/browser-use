@@ -123,10 +123,14 @@ def _document(frame, deadline):
 			# Omitting executionContextId resolves the document into its own main world, where app globals live.
 			doc = _call(deadline, 'DOM.resolveNode', sid, backendNodeId=backend, objectGroup=group)['object']['objectId']
 			tree = _call(deadline, 'Page.getFrameTree', sid)['frameTree']
-			if not any(f['id'] == frame['frame_id'] and f['loaderId'] == frame['loader_id'] for f in _walk(tree)):
+			current = next(
+				(f for f in _walk(tree) if f['id'] == frame['frame_id'] and f['loaderId'] == frame['loader_id']), None
+			)
+			if current is None:
 				raise RuntimeError(
 					'Frame changed during document resolution; call frame_list() again. No expression was executed.'
 				)
+			print(f'[frame {current["id"][-8:]}] {current["url"][:180]}')
 			yield sid, doc, group
 		finally:
 			with contextlib.suppress(Exception):
@@ -137,6 +141,7 @@ def frame_eval(frame, expression, *, timeout_s=10):
 	"""Evaluate one JavaScript expression in the frame's main world; use an IIFE for statements.
 
 	Promises are awaited. Exceptions propagate; expressions are never retried or sent to the top page.
+	Prints the resolved frame URL and ID suffix; it does not move keyboard focus.
 	"""
 	if not isinstance(expression, str):
 		raise TypeError('expression must be a JavaScript string')
