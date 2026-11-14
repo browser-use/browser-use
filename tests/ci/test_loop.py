@@ -1234,3 +1234,19 @@ async def test_a_none_delivered_for_a_nullable_schema_is_the_result(tmp_path):
 	result = await run(build_agent(model, output_type=_Authors | None), 'task', session, 'function:x')
 	assert (len(seen), result.status, result.output, result.text, result.success) == (3, 'completed', None, 'null', False)
 	assert result.partial == {'authors': ['partial']}  # still there to read, never the result
+
+
+def test_prune_keeps_the_newest_images_when_one_request_returns_several():
+	"""Parallel python calls in one response come back as one ModelRequest, oldest first: pruning kept the two oldest
+	screenshots and replaced the newest (the current page) with the placeholder."""
+	from pydantic_ai import BinaryContent
+	from pydantic_ai.messages import ModelRequest
+
+	from browser_use.agent.loop import _prune_images
+
+	png = BinaryContent(data=b'\x89PNG', media_type='image/png')
+	returns = [ToolReturnPart('python', [f'shot{i}', png], tool_call_id=f'c{i}') for i in (1, 2, 3)]
+	pruned = _prune_images([ModelRequest(parts=returns)])
+	assert pruned is not None
+	content = [p.content for p in pruned[0].parts]
+	assert content == [['shot1', '[older screenshot removed]'], ['shot2', png], ['shot3', png]]

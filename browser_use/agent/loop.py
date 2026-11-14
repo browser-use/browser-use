@@ -1044,7 +1044,8 @@ def _prune_images(messages: list[ModelMessage]) -> list[ModelMessage] | None:
 		if not isinstance(m, ModelRequest):
 			continue
 		parts = list(m.parts)
-		for j, part in enumerate(parts):
+		for j in range(len(parts) - 1, -1, -1):  # newest first here too: parallel calls return in call order
+			part = parts[j]
 			if isinstance(part, ToolReturnPart) and isinstance(part.content, list) and any(map(_is_image, part.content)):
 				seen += 1
 				if seen > KEEP_IMAGE_RESULTS:
