@@ -155,7 +155,7 @@ def test_0x_judge_class_names_point_to_result_judgement():
 	import browser_use.agent.judge as judge
 
 	with pytest.raises(AttributeError, match=r'result\.judgement'):
-		judge.JudgementResult  # noqa: B018
+		judge.JudgementResult
 
 
 def test_the_prompt_forbids_personal_data_and_secrets():
