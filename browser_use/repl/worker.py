@@ -47,6 +47,7 @@ from browser_use.repl.frames import frame_eval, frame_list
 from browser_use.repl.highlight import Highlighter
 from browser_use.repl.network_idle import wait_for_network_idle
 from browser_use.repl.page_info import install as install_page_info
+from browser_use.repl.paste import dispatch_paste
 from browser_use.repl.session import (
 	MAX_OUTPUT_CHARS,
 	SECRET_PLACEHOLDER,
@@ -908,6 +909,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		secret_names=secret_names,
 		frame_list=frame_list,
 		frame_eval=frame_eval,
+		dispatch_paste=dispatch_paste,
 		solve_captcha=captcha.solve,
 	)
 	ns['upload_file'] = uploader(plain, lambda: cloud)
@@ -938,6 +940,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		__name__,
 		ax.__name__,
 		frame_list.__module__,
+		dispatch_paste.__module__,
 		Captcha.__module__,
 		uploader.__module__,
 		wait_for_network_idle.__module__,
