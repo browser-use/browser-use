@@ -463,3 +463,45 @@ def test_a_callback_with_the_wrong_state_neither_completes_nor_aborts_the_login(
 	server.approve()  # the real approval still finishes the same login
 	assert mcp._sign_in(force=False, wait=10).startswith('Signed in to Browser Use Cloud')
 	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY
+
+
+@pytest.mark.asyncio
+async def test_mcp_browser_login_tool_reports_is_error_accurately(monkeypatch):
+	import mcp.types as types
+
+	from browser_use.mcp import cli_mcp
+
+	server = cli_mcp.CLIMCPServer()
+	handler = server.server.get_request_handler('tools/call').handler
+
+	# Success case: is_error must be False
+	monkeypatch.setattr(server, '_sign_in', lambda force: 'Signed in to Browser Use Cloud.')
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={}))
+	assert not res.is_error
+	assert 'Signed in to Browser Use Cloud' in res.content[0].text
+
+	# Pending approval case: is_error must be False
+	monkeypatch.setattr(server, '_sign_in', lambda force: 'Waiting for the user to approve Browser Use...')
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={}))
+	assert not res.is_error
+	assert 'Waiting for the user' in res.content[0].text
+
+	# Failure cases: is_error must be True
+	monkeypatch.setattr(
+		server, '_sign_in', lambda force: 'Browser Use Cloud login failed: invalid_grant. Call browser_login to try again.'
+	)
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={}))
+	assert res.is_error
+	assert 'login failed' in res.content[0].text
+
+	monkeypatch.setattr(server, '_sign_in', lambda force: 'Could not start Browser Use Cloud login: network timeout')
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={}))
+	assert res.is_error
+
+	monkeypatch.setattr(
+		server,
+		'_sign_in',
+		lambda force: 'BROWSER_USE_API_KEY is set for this server and wins over a stored key: fix or unset it in the MCP config.',
+	)
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={'force': True}))
+	assert res.is_error

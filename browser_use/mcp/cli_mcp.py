@@ -322,6 +322,13 @@ def _capture(buffer: StringIO):
 		_cell.buffer = None
 
 
+def _is_login_failure(text: str) -> bool:
+	return (
+		text.startswith(('Browser Use Cloud login failed:', 'Could not start Browser Use Cloud login:'))
+		or 'wins over a stored key' in text
+	)
+
+
 def _open_url(url: str) -> bool:
 	"""Open url in the user's browser without letting a child process write to stdout (the MCP channel)."""
 	command = {'darwin': ['open', url], 'linux': ['xdg-open', url]}.get(sys.platform)
@@ -555,7 +562,7 @@ class CLIMCPServer:
 				return types.CallToolResult(content=content)
 			if name == 'browser_login':
 				text = await asyncio.to_thread(self._sign_in, bool(arguments.get('force', False)))
-				return types.CallToolResult(content=[types.TextContent(type='text', text=text)])
+				return types.CallToolResult(content=[types.TextContent(type='text', text=text)], is_error=_is_login_failure(text))
 			if name == 'browser_feedback':
 				text, failed = feedback.mcp_call(arguments)
 				return types.CallToolResult(content=[types.TextContent(type='text', text=text)], is_error=failed)
@@ -580,9 +587,14 @@ class CLIMCPServer:
 
 			if not telemetry().enabled:
 				return
-			if not errors and result is not None and result.is_error:  # no exception: rejected arguments, an unknown tool
+			if (
+				not errors and result is not None and result.is_error
+			):  # no exception: rejected arguments, an unknown tool, failed login
 				text = next((c.text for c in result.content if isinstance(c, types.TextContent)), '') if name in TOOLS else ''
-				errors = [('invalid_arguments' if name in TOOLS else 'unknown_tool', text.removeprefix('Error: '))]
+				error_type = (
+					'login_failed' if name == 'browser_login' else 'invalid_arguments' if name in TOOLS else 'unknown_tool'
+				)
+				errors = [(error_type, text.removeprefix('Error: '))]
 			detect = getattr(harness_telemetry, '_detect_agent_client', None)
 			event = MCPToolCallEvent(
 				version=get_browser_use_version(),
