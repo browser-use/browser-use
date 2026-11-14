@@ -593,6 +593,128 @@ async def test_page_info_waiting_for_the_document_still_reports_a_dialog(daemon,
 	assert not failed and "'dialog'" in out and "'hi'" in out, out
 
 
+def test_page_info_reports_a_dialog_opened_after_its_initial_check(daemon, monkeypatch):
+	"""A dialog can open between page_info's pending-dialog check and its Runtime.evaluate."""
+	import time
+
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setattr(admin, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'page_info', helpers.page_info)
+	server = cli_mcp.CLIMCPServer()
+	out, failed = server._execute("new_tab('about:blank')")
+	assert not failed, out
+	raw_send, opened = helpers._send, []
+
+	def open_after_check(req, **kwargs):
+		reply = raw_send(req, **kwargs)
+		if req.get('meta') == 'pending_dialog' and not reply.get('dialog') and not opened:
+			opened.append(True)
+			raw_send({'method': 'Runtime.evaluate', 'params': {'expression': 'setTimeout(() => alert("late dialog"), 0)'}})
+			deadline = time.monotonic() + 5
+			while not raw_send({'meta': 'pending_dialog'}).get('dialog'):
+				assert time.monotonic() < deadline, 'Chrome did not open the dialog'
+				time.sleep(0.01)
+		return reply  # page_info saw no dialog; its evaluate now runs with a real alert open
+
+	monkeypatch.setattr(helpers, '_send', open_after_check)
+	try:
+		out, failed = server._execute('print(page_info())')
+	finally:
+		monkeypatch.setattr(helpers, '_send', raw_send)
+		server._execute('cdp("Page.handleJavaScriptDialog", accept=True)\nclose_tab()')
+	assert opened and not failed and "'dialog'" in out and "'late dialog'" in out, out
+
+
+def test_page_info_reports_a_dialog_after_evaluation_outlasts_the_root_wait(daemon, monkeypatch):
+	"""The CLI/MCP evaluation timeout can outlast the document-root retry budget while an alert blocks JS."""
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+	from browser_use.repl import capture, page_info
+
+	monkeypatch.setattr(admin, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'page_info', helpers.page_info)
+	server = cli_mcp.CLIMCPServer()
+	out, failed = server._execute(
+		"new_tab('about:blank'); "
+		"js(\"Object.defineProperty(document.documentElement, 'scrollWidth', "
+		"{get() { alert('during evaluation'); return 1; }, configurable: true}); 1\")"
+	)
+	assert not failed, out
+	monkeypatch.setattr(capture, 'CDP_TIMEOUT_S', 1.0)
+	monkeypatch.setattr(page_info, 'ROOT_WAIT_S', 0.05)
+	try:
+		out, failed = server._execute('print(page_info())')
+	finally:
+		server._execute('cdp("Page.handleJavaScriptDialog", accept=True)\nclose_tab()')
+	assert not failed and "'dialog'" in out and "'during evaluation'" in out, out
+
+
+@pytest.mark.parametrize('probe_fails', [False, True])
+def test_page_info_preserves_the_original_error_without_a_known_dialog(monkeypatch, probe_fails):
+	from browser_harness import helpers
+
+	from browser_use.repl.page_info import install
+
+	error = RuntimeError('page evaluation failed')
+
+	def fail():
+		raise error
+
+	def probe(req, **kwargs):
+		if probe_fails:
+			raise RuntimeError('daemon disconnected')
+		return {'dialog': None}
+
+	monkeypatch.setattr(helpers, 'page_info', fail)
+	monkeypatch.setattr(helpers, '_send', probe)
+	install()
+	with pytest.raises(RuntimeError) as raised:
+		helpers.page_info()
+	assert raised.value is error
+
+
+@pytest.mark.timeout(1, func_only=True)
+@pytest.mark.parametrize('elapsed', [4.95, 5.0, 5.1])
+def test_page_info_dialog_probe_respects_the_root_deadline(monkeypatch, elapsed):
+	"""A daemon that accepts IPC but never replies must not add its full response timeout to the root wait."""
+	import socket
+	from types import SimpleNamespace
+
+	from browser_harness import helpers
+
+	from browser_use.repl import page_info
+
+	error = RuntimeError("Cannot read properties of null (reading 'scrollWidth')")
+	clock = iter([0.0, elapsed, page_info.ROOT_WAIT_S])
+	monkeypatch.setattr(page_info, 'time', SimpleNamespace(monotonic=lambda: next(clock)))
+
+	def fail():
+		raise error
+
+	client, peer = socket.socketpair()
+	monkeypatch.setattr(helpers.ipc, 'connect', lambda *a, **kw: (client, None))
+	monkeypatch.setattr(helpers, 'page_info', fail)
+	page_info.install()
+	try:
+		with pytest.raises(RuntimeError) as raised:
+			helpers.page_info()
+		assert raised.value is error
+		if elapsed < page_info.ROOT_WAIT_S:
+			assert client.gettimeout() == pytest.approx(page_info.ROOT_WAIT_S - elapsed)
+			assert json.loads(peer.recv(1024)) == {'meta': 'pending_dialog'}
+		else:
+			assert client.fileno() != -1  # no probe was started after the deadline
+	finally:
+		client.close()
+		peer.close()
+
+
 def test_a_malformed_bh_dir_override_keeps_the_bh_home_hint(monkeypatch, tmp_path):
 	"""Retest 1.0.1 review: picking the hint resolved every BH_* override, so '~nosuchuser_x/dir' (RuntimeError) raised inside the handler that reports the unwritable dir."""
 	from browser_use.auth import harness_dir_setting
