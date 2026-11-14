@@ -951,3 +951,25 @@ async def test_images_providers_take_are_sent_as_is_and_conversions_fit_the_limi
 	logo = Image.open(io.BytesIO(sent[3]))
 	assert logo.size == (2048, 68) and logo.getpixel((1000, 50)) == (255, 255, 255)
 	assert logo.convert('L').crop((0, 0, 60, 30)).getextrema()[0] < 100  # the black text stays
+
+
+async def test_hover_via_cdp_reveals_a_css_menu(daemon, tmp_path):
+	"""The 1.0 REPL can reveal a CSS hover menu using its documented mouse-move command."""
+	from urllib.parse import quote
+
+	page = '<style>#menu{display:none}#target:hover #menu{display:block}</style><div id="target">Hover<div id="menu">Menu</div></div>'
+	repl = Repl(tmp_path, daemon)
+	try:
+		result = await repl.call(
+			'exec',
+			f'new_tab({("data:text/html," + quote(page))!r}); wait_for_load(); '
+			'print(js("getComputedStyle(document.querySelector(\'#menu\')).display")); '
+			'r = js("(() => {const r = document.querySelector(\'#target\').getBoundingClientRect(); return {x:r.x+5,y:r.y+5}})()"); '
+			"cdp('Input.dispatchMouseEvent', type='mouseMoved', x=r['x'], y=r['y']); "
+			'print(js("getComputedStyle(document.querySelector(\'#menu\')).display"))',
+			30,
+		)
+	finally:
+		await repl.close()
+	assert result['error'] is None, result
+	assert result['output'].strip().splitlines()[-2:] == ['none', 'block'], result
