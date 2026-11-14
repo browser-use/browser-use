@@ -11,6 +11,9 @@ from pydantic_ai.messages import ModelMessage
 from browser_use.exceptions import removed
 from browser_use.tools import ActionResult  # 0.x imported it from here
 
+if TYPE_CHECKING:
+	from browser_use.agent.judge import Judgement
+
 __all__ = ['ActionResult', 'AgentHistoryList']
 
 
@@ -54,7 +57,6 @@ REMOVED = {
 	'load_from_file',
 	'get_structured_output',
 	'add_item',
-	'judgement',
 	'is_judged',
 	'is_validated',
 	'model_dump',
@@ -70,6 +72,7 @@ ALTERNATIVES = {  # removed names with a direct 1.0 equivalent
 	'total_input_tokens': "result.usage['input'].",
 	'input_token_usage': "result.usage['input'].",
 	'history': 'result.messages (the full transcript) and result.number_of_steps().',
+	**dict.fromkeys(('is_judged', 'is_validated'), 'result.judgement (None when the run was not judged).'),
 }
 HISTORY_ALTERNATIVE = (
 	'the agent runs Python cells, not step actions: use final_result(), structured_output, errors(), .messages (the '
@@ -97,6 +100,8 @@ class AgentHistoryList:
 	success: bool | None = None  # the agent's optional verdict from finish(..., success=...); None when it gave none
 	output_schema: Any = None  # Agent(output_model_schema=...) (str when none); None: unknown, judged by the output
 	downloads: list[Path] = field(default_factory=list)  # files this run downloaded, in agent.workspace/downloads
+	# the judge's verdict, labels and gotchas (Agent(judge=True), the default); None when off, not run or failed
+	judgement: Judgement | None = None
 
 	def __post_init__(self) -> None:
 		if self.status != 'completed':

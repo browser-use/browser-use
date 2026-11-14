@@ -92,7 +92,6 @@ def _modules() -> dict[str, str]:
 				'browser_use.agent.prompts': 'Agent(extend_system_message=...) adds to the fixed system prompt.',
 				'browser_use.agent.system_prompts': 'Agent(extend_system_message=...) adds to the fixed system prompt.',
 				'browser_use.agent.gif': 'none (live_view=True shows a cloud browser live).',
-				'browser_use.agent.judge': "result.success, the agent's own verdict.",
 				'browser_use.beta': 'from browser_use import Agent.',
 				'browser_use.browser.session': _BROWSER,
 				'browser_use.browser.session_manager': _BROWSER,
@@ -171,7 +170,7 @@ _AGENT_VIEWS = {
 	'AgentSettings': 'pass options to Agent(...).',
 	'AgentError': "result.error (run() returns status='error' instead of raising).",
 	'AgentStructuredOutput': 'Agent(output_model_schema=...); result.output holds the parsed value.',
-	**dict.fromkeys(('JudgementResult', 'SimpleJudgeResult'), "result.success, the agent's own verdict."),
+	**dict.fromkeys(('JudgementResult', 'SimpleJudgeResult'), 'result.judgement (browser_use.agent.judge.Judgement).'),
 	**dict.fromkeys(('ModelPricingCatalog', 'Pricing', 'TokenDetails', 'TokenUsage'), _USAGE),
 	'REQUIRED_LLM_API_ENV_VARS': "each model takes api_key=... or reads its provider's environment variable.",
 	**dict.fromkeys(
@@ -203,6 +202,7 @@ _NAMES: dict[str, dict[str, str]] = {
 		**dict.fromkeys(('Context', 'log_response'), _LOOP),
 	},
 	'browser_use.agent.views': _AGENT_VIEWS,
+	'browser_use.agent.judge': dict.fromkeys(('JudgementResult', 'SimpleJudgeResult'), 'result.judgement (Judgement).'),
 	'browser_use.browser': {
 		'BrowserSession': 'Browser(...).',
 		**dict.fromkeys(
