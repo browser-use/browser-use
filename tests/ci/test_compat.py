@@ -1053,6 +1053,45 @@ async def test_failed_follow_up_never_returns_the_previous_tasks_result(tmp_path
 	assert (r.status, r.partial, r.text) == ('error', None, '')
 
 
+@pytest.mark.parametrize('cause', ['timeout', 'error'])
+async def test_a_failed_follow_up_keeps_the_prior_transcript(fake_browser, monkeypatch, tmp_path, cause):
+	model, seen = script(
+		('finish', {'success': True, 'result': 'first result'}),
+		('finish', {'success': True, 'result': 'third result'}),
+	)
+	agent = Agent('first task', model, browser=Browser(local=True), workspace=tmp_path)
+	try:
+		assert (await agent.run()).final_result() == 'first result'
+		history = list(agent._history)
+		assert history
+
+		agent.add_new_task('second task')
+		if cause == 'timeout':
+			second = await agent.run(timeout=1e-9)
+		else:
+			with monkeypatch.context() as patch:
+
+				async def broken(*args, **kwargs):
+					raise RuntimeError('request setup failed')
+
+				patch.setattr(agent._agent, 'run', broken)
+				second = await agent.run()
+		assert second.status == cause
+		assert second.text == ''
+		assert second.steps == 0 and second.usage['requests'] == 0
+		assert second.messages == history
+		assert agent._history == history
+
+		agent.add_new_task('third task')
+		assert (await agent.run()).final_result() == 'third result'
+		assert len(seen) == 2
+		sent = [part for m in seen[-1] for part in m.parts]
+		prior = [part for m in history for part in m.parts]
+		assert sent[: len(prior)] == prior
+	finally:
+		await agent.close()
+
+
 async def test_run_error_never_shows_a_secret(tmp_path):
 	"""Roast r2-8: an exception quoting a registered secret stayed plaintext in result.error, which Agent.run logs."""
 	from pydantic_ai.models.function import FunctionModel
