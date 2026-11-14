@@ -167,16 +167,6 @@ result = await client.marketplace.execute(skill_id, params={})
 
 Browse at [cloud.browser-use.com/skills](https://cloud.browser-use.com/skills).
 
-### Load Skills in Local Agent
-
-```python
-agent = Agent(
-    task="...",
-    skills=['skill-uuid-1', 'skill-uuid-2'],  # or ['*'] for all
-    llm=ChatBrowserUse()
-)
-```
-
 ---
 
 ## MCP Server
