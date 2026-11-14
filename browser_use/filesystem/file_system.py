@@ -156,7 +156,9 @@ class BaseFile(BaseModel, ABC):
 	async def sync_to_disk(self, path: Path) -> None:
 		file_path = path / self.full_name
 		with ThreadPoolExecutor() as executor:
-			await asyncio.get_event_loop().run_in_executor(executor, lambda: file_path.write_text(self.content, encoding='utf-8', newline=''))
+			await asyncio.get_event_loop().run_in_executor(
+				executor, lambda: file_path.write_text(self.content, encoding='utf-8', newline='')
+			)
 
 	async def write(self, content: str, path: Path) -> None:
 		self.write_file_content(content)
