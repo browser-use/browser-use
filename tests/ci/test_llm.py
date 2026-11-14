@@ -877,6 +877,52 @@ def test_gateway_cost_is_the_charge_or_none_never_a_retail_estimate():
 	assert usage_and_cost([reply(None)], 'openai:gpt-4.1')[1]  # non-gateway: still priced
 
 
+def test_openrouter_cost_is_what_openrouter_reported():
+	"""cost_usd for openrouter:<model> was a genai-prices estimate, and None for every model genai-prices does not list,
+	though OpenRouter reports what it charged (usage.cost) on each response."""
+	from pydantic_ai.messages import ModelResponse, TextPart
+	from pydantic_ai.usage import RequestUsage
+
+	from browser_use.agent.loop import request_costs, usage_and_cost
+
+	u = RequestUsage(input_tokens=1000, output_tokens=100)
+
+	def reply(details, model='google/gemini-2.5-flash'):
+		return ModelResponse([TextPart('x')], usage=u, model_name=model, provider_name='openrouter', provider_details=details)
+
+	ref = 'openrouter:google/gemini-2.5-flash'
+	assert usage_and_cost([reply({'cost': 0.0012}), reply({'cost': 0.0003})], ref)[1] == pytest.approx(0.0015)
+	unlisted = reply({'cost': 0.002}, model='some-lab/not-in-genai-prices')
+	assert usage_and_cost([unlisted], 'openrouter:some-lab/not-in-genai-prices')[1] == pytest.approx(0.002)
+	byok = reply({'cost': 0.0001, 'is_byok': True, 'upstream_inference_cost': 0.002})  # fee + what your own key paid
+	assert request_costs([byok], ref) == [pytest.approx(0.0021)]
+	assert request_costs([reply(None)], ref)[0]  # no reported cost: still priced by genai-prices
+	free = reply({'is_byok': False, 'upstream_inference_cost': 0.0}, model='some-lab/not-in-genai-prices:free')
+	assert request_costs([free], 'openrouter:some-lab/not-in-genai-prices:free') == [0.0]  # pydantic-ai drops cost 0
+
+
+async def test_result_has_cost_per_request(tmp_path):
+	"""result.request_costs: what each model request of the run cost, in order; cost_usd is their sum."""
+	from dataclasses import replace
+
+	from conftest import script
+	from pydantic_ai.models.function import FunctionModel
+
+	model, _ = script(('python', {'code': 'x = 1'}), ('finish', {'result': 'done'}))
+	inner, charges = model.function, iter([0.001, 0.002])
+
+	def fn(messages, info):
+		return replace(inner(messages, info), provider_name='openrouter', provider_details={'cost': next(charges)})  # type: ignore[arg-type]
+
+	repl = Repl(tmp_path)
+	try:
+		r = await run(build_agent(FunctionModel(fn)), 'task', Session(repl=repl), 'openrouter:some-lab/model')
+	finally:
+		await repl.close()
+	assert r.request_costs == [pytest.approx(0.001), pytest.approx(0.002)]
+	assert r.cost_usd == pytest.approx(0.003)
+
+
 def test_official_openai_uses_responses_with_compaction():
 	model, settings = resolve_model(ChatOpenAI('gpt-6-luna', api_key='sk-test'))
 	assert isinstance(model, OpenAIResponsesModel) and settings == {}

@@ -102,6 +102,9 @@ class AgentHistoryList:
 	downloads: list[Path] = field(default_factory=list)  # files this run downloaded, in agent.workspace/downloads
 	# the judge's verdict, labels and gotchas (Agent(judge=True), the default); None when off, not run or failed
 	judgement: Judgement | None = None
+	# USD per model request of this run, in .messages order (None when that request's price is unknown). cost_usd also
+	# counts compaction summaries, the judge and web searches, so it can be more than the sum
+	request_costs: list[float | None] = field(default_factory=list)
 
 	def __post_init__(self) -> None:
 		if self.status != 'completed':
