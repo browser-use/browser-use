@@ -204,3 +204,77 @@ def test_0x_ground_truth_is_the_judge_context(tmp_path):
 	assert agent(script()[0], tmp_path, ground_truth='the price is 10').judge_context == 'the price is 10'
 	with pytest.raises(TypeError, match='judge must be True or False'):
 		agent(script()[0], tmp_path, judge='yes')
+
+
+def test_the_judge_gets_the_last_distinct_screenshots_and_the_final_page():
+	from pydantic_ai import BinaryContent
+	from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
+	from browser_use.agent.judge import MAX_SCREENSHOTS, screenshots
+
+	def shot(n):
+		return BinaryContent(bytes([n]) * 8, media_type='image/jpeg')
+
+	def cell(*images):
+		return ModelRequest(parts=[ToolReturnPart('python', ['out', *images], tool_call_id='c')])
+
+	messages = [cell(shot(1)), cell(shot(2), shot(3)), cell(shot(3)), cell(shot(4))]  # 3 twice: an unchanged page
+	assert [s.data[0] for s in screenshots(messages)] == [1, 2, 3, 4]
+	assert [s.data[0] for s in screenshots(messages, shot(5))] == [2, 3, 4, 5][-MAX_SCREENSHOTS:]
+	assert [s.data[0] for s in screenshots(messages, shot(4))] == [1, 2, 3, 4]  # the final page as the last screenshot
+	assert screenshots([]) == []
+
+
+async def test_the_screenshots_go_to_the_judge_as_images_after_the_text(monkeypatch):
+	from types import SimpleNamespace
+
+	from pydantic_ai import BinaryContent
+	from pydantic_ai.models.test import TestModel
+
+	import browser_use.agent.judge as judge
+	from browser_use.agent.judge import judge_run
+
+	sent = []
+
+	class Recorded:
+		def __init__(self, model, **kwargs):
+			pass
+
+		async def run(self, content):
+			sent.append(content)
+			raise RuntimeError('no provider in tests')
+
+	monkeypatch.setattr(judge, 'Agent', Recorded)
+	loop_agent = SimpleNamespace(model=TestModel(), model_settings={})
+	result = AgentHistoryList('completed', 'done', 'done', 1, 1.0, {}, None, None, None, [], True)
+	final = BinaryContent(b'page', media_type='image/jpeg')
+	await judge_run(loop_agent, 't', result, None, {}, final)
+	await judge_run(loop_agent, 't', result, None, {})
+	assert sent[0][1:] == ['Screenshot 1 of 1, oldest first.', final] and '<task>' in sent[0][0]
+	assert isinstance(sent[1], str)  # no screenshots: the text alone
+
+
+async def test_the_final_screenshot_never_fails_the_judge():
+	import base64
+
+	from browser_use.agent.judge import final_screenshot
+
+	class Repl:
+		def __init__(self, answer):
+			self.answer = answer
+
+		async def call(self, op, code, timeout):
+			if isinstance(self.answer, Exception):
+				raise self.answer
+			return self.answer
+
+	image = {'data': base64.b64encode(b'jpeg').decode(), 'media_type': 'image/jpeg'}
+	shot = await final_screenshot(Repl({'error': None, 'images': [image]}))
+	assert shot is not None and shot.data == b'jpeg' and shot.media_type == 'image/jpeg'
+	assert await final_screenshot(Repl({'error': 'BrowserConnectionLost', 'images': []})) is None
+	assert await final_screenshot(Repl(ConnectionError('worker'))) is None
+	assert await final_screenshot(None) is None
+
+
+def test_the_prompt_asks_for_gotchas_on_a_success_too():
+	assert 'on a success as on a failure' in JUDGE_PROMPT and 'write at least one' in JUDGE_PROMPT

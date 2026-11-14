@@ -17,10 +17,18 @@ from urllib.parse import urlparse
 
 from genai_prices import calc_price
 from pydantic import TypeAdapter
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import (
+	BinaryContent,
+	ModelMessage,
+	ModelRequest,
+	ModelResponse,
+	RetryPromptPart,
+	ToolCallPart,
+	ToolReturnPart,
+)
 from pydantic_ai.usage import RequestUsage
 
-from browser_use.agent.judge import judge_run
+from browser_use.agent.judge import final_screenshot, judge_run
 from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run, usage_and_cost
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
 from browser_use.agent.views import AgentHistoryList
@@ -319,6 +327,7 @@ class Agent:
 		self.web_search, self.max_context_chars, self.highlight_actions = web_search, max_context_chars, highlight_actions
 		self.judge, self.judge_context = judge, judge_context or None
 		self._judge_cost: float | None = None  # the last run's judge cost (telemetry)
+		self._final_page: BinaryContent | None = None  # the last run's final page, for the judge
 		self._search: WebSearch | None = None  # set by _build when search() is on
 		# As given, made absolute, symlinks kept: on macOS resolve() turned tempfile's /var/... into /private/var/..., and
 		# result.downloads[0].relative_to(workspace) raised ValueError. Default: made on first use (workspace).
@@ -537,6 +546,9 @@ class Agent:
 				explain_error=self._gateway.explain_error if self._gateway else None,
 			)
 			self._history = session.messages  # raw: result.messages has secrets redacted
+			# the judge sees the page as the run left it, before the browser stops
+			judged = self.judge and self.use_vision and result.steps
+			self._final_page = await final_screenshot(self._repl) if judged else None
 			self._compacted = {'checkpoint': session.checkpoint, 'covered': session.covered, 'usage_after': session.usage_after}
 			result.output_schema = self.output_model_schema
 			if result.status == 'error':
@@ -589,7 +601,8 @@ class Agent:
 		if not (self.judge and result is not None and result.steps and self._agent is not None):
 			return
 		task, context = (redact(t, self.sensitive_data) for t in (self.task, self.judge_context))
-		judgement, messages = await judge_run(self._agent, task, result, context, self.sensitive_data)
+		final, self._final_page = self._final_page, None
+		judgement, messages = await judge_run(self._agent, task, result, context, self.sensitive_data, final)
 		if not messages:
 			return
 		usage, cost = usage_and_cost(messages, self._model_ref)
