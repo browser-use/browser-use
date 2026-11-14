@@ -60,11 +60,12 @@ Reuse `BROWSER_USE_API_KEY`, or guide the user through Cloud signup and key crea
 - Get API key: https://cloud.browser-use.com/new-api-key
 - Set env var: `BROWSER_USE_API_KEY=<key>`
 - Cloud SDK: `uv pip install browser-use-sdk` (Python) or `npm install browser-use-sdk` (TypeScript)
-- Python v2: `from browser_use_sdk import AsyncBrowserUse`
+- Python v2: `from browser_use_sdk.v2 import AsyncBrowserUse`
 - Python v3: `from browser_use_sdk.v3 import AsyncBrowserUse`
 - Python v4: `from browser_use_sdk.v4 import BrowserUse` or `AsyncBrowserUse`
-- TypeScript v2: `import { BrowserUse } from "browser-use-sdk"`
+- TypeScript v2: `import { BrowserUse } from "browser-use-sdk/v2"` (SDK 4.0+; on 3.x the v2 client is the root import)
 - TypeScript v3: `import { BrowserUse } from "browser-use-sdk/v3"`
 - TypeScript v4: `import { BrowserUse } from "browser-use-sdk/v4"`
+- From SDK 4.0, the root import (`browser_use_sdk`, `browser-use-sdk`) is the v4 client; v2 code must import from the `v2` subpath.
 - SDK 3.11.3 or newer exposes `browsers.create` and `browsers.stop` in the v4 namespace, alongside the v4 REST `/browsers` resource. Always stop a browser explicitly; closing CDP does not stop billing.
 - CDP WebSocket: `wss://connect.browser-use.com?apiKey=KEY&proxyCountryCode=us`
