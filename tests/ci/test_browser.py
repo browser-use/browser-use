@@ -551,6 +551,132 @@ async def test_cancelled_start_still_stops_the_cloud_browser(cloud, monkeypatch)
 	assert stops(cloud) == ['/browsers/b1'] and not browser_mod._LIVE
 
 
+@pytest.mark.parametrize('phase', ['queued', 'running'])
+@pytest.mark.parametrize('restart', [False, True])
+async def test_cancelled_daemon_start_never_leaves_a_late_daemon_running(cloud, monkeypatch, phase, restart):
+	"""Cancelling to_thread() does not stop ensure_daemon(): it can finish after stop() has cleared ownership."""
+	import asyncio
+	import threading
+
+	from browser_harness import admin
+
+	entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+	live, started = set(), []
+
+	def slow_daemon(*args, name=None, **kwargs):
+		if phase == 'running' and not entered.is_set():
+			entered.set()
+			assert release.wait(10)
+		started.append(name)
+		live.add(name)
+
+	monkeypatch.setattr(admin, 'ensure_daemon', slow_daemon)
+	monkeypatch.setattr(browser_mod, '_shutdown_daemon', lambda name: live.discard(name))
+	monkeypatch.setattr(browser_mod._local, 'start_watchdog', lambda *a, **k: None)
+	browser = Browser()
+	ensure = browser._ensure_daemon
+	original_name = None
+
+	def tracked_daemon(*args):
+		name = browser.name
+		try:
+			if phase == 'queued' and not entered.is_set():
+				entered.set()
+				assert release.wait(10)
+			ensure(*args)
+		finally:
+			if name == original_name:
+				finished.set()
+
+	monkeypatch.setattr(browser, '_ensure_daemon', tracked_daemon)
+	task = asyncio.create_task(browser.start())
+	try:
+		assert await asyncio.to_thread(entered.wait, 10)
+		original_name = browser.name
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await task
+		assert stops(cloud) == ['/browsers/b1'] and browser not in browser_mod._LIVE
+		new_name = None
+		if restart:
+			new_name = (await browser.start())['BU_NAME']
+			assert new_name != original_name
+		release.set()
+		assert await asyncio.to_thread(finished.wait, 10)
+		assert live == ({new_name} if restart else set()), f'cancelled start left daemon(s) running: {live}'
+		expected = ([original_name] if phase == 'running' else []) + ([new_name] if restart else [])
+		assert sorted(started) == sorted(expected)  # queued work never starts the shared daemon or the next browser's
+	finally:
+		release.set()
+		await browser.stop()
+
+
+async def test_late_daemon_shutdown_does_not_block_a_restarted_browser(cloud, monkeypatch):
+	"""The cancelled start's daemon can take seconds to stop, while the next start has a different daemon name."""
+	import asyncio
+	import threading
+
+	from browser_harness import admin
+
+	entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+	shutting_down, release_shutdown, restarted = threading.Event(), threading.Event(), threading.Event()
+	live = set()
+
+	def slow_daemon(*args, name=None, **kwargs):
+		first = not entered.is_set()
+		if first:
+			entered.set()
+			assert release.wait(10)
+		live.add(name)
+		if not first:
+			restarted.set()
+
+	def slow_shutdown(name):
+		if name == original_name and name in live:
+			shutting_down.set()
+			assert release_shutdown.wait(10)
+		live.discard(name)
+
+	monkeypatch.setattr(admin, 'ensure_daemon', slow_daemon)
+	monkeypatch.setattr(browser_mod, '_shutdown_daemon', slow_shutdown)
+	monkeypatch.setattr(browser_mod._local, 'start_watchdog', lambda *a, **k: None)
+	browser = Browser()
+	ensure = browser._ensure_daemon
+	original_name = None
+
+	def tracked_daemon(name):
+		try:
+			ensure(name)
+		finally:
+			if name == original_name:
+				finished.set()
+
+	monkeypatch.setattr(browser, '_ensure_daemon', tracked_daemon)
+	task = asyncio.create_task(browser.start())
+	restart = None
+	try:
+		assert await asyncio.to_thread(entered.wait, 10)
+		original_name = browser.name
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await task
+		release.set()
+		assert await asyncio.to_thread(shutting_down.wait, 10)
+		restart = asyncio.create_task(browser.start())
+		assert await asyncio.to_thread(restarted.wait, 5), 'the old daemon shutdown blocked the new daemon start'
+		new_name = (await restart)['BU_NAME']
+		assert new_name != original_name and live == {original_name, new_name}
+		release_shutdown.set()
+		assert await asyncio.to_thread(finished.wait, 10)
+		assert live == {new_name}  # finishing the old cleanup must leave the restarted browser's daemon alone
+	finally:
+		release.set()
+		release_shutdown.set()
+		if restart is not None:
+			await restart
+		await browser.stop()
+
+
 async def test_failed_stop_keeps_the_browser_owned_for_retry(cloud, monkeypatch):
 	"""Roast C2: after a failed stop the id and _LIVE entry were dropped, so neither stop() nor atexit could retry."""
 	real, fail = browser_mod._cloud, [True]
