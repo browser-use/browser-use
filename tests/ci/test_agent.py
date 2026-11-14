@@ -345,7 +345,10 @@ def test_the_workspace_keeps_the_path_as_given(tmp_path, monkeypatch):
 	from browser_use import ChatOpenAI
 
 	(tmp_path / 'real').mkdir()
-	(tmp_path / 'link').symlink_to(tmp_path / 'real', target_is_directory=True)
+	try:
+		(tmp_path / 'link').symlink_to(tmp_path / 'real', target_is_directory=True)
+	except OSError:  # Windows without the symlink privilege (a standard account, Developer Mode off): WinError 1314
+		pytest.skip('this Windows cannot create the symlink the test needs')
 	llm = ChatOpenAI('gpt-6-luna', api_key='x')
 	assert Agent('t', llm, workspace=tmp_path / 'link' / 'ws').workspace == tmp_path / 'link' / 'ws'
 	monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path / 'link'))
