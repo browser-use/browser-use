@@ -883,6 +883,29 @@ def test_name_download_never_overwrites_and_keeps_the_file_in_its_dir(tmp_path):
 	assert name_download(tmp_path / 'gone', 'b.txt') is None and not (tmp_path / 'b.txt').exists()
 
 
+def test_download_names_windows_cannot_store_are_made_safe_on_windows(tmp_path, monkeypatch):
+	"""A cloud browser (Linux) downloads 'Report 10:30.csv': on Windows open() wrote the bytes to an NTFS alternate data
+	stream behind an empty 'Report 10', and a name with " | < > * ? raised Errno 22, so the file was lost."""
+	import sys
+
+	from browser_use.utils import file_names
+
+	def first(name):
+		return next(file_names(tmp_path, name)).name
+
+	monkeypatch.setattr(sys, 'platform', 'win32')
+	assert first('Report 2026-11-09 10:30.csv') == 'Report 2026-11-09 10_30.csv'
+	assert first('Q&A: what?.pdf') == 'Q&A_ what_.pdf'
+	assert first('invoice "final" <v2>|*.pdf') == 'invoice _final_ _v2___.pdf'
+	assert first('tab\there.txt') == 'tab_here.txt'
+	assert first('notes. ') == 'notes'  # Windows drops trailing dots and spaces: another name than the one written
+	assert first('NUL.txt') == '_NUL.txt' and first('com1') == '_com1'  # device names, with or without an extension
+	assert first('...') == 'download'
+	assert [p.name for p, _ in zip(file_names(tmp_path, 'a:b.csv'), range(2))] == ['a_b.csv', 'a_b (1).csv']
+	monkeypatch.setattr(sys, 'platform', 'linux')
+	assert first('Report 10:30.csv') == 'Report 10:30.csv'  # a legal name there: unchanged
+
+
 def test_name_download_without_hard_links_never_lets_two_downloads_take_one_name(tmp_path, monkeypatch):
 	"""Review: on a filesystem without hard links the fallback checked dest.exists() and then moved; a second download
 	of the same name landing in between was replaced (Unix rename overwrites)."""
