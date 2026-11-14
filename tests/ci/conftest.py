@@ -35,6 +35,18 @@ import browser_use.telemetry.service as _telemetry_service  # noqa: E402
 _telemetry_service.POSTHOG_HOST = 'http://127.0.0.1:9'  # nothing listens on port 9
 
 
+@pytest.fixture(autouse=True)
+def no_judge(request, monkeypatch):
+	"""Scripted models play a run's own turns: the judge's extra request is tested in test_judge.py, off elsewhere."""
+	if request.module.__name__.rsplit('.', 1)[-1] != 'test_judge':
+		import browser_use.agent.service as service
+
+		async def skip(self, result):
+			pass
+
+		monkeypatch.setattr(service.Agent, '_judge', skip)
+
+
 def find_chrome() -> str | None:
 	candidates = [
 		os.environ.get('CHROME'),

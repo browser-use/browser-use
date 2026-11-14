@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
-SCHEMA_VERSION = 4  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays;
-# 4: urls_visited, error_messages, final_result
+SCHEMA_VERSION = 5  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays;
+# 4: urls_visited, error_messages, final_result; 5: judge, judge_context, judgement
 
 
 @dataclass
@@ -106,6 +106,8 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	web_search: bool = False
 	use_vision: bool = True
 	highlight_actions: bool = True
+	judge: bool = True
+	judge_context: bool = False  # set or not, never its text
 	max_context_chars_set: bool = False
 	captcha_solver: bool | None = None
 	headless: bool | None = None
@@ -205,6 +207,9 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	urls_visited: list[str] = field(default_factory=list)  # scheme://host/path, in order, once; 50 at most, 200 chars each
 	error_messages: list[str] = field(default_factory=list)  # the run's error, then each failed cell's; 20, 300 chars each
 	final_result: str | None = None  # the result text (structured output as JSON), 500 chars
+	# the judge's answer (stats.judged): success, failure_reason, description, prompt_injection_detected,
+	# bot_block_or_captcha_detected, gotchas (each scrubbed, 300 chars), cost_usd; None when not judged
+	judgement: dict[str, Any] | None = None
 	feedback_count: int = 0  # report_issue() calls sent as library_feedback during the run
 
 	name: str = 'agent_event'
