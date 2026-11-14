@@ -450,7 +450,9 @@ class Repl:
 			return
 		if self._reaper is not None:
 			self._reaper.detach()
-		_end_worker(proc.pid, job)  # also when the worker already exited: processes its cells started may still run
+		# On a thread: on Windows the kill is `taskkill` (measured ~0.6 s), and on the loop it froze the model streams and
+		# cells of every other run in this process; a cell timeout's restart waited for it too.
+		await asyncio.to_thread(_end_worker, proc.pid, job)  # also when the worker already exited: its cell processes may run
 		if proc.poll() is None:
 			with contextlib.suppress(OSError):  # already gone
 				proc.kill()

@@ -514,6 +514,49 @@ async def test_close_kills_cell_processes_after_the_worker_died(tmp_path):
 	assert beat.stat().st_size == size  # the heartbeat stopped
 
 
+async def test_close_kills_the_worker_off_the_event_loop(tmp_path, monkeypatch):
+	"""Every Agent.run() ends in Repl.close(). The kill is a blocking call where it counts: on Windows it spawns `taskkill`
+	(measured: ~0.6 s). Run on the event loop it froze the model streams and the cells of every other run in the process,
+	and a cell timeout's worker restart waited for it too."""
+	import contextlib
+
+	from browser_use.repl import session
+
+	real_kill = session._kill_tree
+
+	def slow_kill(pid, job=None):
+		time.sleep(0.3)  # what `taskkill` costs on Windows
+		real_kill(pid, job)
+
+	monkeypatch.setattr(session, '_kill_tree', slow_kill)
+	repl = Repl(tmp_path)
+	await repl.start()  # a real worker: close() kills it
+	worker = repl.proc
+	last, gaps = [time.monotonic()], []
+
+	async def ticker():  # 10 ms apart: a loop that keeps running records short gaps
+		while True:
+			await asyncio.sleep(0.01)
+			now = time.monotonic()
+			gaps.append(now - last[0])
+			last[0] = now
+
+	ticking = asyncio.create_task(ticker())
+	try:
+		await asyncio.sleep(0.05)
+		await repl.close()
+		await asyncio.sleep(0.05)  # the gap the kill left, if it ran on the loop
+	finally:
+		ticking.cancel()
+		with contextlib.suppress(asyncio.CancelledError):
+			await ticking
+		if worker.poll() is None:  # close() did not kill it: no point waiting for a zombie
+			worker.kill()
+		worker.wait()
+	assert worker.poll() is not None  # the worker was killed
+	assert gaps and max(gaps) < 0.15, f'the event loop stood still for {max(gaps):.2f} s inside close()'
+
+
 async def test_restart_after_the_worker_died_kills_its_cell_processes(tmp_path):
 	"""Roast r3-3: when the worker died between calls, the next call started a new one and dropped the old process
 	group/job without killing it; a process the old cell started kept running (and driving the browser)."""
