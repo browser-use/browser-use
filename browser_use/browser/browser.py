@@ -291,15 +291,18 @@ def json_page_copies(log: Path | list[dict]) -> set[str]:
 	pages = {_no_query(str(r['json_page'])) for r in records if r.get('json_page')}
 	taken: set[str] = set()
 	copies: set[str] = set()
+	next_suffix: dict[str, int] = {}
 	for r in records:
 		if not r.get('name'):
 			continue
 		name = str(r['name'])
-		listed, stem, suffix = name, Path(name).stem, Path(name).suffix
-		for i in range(1, 10_000):
-			if listed not in taken:
-				break
-			listed = f'{stem} ({i}){suffix}'
+		listed = name
+		if listed in taken:
+			stem, suffix = Path(name).stem, Path(name).suffix
+			i = next_suffix.get(name, 1)
+			while (listed := f'{stem} ({i}){suffix}') in taken:
+				i += 1
+			next_suffix[name] = i + 1
 		taken.add(listed)
 		url = str(r.get('url') or '')
 		base = re.sub(r'%20\(\d+\)$', '', url.removesuffix('.json'))  # the cloud numbers a repeated copy's URL too

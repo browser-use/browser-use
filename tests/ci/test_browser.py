@@ -1568,3 +1568,13 @@ async def test_a_cdp_url_nothing_answers_on_names_the_cdp_url(url, tmp_path):
 	assert result.status == 'error', result
 	assert 'cdp_url' in (result.error or '') and f'127.0.0.1:{port}' in result.error, result.error
 	assert 'start_remote_daemon' not in result.error and 's3cret' not in result.error, result.error
+
+
+def test_json_page_copy_names_remain_unique_after_ten_thousand_duplicates():
+	"""Every cloud download needs a distinct listed name, including after suffix 9999."""
+	records = [{'json_page': 'https://files.example/report'}] + [
+		{'name': 'report.json', 'url': 'https://files.example/report.json'} for _ in range(10_001)
+	]
+	copies = browser_mod.json_page_copies(records)
+	assert len(copies) == 10_001
+	assert 'report (10000).json' in copies
