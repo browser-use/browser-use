@@ -820,12 +820,18 @@ class Browser:
 		notices and stats stay as they are). None when there is no daemon, the capture fails, or the tab is hidden: a
 		hidden tab's capture can hang (Linux headless, cloud), and activating it would switch the user's visible tab."""
 
-		def cdp(method: str, **params) -> dict:
-			return _daemon_request(
-				self._daemon_name(), {'method': method, 'params': params, 'session_id': None}, timeout=timeout
-			)['result']
-
 		try:
+			name = self._daemon_name()
+			session = _daemon_request(name, {'meta': 'session'}, timeout=timeout)['session_id']
+			if not session:
+				return None
+
+			def cdp(method: str, **params) -> dict:
+				return _daemon_request(name, {'method': method, 'params': params, 'session_id': session}, timeout=timeout)[
+					'result'
+				]
+
+			# Another client of a shared daemon may switch its implicit session between these requests.
 			if (
 				cdp('Runtime.evaluate', expression='document.visibilityState', returnByValue=True)['result'].get('value')
 				== 'hidden'
