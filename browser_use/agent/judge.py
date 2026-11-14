@@ -8,12 +8,12 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent, capture_run_messages
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.openai import OpenAIResponsesModel
 
-from browser_use.agent.loop import StreamedRequest, _plain, as_text, described, reasoning_supported
+from browser_use.agent.loop import StreamedRequest, _plain, as_text, reasoning_supported
 from browser_use.repl import redact
 
 if TYPE_CHECKING:
@@ -37,6 +37,7 @@ JUDGE_PROMPT = (
 MAX_TRACE_CHARS = 120_000  # as the Browser Use Cloud judge; past it the middle of the trace is cut
 MAX_PART_CHARS = 5_000  # one tool result or argument, the error, the final result
 MAX_TASK_CHARS = 20_000  # the task, and the judge_context
+MAX_GOTCHAS = 5
 JUDGE_TIMEOUT_S = 180
 EFFORT_KEYS = ('thinking', 'openai_reasoning_effort')
 DROPPED = ('tool_choice', 'parallel_tool_calls', 'cache', 'openai_context_management', 'request_timeout', 'first_event_timeout')
@@ -55,6 +56,11 @@ class Judgement(BaseModel):
 	gotchas: list[str] = Field(
 		default_factory=list, description='Short, general lessons about the websites for the next agent; may be empty.'
 	)
+
+	@field_validator('gotchas')
+	@classmethod
+	def _first_five(cls, gotchas: list[str]) -> list[str]:  # a sixth is dropped, not a failed judgement
+		return gotchas[:MAX_GOTCHAS]
 
 
 def _cut(value: Any, limit: int = MAX_PART_CHARS) -> Any:
@@ -118,7 +124,9 @@ async def judge_run(
 			async with asyncio.timeout(JUDGE_TIMEOUT_S):
 				run = await judge.run(text)
 		except Exception as e:  # a provider error, an answer that does not fit the schema, the timeout
-			logger.warning(f'The judge failed, result.judgement is None: {redact(described(e), secrets)}')
+			# the class and HTTP status only: a provider's message can quote what it was sent
+			status = getattr(e, 'status_code', None)
+			logger.warning(f'The judge failed ({type(e).__name__}{f" {status}" if status else ""}), result.judgement is None')
 			return None, list(messages)
 	return Judgement.model_validate(redact(run.output.model_dump(), secrets)), run.all_messages()
 

@@ -137,9 +137,25 @@ async def test_the_judges_tokens_and_cost_are_added_to_the_run(monkeypatch, tmp_
 	await a._judge(result)
 	assert result.cost_usd == 1.25
 	assert dict(result.usage) == {'input': 107, 'output': 13, 'cache_read': 0, 'cache_write': 0, 'requests': 2}
-	result.cost_usd, result.judgement = None, None
-	await agent(script(('final_result', VERDICT))[0], tmp_path)._judge(result)  # an unknown cost stays unknown
-	assert result.cost_usd is None
+	for run_cost, judge_cost in ((None, 0.25), (1.0, None)):  # an unknown cost stays unknown
+		model, seen = script(('final_result', VERDICT))
+		b = agent(model, tmp_path)
+		b._build()
+		result.cost_usd, result.judgement = run_cost, None
+		monkeypatch.setattr(service, 'usage_and_cost', lambda messages, ref, c=judge_cost: (judged, c))
+		await b._judge(result)
+		assert (len(seen), result.judgement is not None, result.cost_usd) == (1, True, None)
+
+
+def test_more_than_five_gotchas_keep_the_first_five():
+	assert Judgement.model_validate({**VERDICT, 'gotchas': [str(i) for i in range(8)]}).gotchas == list('01234')
+
+
+def test_0x_judge_class_names_point_to_result_judgement():
+	import browser_use.agent.judge as judge
+
+	with pytest.raises(AttributeError, match=r'result\.judgement'):
+		judge.JudgementResult  # noqa: B018
 
 
 def test_the_prompt_forbids_personal_data_and_secrets():

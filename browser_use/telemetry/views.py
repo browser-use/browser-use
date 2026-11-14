@@ -25,8 +25,9 @@ class BaseTelemetryEvent(ABC):
 class AgentTelemetryEvent(BaseTelemetryEvent):
 	"""One per Agent.run(). Every field is a number, a bool, an enum, a name chosen by browser-use or the developer
 	(model, helper, tool, module, exception class) or a hostname, or a list or map of those; and the URLs visited
-	without query strings, error messages and the final result, scrubbed of secrets and credentials (stats.scrub).
-	Never the task text, typed text, code or secrets."""
+	without query strings, error messages, the final result and the judgement's texts (description, failure_reason,
+	gotchas), scrubbed of secrets and credentials (stats.scrub). Never the task text, judge_context, typed text, code or
+	secrets."""
 
 	# install
 	version: str
@@ -208,7 +209,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	error_messages: list[str] = field(default_factory=list)  # the run's error, then each failed cell's; 20, 300 chars each
 	final_result: str | None = None  # the result text (structured output as JSON), 500 chars
 	# the judge's answer (stats.judged): success, failure_reason, description, prompt_injection_detected,
-	# bot_block_or_captcha_detected, gotchas (each scrubbed, 300 chars), cost_usd; None when not judged
+	# bot_block_or_captcha_detected, gotchas (at most 5; each text scrubbed, 300 chars), cost_usd; None when not judged
 	judgement: dict[str, Any] | None = None
 	feedback_count: int = 0  # report_issue() calls sent as library_feedback during the run
 

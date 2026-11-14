@@ -202,6 +202,7 @@ _NAMES: dict[str, dict[str, str]] = {
 		**dict.fromkeys(('Context', 'log_response'), _LOOP),
 	},
 	'browser_use.agent.views': _AGENT_VIEWS,
+	'browser_use.agent.judge': dict.fromkeys(('JudgementResult', 'SimpleJudgeResult'), 'result.judgement (Judgement).'),
 	'browser_use.browser': {
 		'BrowserSession': 'Browser(...).',
 		**dict.fromkeys(

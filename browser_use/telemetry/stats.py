@@ -31,7 +31,7 @@ MAX_NAME = 64  # characters per name
 MAX_URLS, MAX_URL = 50, 200  # per run, characters per URL
 MAX_ERRORS, MAX_ERROR = 20, 300  # per run, characters per error message
 MAX_RESULT = 500  # characters of the final result
-MAX_GOTCHAS = 10  # the judge's gotchas per run
+MAX_GOTCHAS = 5  # the judge's gotchas per run (as judge.MAX_GOTCHAS)
 CLI_CONTENT = ('task', 'output', 'steps')  # browser-harness cli_event fields that carry the code or its output
 
 
