@@ -629,6 +629,32 @@ def test_page_info_reports_a_dialog_opened_after_its_initial_check(daemon, monke
 	assert opened and not failed and "'dialog'" in out and "'late dialog'" in out, out
 
 
+def test_page_info_reports_a_dialog_after_evaluation_outlasts_the_root_wait(daemon, monkeypatch):
+	"""The CLI/MCP evaluation timeout can outlast the document-root retry budget while an alert blocks JS."""
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+	from browser_use.repl import capture, page_info
+
+	monkeypatch.setattr(admin, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'NAME', daemon['BU_NAME'])
+	monkeypatch.setattr(helpers, 'page_info', helpers.page_info)
+	server = cli_mcp.CLIMCPServer()
+	out, failed = server._execute(
+		"new_tab('about:blank'); "
+		"js(\"Object.defineProperty(document.documentElement, 'scrollWidth', "
+		"{get() { alert('during evaluation'); return 1; }, configurable: true}); 1\")"
+	)
+	assert not failed, out
+	monkeypatch.setattr(capture, 'CDP_TIMEOUT_S', 1.0)
+	monkeypatch.setattr(page_info, 'ROOT_WAIT_S', 0.05)
+	try:
+		out, failed = server._execute('print(page_info())')
+	finally:
+		server._execute('cdp("Page.handleJavaScriptDialog", accept=True)\nclose_tab()')
+	assert not failed and "'dialog'" in out and "'during evaluation'" in out, out
+
+
 @pytest.mark.parametrize('probe_fails', [False, True])
 def test_page_info_preserves_the_original_error_without_a_known_dialog(monkeypatch, probe_fails):
 	from browser_harness import helpers
