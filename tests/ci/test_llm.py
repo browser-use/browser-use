@@ -1129,6 +1129,8 @@ async def test_compatible_backends_get_plain_required_on_the_delivery_turn(chat_
 		)  # fmt: skip
 		result = await run(agent, 'task', session, model.model_name)
 		assert (result.status, result.output) == ('completed', ['ok'])
+		# Structured delivery uses tools rather than a response_format a compatible endpoint may ignore.
+		assert all('response_format' not in body for _, body in requests)
 		repair = requests[1][1]
 		assert repair['tool_choice'] == 'required'
 		assert {t['function']['name'] for t in repair['tools']} == {'finish', 'finish_from_repl'}
