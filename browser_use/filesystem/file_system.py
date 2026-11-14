@@ -11,10 +11,20 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+try:
+    import docx  # pyright: ignore[reportMissingImports]
+except ImportError:
+    docx = None  # type: ignore
 
-import docx  # pyright: ignore[reportMissingImports]
-import pypdf  # pyright: ignore[reportMissingImports]
-import reportlab  # pyright: ignore[reportMissingImports]
+try:
+    import pypdf  # pyright: ignore[reportMissingImports]
+except ImportError:
+    pypdf = None  # type: ignore
+
+try:
+    import reportlab  # pyright: ignore[reportMissingImports]
+except ImportError:
+    reportlab = None  # type: ignore
 from pydantic import BaseModel, Field
 
 UNSUPPORTED_BINARY_EXTENSIONS = {
