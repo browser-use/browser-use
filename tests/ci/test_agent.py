@@ -329,6 +329,9 @@ def test_an_agent_that_never_runs_leaves_no_temp_workspace(monkeypatch, tmp_path
 	llm = ChatOpenAI('gpt-6-luna', api_key='x')
 	for _ in range(3):
 		Agent('t', llm)
+	# Configuring a local or attached browser without starting it must not create downloads either.
+	Browser('chromium')
+	Browser(cdp_url='http://127.0.0.1:9222')
 	assert list(tmp_path.iterdir()) == []
 	agent = Agent('t', llm)
 	assert agent.workspace == agent.workspace and agent.workspace.is_dir() and agent.workspace.parent == tmp_path
