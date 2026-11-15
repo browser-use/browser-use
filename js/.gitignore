@@ -1,0 +1,13 @@
+node_modules/
+dist/
+artifacts/
+.env
+*.tgz
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
+python/browser_use_next/runtime/
+python/build/
+python/*.egg-info/
+**/__pycache__/
+.venv/

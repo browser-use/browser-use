@@ -1,0 +1,64 @@
+import type { DomainOptions as importPolicy } from './policy.js';
+export interface BrowserAction {
+  kind: string;
+  targetId: string;
+  x?: number;
+  y?: number;
+}
+export interface Image {
+  type: 'image';
+  data: string;
+  mimeType: string;
+}
+export interface CellResult {
+  text: string;
+  images: Image[];
+  /** Primary page binding after this cell, retained for worker recovery. */
+  targetId?: string;
+  /** Most recently used protocol target, independent of the primary page binding. */
+  observationTargetId?: string;
+  /** The tab this cell's own code last sent a command to, e.g. a `const page = await tabs.open()`. */
+  activeTargetId?: string;
+  /** JSON delivery channel; never clipped to the observation budget. */
+  valueJson?: string;
+  /** Full output is written to the workspace when the model-facing output is truncated. */
+  outputFile?: string;
+}
+export interface WorkerConfig extends importPolicy {
+  mode?: 'default' | 'ultrafast';
+  webSearch?: { url: string; token: string };
+  sensitiveData?: import('./policy.js').SensitiveData;
+  redact?: string[];
+  endpoint: string;
+  /** Pending browser only: how long a cell waits for it, apart from the cell's own deadline. */
+  browserWaitMs?: number;
+  recording?: boolean;
+  highlightActions?: boolean;
+  approveConnection?: boolean;
+  workspace: string;
+  targetId?: string;
+  focusTab?: boolean;
+  browserSwitching?: boolean;
+  dedicatedBrowser?: boolean;
+  operationTimeoutMs: number;
+  maxOutputChars: number;
+}
+export type WorkerRequest =
+  | { type: 'execute'; code: string; captureJson?: boolean; outputFile?: string; runId?: string }
+  | { type: 'close' };
+export type WorkerResponse =
+  | { type: 'action'; action: BrowserAction }
+  | { type: 'owned'; targetId: string }
+  | { type: 'endpoint'; endpoint: string }
+  | { type: 'partial'; runId?: string; path: string; valueJson: string }
+  | { type: 'ready'; targetId: string }
+  | { type: 'result'; result: CellResult }
+  | { type: 'error'; message: string; result?: CellResult }
+  | { type: 'closed' };
+
+export function positiveInteger(name: string, value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) {
+    throw new Error(`${name} must be a positive integer below 2147483648.`);
+  }
+  return value;
+}
