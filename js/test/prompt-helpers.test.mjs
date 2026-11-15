@@ -22,6 +22,17 @@ test('the prompt carries Python 1.0.5 select and download guidance', () => {
   assert.equal(launchesBrowser({ kind: 'chrome' }), false);
 });
 
+test('the prompt says every call is a full model turn (Python 1.0.5 prompt.py)', () => {
+  assert.match(
+    SYSTEM_PROMPT,
+    /Every call is a full model turn: do not spend one on a lone page\.evaluate\(\)/,
+  );
+  assert.match(
+    SYSTEM_PROMPT,
+    /read what you need in the same cell as the action or extraction that uses it\./,
+  );
+});
+
 /** A CDP connection over a fake socket: records commands, lets the test emit events. */
 function fakeConnection() {
   const socket = new EventTarget();
