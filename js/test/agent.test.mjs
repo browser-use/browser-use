@@ -102,19 +102,31 @@ test('invalid structured output is rejected, then the model can repair it', asyn
   }
 });
 test('a completed result blocks later browser mutations in the same model batch', async () => {
-  const s = await session([
+  const split = () =>
     fauxAssistantMessage(
       [
         fauxToolCall('finish', { result: 'done' }),
-        fauxToolCall('javascript', { code: "throw new Error('must not run')" }),
+        fauxToolCall('javascript', { code: "globalThis.ran = (globalThis.ran ?? 0) + 1; 'ran'" }),
       ],
       { stopReason: 'toolUse' },
-    ),
+    );
+  // Python check_split_delivery: the first such delivery is refused once and the later call runs; the second is
+  // taken, and the call after it is blocked.
+  const s = await session([
+    split(),
+    (context) => {
+      assert.match(
+        context.messages.find((m) => m.role === 'toolResult').content[0].text,
+        /^Not delivered: javascript came in the same response/,
+      );
+      return split();
+    },
   ]);
   try {
     const result = await s.agent.run('Finish');
     assert.equal(result.status, 'completed');
     assert.equal(result.output, 'done');
+    assert.equal((await s.agent.execute('globalThis.ran')).text, '1');
   } finally {
     await s.close();
   }
@@ -323,17 +335,20 @@ test('runtime delivery rejects invalid and lossy values, then repairs without lo
 test('runtime completion blocks later actions in the same model batch', async () => {
   const s = await session([
     call('javascript', { code: 'let mutations = 0; const answerText = "verified"' }),
-    fauxAssistantMessage(
-      [
-        fauxToolCall('finish_from_js', { expression: 'answerText' }),
-        fauxToolCall('javascript', { code: 'mutations++' }),
-      ],
-      { stopReason: 'toolUse' },
+    // The first split delivery is refused once (Python check_split_delivery) and its later call runs.
+    ...[1, 2].map(() =>
+      fauxAssistantMessage(
+        [
+          fauxToolCall('finish_from_js', { expression: 'answerText' }),
+          fauxToolCall('javascript', { code: 'mutations++' }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
     ),
   ]);
   try {
     assert.equal((await s.agent.run('Deliver')).output, 'verified');
-    assert.equal((await s.agent.execute('mutations')).text, '0');
+    assert.equal((await s.agent.execute('mutations')).text, '1');
   } finally {
     await s.close();
   }

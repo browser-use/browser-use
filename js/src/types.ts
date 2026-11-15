@@ -134,6 +134,8 @@ export interface RunMetrics {
   finishRepairs: number;
   compactions?: number;
   providerRetries?: number;
+  /** The agent's own verdict from finish/finish_from_js({success}), when it gave one. Not verification. */
+  success?: boolean;
   steps: number;
   durationMs: number;
   usage: Usage;

@@ -32,6 +32,8 @@ import { AX_PROMPT } from './ax.js';
 import { positiveInteger } from './protocol.js';
 import { bounded, type RunControl } from './control.js';
 import { setTimeout as delay } from 'node:timers/promises';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 export const zeroUsage = (): Usage => ({
   input: 0,
@@ -59,7 +61,24 @@ const TRANSIENT_MODEL_ERRORS = [
 ];
 /** Python DELIVER_NOW, with this SDK's tool names. */
 const DELIVER_NOW =
-  'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_js. Reference saved files; explicitly list missing evidence. Do not perform more browser actions.';
+  'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_js. Reference saved files; explicitly list missing evidence. Do not perform more browser actions. If the task is not fully finished as requested, set success=false; else success=true.';
+/** Python agent/loop.py LINK and FILE: markdown link targets and `file.ext` names an answer points to. */
+const LINK = /\]\(<?([^)\s>]+)>?\)/g;
+const FILE = /`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`/g;
+const ALNUM = /[\p{L}\p{N}]/u;
+/** JSON with no value: empty arrays, objects and strings, null. A number or a boolean is a value. */
+function holdsNothing(value: unknown): boolean {
+  if (Array.isArray(value)) return value.every(holdsNothing);
+  if (value !== null && typeof value === 'object') return Object.values(value).every(holdsNothing);
+  return value === null || value === undefined || (typeof value === 'string' && !ALNUM.test(value));
+}
+/** Python's finish(success=...) verdict: the 0.x done(success) rule. */
+const VERDICT = Type.Optional(
+  Type.Boolean({
+    description:
+      'true only when the result delivers what the task asked for, every value observed in this session; false when blocked, refused, partial, or a requested value was not found (never fill it from memory)',
+  }),
+);
 const MODEL_TIMEOUT = /^Model stream exceeded (\d+) ms/;
 /** Python TRANSIENT_FAILED_CODES: a Responses failure inside an HTTP 200 with one of these codes is transient. */
 const TRANSIENT_FAILED_CODES =
@@ -238,12 +257,72 @@ export async function runAgent(
     );
   };
   const stringSchema = (schema as { type?: unknown }).type === 'string';
-  const acceptResult = async (output: unknown, signal?: AbortSignal) => {
+  let checkedDelivery = false;
+  let verdict: boolean | undefined;
+  /** Python check_delivery: one repair for a placeholder or links to files that do not exist. Not on the run's
+   * last request, where nothing can follow it: there the result is delivered and the problem noted. */
+  const deliveryProblem = (output: unknown, text: string, strict = false): string | undefined => {
+    if (checkedDelivery) return undefined;
+    let problem: string | undefined;
+    if (!ALNUM.test(text) || (typeof output !== 'string' && holdsNothing(output)))
+      problem = `The result ${JSON.stringify(text.slice(0, 20))} is a placeholder, not the answer.`;
+    else {
+      const targets = [...text.matchAll(LINK), ...text.matchAll(FILE)].map((m) => m[1]!);
+      const missing = [...new Set(targets)]
+        .filter(
+          (target) =>
+            !/^([a-z][\w+.-]*:|#|\/\/)/i.test(target) &&
+            // Downloads land in workspace/downloads; an answer names them by file name.
+            ![workspace, resolve(workspace, 'downloads')].some((directory) =>
+              existsSync(resolve(directory, target.split('#')[0]!)),
+            ),
+        )
+        .sort();
+      if (missing.length)
+        problem = `These linked files do not exist in the workspace: ${missing.slice(0, 10).join(', ')}.`;
+    }
+    if (!problem) return undefined;
+    if (!strict && (steps >= maxSteps || finishRepairs >= 2)) {
+      if (warnings.length < 32) warnings.push(`Delivered as it is on the last request: ${problem}`);
+      return undefined;
+    }
+    checkedDelivery = true;
+    return `${problem} Deliver the actual result: finish_from_js with the existing records, or finish with the full answer inline. Do not repeat browser actions.`;
+  };
+  let splitResponse: string | undefined;
+  /** Python check_split_delivery: a delivery that shares its response with another delivery call, or with any call
+   * after it, is not the final answer (Sonnet sent a stub finish and then the real one). Refused in one response per
+   * run, never on a delivery turn. */
+  const splitDelivery = (message: AgentMessage, id: string, name: string): string | undefined => {
+    if (delivering() || message.role !== 'assistant') return undefined;
+    const calls = message.content.filter((c) => c.type === 'toolCall');
+    const key = calls.map((c) => c.id).join(' ');
+    if (splitResponse !== undefined && splitResponse !== key) return undefined;
+    const at = calls.findIndex((c) => c.id === id);
+    if (at < 0) return undefined;
+    const others = calls
+      .filter((c, i) => i > at || (i < at && deliveryTools.includes(c.name)))
+      .map((c) => c.name);
+    if (!others.length) return undefined;
+    splitResponse = key;
+    return `Not delivered: ${others.join(', ')} came in the same response as this ${name}, so it was not the final answer. Deliver once, in a response with no tool call after the delivery: finish_from_js with the existing records, or finish with the full answer.`;
+  };
+  /** strict: a text reply that a spent budget would otherwise drop is taken only when it has no delivery problem. */
+  const acceptResult = async (
+    output: unknown,
+    signal?: AbortSignal,
+    success?: boolean,
+    strict = false,
+  ) => {
     if (!Check(schema, output))
       throw rejectedDelivery(
         `Final result does not match schema: ${JSON.stringify(Errors(schema, output).slice(0, 5)).slice(0, 2000)}`,
         output,
       );
+    const serialized = typeof output === 'string' ? output : JSON.stringify(output);
+    const problem =
+      serialized === undefined ? undefined : deliveryProblem(output, serialized, strict);
+    if (problem) throw new Error(problem);
     if (config.validateResult) {
       const feedback = await bounded(
         () => config.validateResult!(output, signal),
@@ -253,16 +332,17 @@ export async function runAgent(
       if (feedback) throw rejectedDelivery(`Result rejected: ${feedback}`, output);
     }
     signal?.throwIfAborted();
-    const text = typeof output === 'string' ? output : JSON.stringify(output);
+    const text = serialized;
     if (text === undefined) throw new Error('The final result must be JSON serializable.');
     completion = { output, text };
+    verdict = success;
     return {
       content: [{ type: 'text' as const, text: 'Result accepted.' }],
       details: {},
       terminate: true,
     };
   };
-  const resultParameters = Type.Object({ result: schema });
+  const resultParameters = Type.Object({ result: schema, success: VERDICT });
   const finish: AgentTool<typeof resultParameters> = {
     name: 'finish',
     label: 'Deliver result',
@@ -288,10 +368,13 @@ export async function runAgent(
       }
     },
     executionMode: 'sequential',
-    execute: async (_id, params: { result: unknown }, signal) =>
-      acceptResult(params.result, signal),
+    execute: async (_id, params: { result: unknown; success?: boolean }, signal) =>
+      acceptResult(params.result, signal, params.success),
   };
-  const expressionParameters = Type.Object({ expression: Type.String({ minLength: 1 }) });
+  const expressionParameters = Type.Object({
+    expression: Type.String({ minLength: 1 }),
+    success: VERDICT,
+  });
   const finishFromJs: AgentTool<typeof expressionParameters> = {
     name: 'finish_from_js',
     label: 'Deliver JavaScript value',
@@ -300,7 +383,7 @@ export async function runAgent(
     parameters: expressionParameters,
     executionMode: 'sequential',
     replay: 'never',
-    execute: async (_id, params: { expression: string }, signal) => {
+    execute: async (_id, params: { expression: string; success?: boolean }, signal) => {
       let output;
       try {
         output = await runtime.readResult(
@@ -312,7 +395,7 @@ export async function runAgent(
         signal?.throwIfAborted();
         throw rejectedDelivery(error instanceof Error ? error.message : String(error), params);
       }
-      return acceptResult(output, signal);
+      return acceptResult(output, signal, params.success);
     },
   };
   // OpenAI restricts delivery turns with allowed_tools, so the tool list (part of the cached prompt prefix) stays.
@@ -551,6 +634,10 @@ export async function runAgent(
         return { block: true, reason: 'The run has ended.', terminate: true };
       if (delivering() && !deliveryTools.includes(call.toolCall.name))
         return { block: true, reason: 'Only finish or finish_from_js can run now.' };
+      const split = deliveryTools.includes(call.toolCall.name)
+        ? splitDelivery(call.assistantMessage, call.toolCall.id, call.toolCall.name)
+        : undefined;
+      if (split) return { block: true, reason: split };
       return config.beforeToolCall
         ? bounded(() => config.beforeToolCall!(call, signal), hookTimeout, signal)
         : undefined;
@@ -712,7 +799,7 @@ export async function runAgent(
       let problem = '';
       if (reply !== undefined && stringSchema && !TOOL_CALL_MARKUP.test(reply)) {
         try {
-          await acceptResult(reply, options.signal);
+          await acceptResult(reply, options.signal, undefined, stopped !== undefined);
           stopped = undefined;
         } catch (cause) {
           if (options.signal?.aborted) throw cause;
@@ -750,7 +837,7 @@ export async function runAgent(
                 value = undefined;
               }
             if (value !== undefined)
-              await acceptResult(value, options.signal).then(
+              await acceptResult(value, options.signal, undefined, stopped !== undefined).then(
                 () => (stopped = undefined),
                 () => {},
               );
@@ -803,6 +890,7 @@ export async function runAgent(
       ...(beforeCompaction ? { beforeCompaction } : {}),
     },
     providerRetries,
+    ...(completion && verdict !== undefined ? { success: verdict } : {}),
     ...(warnings.length ? { warnings } : {}),
     workspace,
     model: config.model,
