@@ -131,6 +131,20 @@ print(result.final_result())
 
 Defaults: model `bu-fast` on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). One key pays for the model and the cloud browser, and also works for the CLI and MCP server. A `.env` file works too.
 
+Without a key, an interactive desktop run opens Browser Use login and continues after approval.
+Login creates and saves the key automatically; no copying is needed.
+Set `BROWSER_USE_AUTO_LOGIN=false` to disable automatic login.
+Servers, CI, and piped input keep the missing-key error and the `browser-use login` instructions.
+
+Cloud browsers print their interactive live-view link to stderr by default.
+Use `Browser(live_view=True)` to open it automatically, or `Browser(live_view=False)` to hide it.
+Anyone with the link can control the browser.
+
+With telemetry enabled, anonymous `library_auth` events record missing keys, login outcomes, available keys, and browser starts.
+These events use the existing installation ID and contain no API keys, login URLs, or account identifiers.
+Key availability does not prove that the server accepts the key.
+Cloud browser startup confirms that authentication worked.
+
 **Local browser, your model:**
 
 ```python
