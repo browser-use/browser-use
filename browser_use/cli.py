@@ -145,22 +145,44 @@ def _run_mcp_stdio_server(module_name: str, **kwargs: Any) -> None:
 	asyncio.run(main(**kwargs))
 
 
+_0X_MCP_ENV = (
+	'BROWSER_USE_ALLOWED_DOMAINS',
+	'BROWSER_USE_PROXY_URL',
+	'BROWSER_USE_NO_PROXY',
+	'BROWSER_USE_PROXY_USERNAME',
+	'BROWSER_USE_PROXY_PASSWORD',
+)
+
+
+def _0x_config_path() -> Path:
+	"""Where 0.x kept config.json (0.x config.py): BROWSER_USE_CONFIG_PATH, BROWSER_USE_CONFIG_DIR, else the XDG dir."""
+	import os
+
+	if os.environ.get('BROWSER_USE_CONFIG_PATH'):
+		return Path(os.environ['BROWSER_USE_CONFIG_PATH']).expanduser()
+	if os.environ.get('BROWSER_USE_CONFIG_DIR'):
+		return Path(os.environ['BROWSER_USE_CONFIG_DIR']).expanduser() / 'config.json'
+	return Path(os.environ.get('XDG_CONFIG_HOME') or '~/.config').expanduser() / 'browseruse' / 'config.json'
+
+
+def _0x_mcp_setup() -> bool:
+	"""A 0.x install (its config.json, written on first run, or its domain / proxy variables): --mcp then stays the 0.x
+	server's own Chromium with its limits. Elsewhere --mcp is --cli-mcp."""
+	import os
+
+	return any(os.environ.get(k) for k in _0X_MCP_ENV) or _0x_config_path().is_file()
+
+
 def _mcp_browser_options() -> dict[str, Any]:
 	"""The 0.x --mcp server's browser restrictions (0.x config.py, mcp/server.py): allowed_domains and prohibited_domains
 	of config.json's default browser_profile, BROWSER_USE_ALLOWED_DOMAINS over them. Ignoring them gave an MCP client
 	restricted to one site a browser that goes anywhere. A proxy, which 1.0 cannot run locally, raises."""
 	import json
 	import os
-	from pathlib import Path
 
 	from browser_use.exceptions import removed
 
-	if os.environ.get('BROWSER_USE_CONFIG_PATH'):
-		path = Path(os.environ['BROWSER_USE_CONFIG_PATH']).expanduser()
-	elif os.environ.get('BROWSER_USE_CONFIG_DIR'):
-		path = Path(os.environ['BROWSER_USE_CONFIG_DIR']).expanduser() / 'config.json'
-	else:
-		path = Path(os.environ.get('XDG_CONFIG_HOME') or '~/.config').expanduser() / 'browseruse' / 'config.json'
+	path = _0x_config_path()
 	try:
 		profiles = list((json.loads(path.read_text(encoding='utf-8')).get('browser_profile') or {}).values())
 	except (OSError, ValueError, AttributeError):  # no config, or one 0.x itself replaced with a fresh default
@@ -187,8 +209,12 @@ def _run_mcp_server(command: str = 'browser-use --mcp') -> int:
 	# 0.x server's own Chromium and its domain restrictions: an old config must not start driving the user's logged-in
 	# Chrome, or go to sites it was kept off.
 	print(
-		f'{command} is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
-		'browser_login, browser_feedback) on its own Chromium; browser-use --cli-mcp drives your own Chrome instead.',
+		f'{command} found a 0.x browser-use setup (config.json or BROWSER_USE_* variables), so it serves the MCP tools '
+		"(browser_exec, browser_screenshot, browser_login, browser_feedback) on its own Chromium with that config's "
+		'domain limits; browser-use --cli-mcp drives your own Chrome instead.'
+		if command == 'browser-use --mcp'
+		else f'{command} is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
+		'browser_login, browser_feedback) on its own Chromium; browser-use --mcp drives your own Chrome instead.',
 		file=sys.stderr,
 	)
 	from browser_use.domains import DomainRules
@@ -822,10 +848,21 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	if subcommand:  # `video --help`, `video init`'s "next: ... run browser-harness video review"
 		sys.stdout = _HarnessStderr(stdout, subcommand)
 	try:
-		run.main()
+		_harness_main(run)
 	finally:
 		sys.stdout, sys.stderr = stdout, stderr
 	return None
+
+
+def _harness_main(run: Any) -> None:
+	"""browser-harness's CLI under this name: run.main(prog='browser-use') where it has the name hook (0.1.14) for its
+	help, usage and hints. _HarnessStderr's rebrand stays for 0.1.13 and the lines the hook leaves (Allow prompt)."""
+	import inspect
+
+	if 'prog' in inspect.signature(run.main).parameters:
+		run.main(prog='browser-use')
+	else:
+		run.main()
 
 
 _AGENT_HINT = (
@@ -1001,7 +1038,8 @@ Commands:
                                       print or install the agent skill
   browser-use feedback "what happened" [--category bug|docs|missing|other]
                                       tell the Browser Use team what went wrong with browser-use
-  browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback)
+  browser-use --mcp                   run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback);
+                                      --cli-mcp is the same
   browser-use --version               print the versions
 Update: uv tool install browser-use@latest (or pip install -U browser-use). A call that cannot reach a browser asks
 PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=1 turns that off.
@@ -1093,6 +1131,9 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
 	if '--mcp' in args:
+		if not _0x_mcp_setup():  # the canonical name of the --cli-mcp server (browser_exec on the user's Chrome)
+			_run_cli_mcp_server()
+			return 0, 'mcp'
 		return _run_mcp_server(), 'mcp'
 	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
 		return _run_doctor(), 'doctor'
