@@ -333,8 +333,9 @@ browser even after its daemon was killed (again on a stopped one: a no-op), and 
 ## Action hooks
 
 `Agent(task, before_action=policy, after_action=record)`. An action is one tool call: a Python cell (`action.tool ==
-'python'`, the code in `action.code`) or one of your `Tools` actions. `finish` is not an action. Both hooks may be plain
-functions or coroutines.
+'python'`, the code in `action.code`), `finish_from_repl` (it evaluates a Python expression in the REPL, so it can call
+any helper; `args == {'expression': ...}`, also in `action.code`; a refusal makes the model deliver another way) or one
+of your `Tools` actions. `finish` is not an action. Both hooks may be plain functions or coroutines.
 
 ```python
 from browser_use import Action, ActionOutcome, Agent
@@ -356,8 +357,9 @@ Agent('...', before_action=policy, after_action=record)
   model reads `Not run: <reason>. Do not try to get around it.` A hook that raises, or returns anything else, refuses
   the action (fail closed). It can block to ask a human: the run waits (the run's `timeout` keeps counting).
 - `ActionOutcome`: `action`, `refused` (the reason, or `None`), `output` (what the model reads back), `error` (the
-  cell's error), `urls` (the cell's navigations in order, full URLs without the `#fragment`, at most 50), `duration_s`.
-  `after_action` also sees refused actions. An exception it raises is logged and ignored.
+  cell's error, or a `Tools` action's error or `ModelRetry`), `urls` (the cell's navigations in order, full URLs
+  without the `#fragment`, at most 50), `duration_s`. `after_action` also sees refused actions. An exception it raises
+  is logged and ignored.
 - Secret values (`sensitive_data`) are replaced with `<secret:name>` in `args`, `task`, `output` and `urls`.
 - Not a sandbox, like [domain restrictions](#domain-restrictions): the hook sees the code before it runs, so it
   decides on what the code says. Code can do things its text does not show (`exec` of a string it builds, a click whose

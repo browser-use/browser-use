@@ -115,6 +115,46 @@ async def test_custom_tools_go_through_the_hooks_and_finish_does_not(chrome, tmp
 	assert seen[1].output == 'sent to me@corp.example'
 
 
+async def test_finish_from_repl_runs_python_so_before_action_can_refuse_it(chrome, tmp_path):
+	"""Its expression runs in the REPL and can call any helper; it skipped the hooks, so a policy never saw it."""
+	marker = tmp_path / 'ran.txt'
+	expression = f"open({str(marker)!r}, 'w').write('x') and 'exfiltrated'"
+	model, seen = script(
+		('finish_from_repl', {'expression': expression, 'success': True}),
+		('finish_from_repl', {'expression': "'done'", 'success': True}),
+	)
+	outcomes: list[ActionOutcome] = []
+	agent = Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path,
+				  before_action=lambda a: 'no file writes' if 'open(' in (a.code or '') else None,
+				  after_action=outcomes.append)  # fmt: skip
+	result = await agent.run()
+	assert not marker.exists()
+	assert result.final_result() == 'done'
+	assert [(o.action.tool, o.action.code, o.refused) for o in outcomes] == [
+		('finish_from_repl', expression, 'no file writes'),
+		('finish_from_repl', "'done'", None),
+	]
+	assert outcomes[1].output == 'done' and 'Not run: no file writes.' in str(seen[-1])
+
+
+async def test_a_custom_tool_that_asks_for_a_retry_still_reaches_after_action(chrome, tmp_path):
+	"""It ran (and may have acted) before raising ModelRetry; after_action never saw it."""
+	from pydantic_ai import ModelRetry
+
+	tools = Tools()
+
+	@tools.action('Charge a card')
+	def charge(amount: int) -> str:
+		raise ModelRetry(f'gateway busy after charging {amount}')
+
+	model, _ = script(('charge', {'amount': 5}), ('finish', {'success': True, 'result': 'done'}))
+	outcomes: list[ActionOutcome] = []
+	await Agent('t', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path, tools=tools,
+				after_action=outcomes.append).run()  # fmt: skip
+	assert [(o.action.tool, o.refused) for o in outcomes] == [('charge', None)]
+	assert 'gateway busy after charging 5' in (outcomes[0].error or '')
+
+
 def test_hooks_must_be_callables():
 	with pytest.raises(TypeError, match='before_action must be a function'):
 		Agent('t', 'test', before_action='deny')  # type: ignore[arg-type]

@@ -1,7 +1,8 @@
 """Agent(before_action=..., after_action=...): see every action before it runs, refuse it, and see what it did.
 
-An action is one tool call: a Python cell (`tool == 'python'`, the code in `action.code`) or one of your own `Tools`
-actions. before_action decides; after_action observes. Both may be plain functions or coroutines.
+An action is one tool call: a Python cell (`tool == 'python'`, the code in `action.code`), finish_from_repl (it evaluates
+a Python expression in the REPL, also in `action.code`) or one of your own `Tools` actions. finish is not one.
+before_action decides; after_action observes. Both may be plain functions or coroutines.
 
 before_action returns:
   None or True          run it
@@ -29,15 +30,18 @@ class Action:
 	"""One tool call the model asked for, before it runs."""
 
 	step: int  # the model request that asked for it (1-based, as result.steps counts)
-	tool: str  # 'python' for a cell, else the name of your Tools action
-	args: dict[str, Any]  # {'code': ...} for a cell, else the action's arguments; secret values redacted
+	tool: str  # 'python' for a cell, 'finish_from_repl', else the name of your Tools action
+	# {'code': ...} for a cell, {'expression': ...} for finish_from_repl, else the action's arguments; secrets redacted
+	args: dict[str, Any]
 	task: str  # the task this run works on (a follow-up's own task), secret values redacted
 	host: str | None  # the hostname the agent's last cell was on; None before the first navigation
 
 	@property
 	def code(self) -> str | None:
-		"""The cell's Python; None for a Tools action."""
-		return self.args.get('code') if self.tool == 'python' else None
+		"""The Python this action runs: a cell's code, or the expression finish_from_repl evaluates; None for a Tools
+		action."""
+		key = {'python': 'code', 'finish_from_repl': 'expression'}.get(self.tool)
+		return self.args.get(key) if key else None
 
 
 @dataclass(frozen=True)
@@ -47,7 +51,7 @@ class ActionOutcome:
 	action: Action
 	refused: str | None  # the reason when before_action refused it; then nothing ran
 	output: str  # what the model reads back (cell output, or the action's result as text); secret values redacted
-	error: str | None  # the cell's error, None when it ran clean
+	error: str | None  # the cell's or the tool's error (a Tools action's ModelRetry too), None when it ran clean
 	urls: list[str] = field(default_factory=list)  # the cell's navigations in order, full URLs (no #fragment), at most 50
 	duration_s: float = 0.0
 

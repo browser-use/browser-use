@@ -336,7 +336,20 @@ def _outputs(output_type: Any) -> list[Any]:
 
 	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool | None = None):
 		check_split_delivery(ctx)
-		r = await ctx.deps.repl.call('eval', expression, ctx.deps.cell_timeout_s)
+		s = ctx.deps
+		# The expression runs in the REPL as a cell does and can call any helper: it is an action for the hooks too
+		action = Action(ctx.run_step, 'finish_from_repl', redact({'expression': expression}, s.repl.secrets), s.task, s.host)
+		if s.before_action and (why := await decide(s.before_action, action)) is not None:
+			s.rec.retry('refused')
+			if s.after_action:
+				await observe(s.after_action, ActionOutcome(action, why, refusal(why), None))
+			raise ModelRetry(refusal(why))
+		started = time.monotonic()
+		r = await s.repl.call('eval', expression, s.cell_timeout_s)
+		if s.after_action:  # Repl.call redacted value and error
+			urls = redact(list((r.get('stats') or {}).get('pages') or []), s.repl.secrets)
+			outcome = ActionOutcome(action, None, r.get('value') or '', r['error'] or None, urls, time.monotonic() - started)
+			await observe(s.after_action, outcome)
 		if r['error']:
 			ctx.deps.rec.retry('finish_expr_error')
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
@@ -508,8 +521,8 @@ class BrowserLoop(AbstractCapability[Session]):
 		return ActionResult(error=f'{type(error).__name__}: {error}')
 
 	async def wrap_tool_execute(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
-		"""before_action may refuse the call; after_action sees what it did (hooks.py). Output tools (finish) are not
-		actions: they deliver the result and touch no browser."""
+		"""before_action may refuse the call; after_action sees what it did (hooks.py). Output tools are not actions here:
+		finish touches no browser, and finish_from_repl calls the hooks itself (its expression runs in the REPL)."""
 		if ctx.deps.finalizing and tool_def.kind == 'function':
 			# The delivery-only turn withholds python where it cannot force finish (Claude), yet Claude still called it
 			# (2/2 runs, one ended empty): refuse it instead of running more browser actions.
@@ -526,7 +539,13 @@ class BrowserLoop(AbstractCapability[Session]):
 				await observe(s.after_action, ActionOutcome(action, why, refusal(why), None))
 			return refusal(why)
 		started, s.last_cell = time.monotonic(), None
-		result = await self._execute(ctx, call, tool_def, args, handler)
+		try:
+			result = await self._execute(ctx, call, tool_def, args, handler)
+		except Exception as e:  # a custom tool's ModelRetry: it ran, so after_action still sees it
+			if s.after_action:
+				error = redact(f'{type(e).__name__}: {e}', s.repl.secrets)
+				await observe(s.after_action, ActionOutcome(action, None, '', error, [], time.monotonic() - started))
+			raise
 		if s.after_action:
 			cell = s.last_cell if call.tool_name == 'python' else None
 			if cell is not None:
