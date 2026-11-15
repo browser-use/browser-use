@@ -65,7 +65,9 @@ class AuditRun:
 		if not callable(sink):  # opened here, before any browser: an unwritable path fails the run up front
 			path = Path(sink).expanduser()
 			path.parent.mkdir(parents=True, exist_ok=True)
-			self.fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)  # audit lines name hosts and code
+			# O_BINARY (Windows): text mode would write \r\n, and verify() hashes each line's exact bytes
+			flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, 'O_BINARY', 0)
+			self.fd = os.open(path, flags, 0o600)  # audit lines name hosts and code
 
 	async def write(self, kind: str, **fields: Any) -> None:
 		from browser_use.repl.session import redact_forms
@@ -73,15 +75,19 @@ class AuditRun:
 		async with self.lock:
 			ts = datetime.now(UTC).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 			event = {'seq': self.seq, 'prev': self.prev, 'run_id': self.run_id, 'ts': ts, 'type': kind}
-			event |= redact_forms(fields, self.forms)  # the hooks' values are redacted already; errors and metadata may not be
+			# plain JSON first, then redacted: a tuple or an object's str() holding a secret is text redact_forms() sees.
+			# The hooks' values are redacted already; errors and metadata may not be.
+			event |= redact_forms(json.loads(json.dumps(fields, default=str)), self.forms)
 			# ASCII-only JSON: the bytes a verifier hashes are the same on every platform and encoding
-			line = json.dumps(event, ensure_ascii=True, separators=(',', ':'), default=str).encode()
+			line = json.dumps(event, ensure_ascii=True, separators=(',', ':')).encode()
 			if self.fn is not None:
 				result = self.fn(json.loads(line))  # plain JSON: json.dumps(event, separators=(',', ':')) is the line again
 				if inspect.isawaitable(result):
 					await result
 			elif self.fd is not None:
-				os.write(self.fd, line + b'\n')  # one write per line on an O_APPEND file: concurrent writers never split one
+				data = line + b'\n'  # one write per line on an O_APPEND file: concurrent writers never split one
+				if os.write(self.fd, data) != len(data):  # a full disk: the line is cut, so the action is not run
+					raise OSError(f'short write to the audit log ({len(data)} bytes)')
 			else:
 				raise OSError('the audit log is closed')
 			self.seq, self.prev = self.seq + 1, _sha(line)

@@ -27,7 +27,7 @@ async def test_audit_log_records_each_event_without_secrets_or_page_text_and_ver
 		('python', {'code': f"goto_url('http://127.0.0.1:{port}/a'); wait_for_load(); print(js('document.body.innerText'))"}),
 		('python', {'code': f"print('typing {SECRET}'); raise ValueError('bad {SECRET}')"}),
 		('python', {'code': "print('wire money')"}),
-		('finish', {'success': True, 'result': 'done'}),
+		('finish_from_repl', {'expression': "'done'", 'success': True}),  # it runs Python in the REPL: an action too
 	)
 	mine: list[ActionOutcome] = []
 	try:
@@ -41,16 +41,17 @@ async def test_audit_log_records_each_event_without_secrets_or_page_text_and_ver
 		server.shutdown()
 	assert result.final_result() == 'done'
 	assert str(tool_returns(seen[-1])[2]).startswith('Not run: needs a human.')  # the user's hook still decides
-	assert len(mine) == 3  # and the user's after_action still sees every action
+	assert len(mine) == 4  # and the user's after_action still sees every action
 
 	raw = log.read_bytes()
 	assert verify(log) == []
 	for leak in (SECRET, base64.b64encode(SECRET.encode()).decode(), 'PAGE-TEXT-7731', 'jane@patient.example'):
 		assert leak not in raw.decode(), leak
 	events = read(log)
-	assert [e['type'] for e in events] == ['run_start', 'action', 'outcome', 'action', 'outcome', 'action', 'run_end']
-	assert [e['seq'] for e in events] == list(range(7)) and len({e['run_id'] for e in events}) == 1
-	start, nav, nav_out, bad, bad_out, refused, end = events
+	types = ['run_start', 'action', 'outcome', 'action', 'outcome', 'action', 'action', 'outcome', 'run_end']
+	assert [e['type'] for e in events] == types
+	assert [e['seq'] for e in events] == list(range(9)) and len({e['run_id'] for e in events}) == 1
+	start, nav, nav_out, bad, bad_out, refused, deliver, deliver_out, end = events
 	assert start['prev'] == hashlib.sha256(start['run_id'].encode()).hexdigest()
 	assert start['task'] == 'Log in with <secret:pw>' and start['browser'] == 'cdp' and start['model']
 	assert start['metadata'] == {'run_by': 'svc-reports', 'on_behalf_of': 'alice@corp.example'}
@@ -61,6 +62,8 @@ async def test_audit_log_records_each_event_without_secrets_or_page_text_and_ver
 	assert nav_out['output_chars'] == len(mine[0].output) and 'output' not in nav_out
 	assert bad['args']['code'].startswith("print('typing <secret:pw>')") and '<secret:pw>' in bad_out['error']
 	assert refused['decision'] == 'refused' and refused['reason'] == 'needs a human' and refused['host'] == '127.0.0.1'
+	assert deliver['tool'] == 'finish_from_repl' and deliver['args'] == {'expression': "'done'"}
+	assert deliver_out['output_sha256'] == hashlib.sha256(b'done').hexdigest()
 	assert end['status'] == 'completed' and end['steps'] == 4 and end['success'] is True and end['error'] is None
 
 	# A second Agent appends its own chain to the same file
@@ -149,3 +152,29 @@ async def test_parallel_tool_calls_with_a_slow_async_sink_keep_one_chain(tmp_pat
 	(tmp_path / 'a.jsonl').write_text('\n'.join(lines) + '\n')
 	assert [json.loads(line)['seq'] for line in lines] == [0, 1, 2, 3, 4]
 	assert verify(tmp_path / 'a.jsonl') == []
+
+
+def test_a_secret_in_any_json_shape_is_redacted_and_lines_end_in_a_bare_newline(tmp_path):
+	"""A tuple or an object's str() holding a secret was written as is; text mode on Windows wrote \\r\\n, which
+	verify() reads as an edit."""
+	from browser_use.audit import AuditRun
+	from browser_use.repl.session import secret_forms
+
+	class Principal:
+		def __str__(self):
+			return f'svc:{SECRET}'
+
+	log = tmp_path / 'audit.jsonl'
+	run = AuditRun(log, 'r1', secret_forms({'pw': SECRET}))
+
+	async def write():
+		await run.write('run_start', metadata={'ids': (SECRET, 1)}, who=Principal())
+		await run.end(None, None)
+
+	import asyncio
+
+	asyncio.run(write())
+	raw = log.read_bytes()
+	assert SECRET.encode() not in raw and b'\r' not in raw
+	assert read(log)[0]['metadata'] == {'ids': ['<secret:pw>', 1]} and read(log)[0]['who'] == 'svc:<secret:pw>'
+	assert verify(log) == []

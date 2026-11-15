@@ -385,7 +385,7 @@ assert verify('audit.jsonl') == []  # each problem is one string: 'line 7 (run .
 | `type` | fields (every line also has `seq`, `prev`, `run_id`, `ts` in ISO 8601 UTC) |
 |---|---|
 | `run_start` | `version`, `model`, `task`, `follow_up`, `browser` (`cloud`, `chromium`, `chrome`, `cdp`), `allowed_domains`, `prohibited_domains`, `block_ip_addresses`, `metadata` (your `audit_metadata`) |
-| `action` | `step`, `tool`, `args` (`{'code': ...}` for a cell), `host`, `decision` (`allowed` or `refused`: the final one, after your `before_action`), `reason` |
+| `action` | `step`, `tool`, `args` (`{'code': ...}` for a cell, `{'expression': ...}` for `finish_from_repl`), `host`, `decision` (`allowed` or `refused`: the final one, after your `before_action`), `reason` |
 | `outcome` | `step`, `tool`, `error`, `urls`, `duration_s`, `output_chars`, `output_sha256` (only for actions that ran) |
 | `run_end` | `status`, `steps`, `cost_usd` (with the judge), `success`, `error`; a run that raised: `status` `cancelled` or `error`, `error` the exception class |
 
@@ -393,7 +393,8 @@ assert verify('audit.jsonl') == []  # each problem is one string: 'line 7 (run .
   exact bytes, without the newline); the first line's `prev` is the sha256 of the `run_id`. `verify(path)` returns the
   problems: a line edited, deleted, reordered or cut off mid-write, or a run without `run_end` (still running, killed,
   or its last lines deleted). Empty means intact. It cannot see a whole run deleted, an edit to a run's last line, or a
-  writer who rewrites every later line with new hashes: for that, ship each line off the machine as it is written.
+  writer who rewrites every later line with new hashes. The agent's Python runs as your user and can do that to the
+  file: for a record the agent cannot change, ship each line off the machine as it is written (`audit_log=fn`).
 - No secrets, no page text: `sensitive_data` values are replaced with `<secret:name>` in every field (code, task,
   errors, URLs, metadata). An outcome records the length and sha256 of what the model read back, not the text: audit
   logs are kept for years and page text holds personal data. The sha256 matches `ActionOutcome.output`, so a copy you
