@@ -15,3 +15,9 @@ python/*.egg-info/
 # root .gitignore ignores *.json and *.txt
 !*.json
 !*.txt
+# but keep the root's secret-file ignores
+credentials.json
+cookies.json
+browser_cookies.json
+token.json
+gcp-login.json

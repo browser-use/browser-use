@@ -20,7 +20,8 @@ browser-use/
 ```
 
 Python tooling ignores `js/`: pre-commit `exclude: ^js/`, ruff `extend-exclude`, `.dockerignore`. The wheel and sdist
-contain the same files as before. The root `.gitignore` ignores `*.json` and `*.txt`; `js/.gitignore` negates both.
+contain the same files as before. The root `.gitignore` ignores `*.json` and `*.txt`; `js/.gitignore` negates both, then
+re-ignores the root's secret files (`credentials.json`, `cookies.json`, `token.json`, ...).
 
 ## CI
 
