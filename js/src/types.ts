@@ -82,7 +82,7 @@ export interface BrowserUseOptions extends DomainOptions {
   /** Show temporary orange corner brackets on the element just clicked or typed into. Default false. */
   highlightActions?: boolean;
 }
-/** Per-run context controls. Unset fields keep today's behavior. */
+/** Per-run context controls. Unset fields use the defaults below. */
 export interface ContextSettings {
   /** Screenshots kept when old ones are pruned. Default 2. */
   keepScreenshots?: number;

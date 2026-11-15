@@ -25,20 +25,20 @@ The default output is a string. Schema validation checks shape; `validateResult(
 
 ## Options
 
-| Creation                                                 | Purpose                                             |
-| -------------------------------------------------------- | --------------------------------------------------- |
-| `model`, `reasoning`, `models`, `streamFn`               | Model and provider                                  |
-| `browser`, `workspace`, `historyFile`                    | Browser and persistence                             |
-| `instructions`, `tools`, `researchTools`                 | Extra instructions and Pi tools                     |
-| `beforeToolCall`, `afterToolCall`, `validateResult`      | Blocking hooks and validation                       |
-| `log`, `redact`, `recording`, `highlightActions`         | Output and recording                                |
-| `mode`, `webSearch`                                      | `'ultrafast'` adds the `bu` helpers; host search    |
-| `operationTimeoutMs`, `cellTimeoutMs`                    | CDP / JS deadlines; 20s / 120s                      |
-| `modelTimeoutMs`, `compactionTimeoutMs`, `hookTimeoutMs` | Model / summary / hook deadlines; 300s / 120s / 30s |
-| `modelStreamTimeoutMs`                                   | Whole model stream once events flow; 930s           |
-| `allowedDomains`, `prohibitedDomains`, `sensitiveData`   | Navigation rules and named credentials              |
-| `telemetry`                                              | Anonymous counters; default on                      |
-| `maxOutputChars`                                         | Printed cell output cap; 12,000                     |
+| Creation                                                 | Purpose                                               |
+| -------------------------------------------------------- | ----------------------------------------------------- |
+| `model`, `reasoning`, `models`, `streamFn`               | Model and provider                                    |
+| `browser`, `workspace`, `historyFile`                    | Browser and persistence                               |
+| `instructions`, `tools`, `researchTools`                 | Extra instructions and Pi tools                       |
+| `beforeToolCall`, `afterToolCall`, `validateResult`      | Blocking hooks and validation                         |
+| `log`, `redact`, `recording`, `highlightActions`         | Output and recording                                  |
+| `mode`, `webSearch`                                      | `'ultrafast'` adds the `bu` helpers; host search      |
+| `operationTimeoutMs`, `cellTimeoutMs`                    | CDP / JS deadlines; 20s / 120s                        |
+| `modelTimeoutMs`, `compactionTimeoutMs`, `hookTimeoutMs` | First model event / summary / hook; 300s / 120s / 30s |
+| `modelStreamTimeoutMs`                                   | Whole model stream once events flow; 930s             |
+| `allowedDomains`, `prohibitedDomains`, `sensitiveData`   | Navigation rules and named credentials                |
+| `telemetry`                                              | Anonymous counters; default on                        |
+| `maxOutputChars`                                         | Printed cell output cap; 12,000                       |
 
 | Per run                                             | Default                             |
 | --------------------------------------------------- | ----------------------------------- |
