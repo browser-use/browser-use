@@ -57,6 +57,32 @@ const TRANSIENT_MODEL_ERRORS = [
   /^Request timed out\.$/,
   /^stream inactive >\d+s$/,
 ];
+/** Python DELIVER_NOW, with this SDK's tool names. */
+const DELIVER_NOW =
+  'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_js. Reference saved files; explicitly list missing evidence. Do not perform more browser actions.';
+const MODEL_TIMEOUT = /^Model stream exceeded (\d+) ms/;
+/** Python TRANSIENT_FAILED_CODES: a Responses failure inside an HTTP 200 with one of these codes is transient. */
+const TRANSIENT_FAILED_CODES =
+  /^(?:server_error|overloaded|request_timeout|upstream_stream_failed|model_request_failed)(?::|$)/;
+/** Python TRANSIENT: rate limit, request timeout, 5xx; pi-ai reports them as "<Provider> API error (<status>): ...". */
+const TRANSIENT_STATUS = /API error \((?:408|429|5\d\d)\)/;
+/** Retry-After or retry-after-ms, in milliseconds. */
+export function retryAfter(headers: Headers): number | undefined {
+  const ms = Number.parseFloat(headers.get('retry-after-ms') ?? '');
+  if (Number.isFinite(ms)) return Math.max(0, ms);
+  const value = headers.get('retry-after');
+  if (!value) return undefined;
+  const seconds = Number.parseFloat(value);
+  const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(delay) ? Math.max(0, delay) : undefined;
+}
+/** A rate-limit message's own hint ("Please try again in 1.5s"), when no header was seen. */
+function retryHint(message: string): number | undefined {
+  const hint = /try again in ([\d.]+)(ms|s)\b/i.exec(message);
+  if (!hint) return undefined;
+  const value = Number.parseFloat(hint[1]!);
+  return Number.isFinite(value) ? value * (hint[2] === 'ms' ? 1 : 1000) : undefined;
+}
 const NO_TIME =
   'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_js with what you have.';
 /** Python agent/loop.py TOOL_CALL_MARKUP: a tool call written as text ran nothing and is no answer. */
@@ -71,6 +97,8 @@ export function transientModelError(message: string | undefined): boolean {
   const detail = text.replace(/^[A-Za-z]+(?:Error|Exception|Timeout): /, '');
   return (
     TRANSIENT_TRANSPORT_ERRORS.test(text) ||
+    TRANSIENT_STATUS.test(text) ||
+    TRANSIENT_FAILED_CODES.test(detail) ||
     TRANSIENT_MODEL_ERRORS.some((pattern) => pattern.test(detail))
   );
 }
@@ -131,6 +159,8 @@ export async function runAgent(
   let steps = 0;
   let finishRepairs = 0;
   let providerRetries = 0;
+  let providerRetried = false;
+  let retryAfterMs: number | undefined;
   let retriedUsage = zeroUsage();
   let finalizing = false;
   let compactionFailures = 0;
@@ -320,6 +350,14 @@ export async function runAgent(
       stopped = 'context_limit';
     return stopped !== undefined;
   };
+  const deliveryDue = (messages: AgentMessage[]) =>
+    (maxSteps >= 2 && steps >= maxSteps - 1) ||
+    Date.now() - start >= deliveryAt ||
+    (options.maxCostUsd !== undefined &&
+      sumUsage(messages.slice(previousMessages)).cost.total +
+        retriedUsage.cost.total +
+        context.usage.reduce((sum, usage) => sum + usage.cost.total, 0) >=
+        options.maxCostUsd * 0.9);
   const observer = options.observe
     ? new Observer(
         options.observe,
@@ -331,14 +369,30 @@ export async function runAgent(
     : '';
   const agent = new Agent({
     streamFn: deadlineStream(
-      (selected, request, settings) =>
-        config.streamFn(selected, redact(request, config.redact ?? []), {
+      (selected, request, settings) => {
+        retryAfterMs = undefined;
+        const base = settings?.fetch ?? globalThis.fetch;
+        return config.streamFn(selected, redact(request, config.redact ?? []), {
           ...settings,
+          // The provider's Retry-After for the one provider retry; pi-ai keeps response headers of failures to itself.
+          fetch: async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+            const response = await base(input, init);
+            if (!response.ok) retryAfterMs = retryAfter(response.headers);
+            return response;
+          },
           maxTokens: Math.min(selected.maxTokens, 32768, Math.floor(selected.contextWindow * 0.15)),
           ...(delivering() && keepTools ? { toolChoice: deliveryChoice } : {}),
-        }),
-      // Never past the delivery turn's start, or on that turn the run's end (Python _deadlines).
-      () => Math.min(config.modelTimeoutMs ?? 300_000, Math.max(1000, timeLeft())),
+        });
+      },
+      // Python _deadlines: the first event within modelTimeoutMs, the whole stream within modelStreamTimeoutMs,
+      // neither past the delivery turn's start (on that turn, the run's end).
+      () => {
+        const left = Math.max(1000, timeLeft());
+        return {
+          firstEventMs: Math.min(config.modelTimeoutMs ?? 300_000, left),
+          totalMs: Math.min(config.modelStreamTimeoutMs ?? 930_000, left),
+        };
+      },
     ),
     initialState: {
       model,
@@ -481,23 +535,9 @@ export async function runAgent(
       return context.project(messages);
     },
     prepareNextTurnWithContext: ({ context: current }) => {
-      if (
-        !finalizing &&
-        ((maxSteps >= 2 && steps >= maxSteps - 1) ||
-          Date.now() - start >= deliveryAt ||
-          (options.maxCostUsd !== undefined &&
-            sumUsage(current.messages.slice(previousMessages)).cost.total +
-              retriedUsage.cost.total +
-              context.usage.reduce((sum, usage) => sum + usage.cost.total, 0) >=
-              options.maxCostUsd * 0.9))
-      ) {
+      if (!finalizing && deliveryDue(current.messages)) {
         finalizing = true;
-        current.messages.push({
-          role: 'user',
-          content:
-            'Budget nearly exhausted. Deliver the verified result now with finish/finish_from_js. Reference saved files; explicitly list missing evidence. Do not perform more browser actions.',
-          timestamp: Date.now(),
-        });
+        current.messages.push({ role: 'user', content: DELIVER_NOW, timestamp: Date.now() });
         if (!keepTools) {
           agent.state.tools = [finish, finishFromJs];
           return { context: { ...current, tools: [finish, finishFromJs] } };
@@ -590,6 +630,59 @@ export async function runAgent(
     stopped = 'timeout';
     agent.abort();
   }, timeoutMs);
+  /** One failed model response: retry the inference (never its tool calls). Returns whether the run went on. */
+  const recover = async (): Promise<boolean> => {
+    const failed = agent.state.messages.at(-1);
+    if (completion || stopped || options.signal?.aborted) return false;
+    if (failed?.role !== 'assistant' || failed.stopReason !== 'error') return false;
+    const message = failed.errorMessage ?? '';
+    const drop = () => {
+      addUsage(retriedUsage, failed.usage);
+      agent.state.messages = agent.state.messages.slice(0, -1);
+    };
+    if (
+      options.compaction !== false &&
+      contextWindowError(message) &&
+      !checkBudgets(agent.state.messages, agent.state.systemPrompt)
+    ) {
+      drop();
+      context.force = true;
+      providerRetries++;
+      await agent.continue();
+      return true;
+    }
+    // Python on_model_request_error: a model timeout starts a new step (the delivery turn when its time has come)
+    // instead of ending the run. The deadline never runs past the delivery turn, so this is bounded by the budgets.
+    const timedOut = MODEL_TIMEOUT.exec(message);
+    if (timedOut && !checkBudgets(agent.state.messages, agent.state.systemPrompt)) {
+      drop();
+      providerRetries++;
+      let note = `The model request got no answer within ${(Number(timedOut[1]) / 1000).toFixed(1)} s.`;
+      if (!delivering() && deliveryDue(agent.state.messages)) {
+        finalizing = true;
+        note += `\n\n${DELIVER_NOW}`;
+        if (!keepTools) agent.state.tools = [finish, finishFromJs];
+      }
+      await agent.prompt({ role: 'user', content: note, timestamp: Date.now() });
+      return true;
+    }
+    // One retry per run of a transient provider error, after its Retry-After (at most 60 s and the time left).
+    if (
+      !providerRetried &&
+      transientModelError(message) &&
+      !checkBudgets(agent.state.messages, agent.state.systemPrompt)
+    ) {
+      providerRetried = true;
+      providerRetries++;
+      drop();
+      const wait = Math.min(retryAfterMs ?? retryHint(message) ?? 0, 60_000, Math.max(0, timeLeft()));
+      if (wait > 0) await delay(wait, undefined, { signal: options.signal });
+      if (stopped || options.signal?.aborted) return false;
+      await agent.continue();
+      return true;
+    }
+    return false;
+  };
   let error: string | undefined;
   try {
     if (options.signal?.aborted) stopped = 'cancelled';
@@ -601,37 +694,7 @@ export async function runAgent(
       )
     ) {
       await agent.prompt(task);
-      let overflow = agent.state.messages.at(-1);
-      while (
-        !completion &&
-        !stopped &&
-        options.compaction !== false &&
-        overflow?.role === 'assistant' &&
-        overflow.stopReason === 'error' &&
-        contextWindowError(overflow.errorMessage ?? '') &&
-        !checkBudgets(agent.state.messages, agent.state.systemPrompt)
-      ) {
-        addUsage(retriedUsage, overflow.usage);
-        agent.state.messages = agent.state.messages.slice(0, -1);
-        context.force = true;
-        providerRetries++;
-        await agent.continue();
-        overflow = agent.state.messages.at(-1);
-      }
-      const failed = agent.state.messages.at(-1);
-      if (
-        failed?.role === 'assistant' &&
-        failed.stopReason === 'error' &&
-        transientModelError(failed.errorMessage) &&
-        !checkBudgets(agent.state.messages, agent.state.systemPrompt) &&
-        !options.signal?.aborted
-      ) {
-        // Pi never executes tool calls from an error response. Retry inference once, not actions.
-        providerRetries++;
-        addUsage(retriedUsage, failed.usage);
-        agent.state.messages = agent.state.messages.slice(0, -1);
-        await agent.continue();
-      }
+      while (await recover());
       // A budget that ran out on this very reply does not discard it: the reply is the delivery.
       const spent = () => stopped === undefined || stopped === 'max_steps' || stopped === 'cost_limit';
       const replyText = () => {
@@ -675,6 +738,7 @@ export async function runAgent(
         if (!checkBudgets([...agent.state.messages, repair], agent.state.systemPrompt)) {
           finishRepairs = 1;
           await agent.prompt(repair);
+          while (await recover());
           // Python: after the repair turn, text is accepted when it is a valid result (JSON for a structured schema).
           const late = replyText();
           if (late !== undefined && !TOOL_CALL_MARKUP.test(late)) {

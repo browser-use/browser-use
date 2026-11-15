@@ -6,7 +6,7 @@ import { streamSimple } from '@earendil-works/pi-ai/api/openai-responses';
 import { BrowserUse } from '../dist/index.js';
 
 test(
-  'stalled real SSE responses abort their connections and retry inference only once',
+  'stalled real SSE responses abort their connections; each timeout is a new step within the budgets',
   { timeout: 10000 },
   async () => {
     let requests = 0,
@@ -29,6 +29,7 @@ test(
       agent = await BrowserUse.create({
         model: 'openai/gpt-5.4',
         modelTimeoutMs: 200,
+        modelStreamTimeoutMs: 200,
         streamFn: (model, context, options) =>
           streamSimple(
             { ...model, baseUrl: `http://127.0.0.1:${server.address().port}/v1` },
@@ -36,8 +37,9 @@ test(
             { ...options, apiKey: 'fixture-key', transport: 'sse' },
           ),
       });
-      const result = await agent.run('Inspect', { timeoutMs: 5000 });
-      assert.equal(result.status, 'error');
+      // Step 1 times out; step 2 is the delivery turn (maxSteps - 1) and times out too; then max_steps.
+      const result = await agent.run('Inspect', { timeoutMs: 5000, maxSteps: 2 });
+      assert.equal(result.status, 'max_steps');
       assert.match(result.error, /Model stream exceeded/);
       assert.equal(result.providerRetries, 1);
       for (let i = 0; i < 50 && closed < 2; i++)

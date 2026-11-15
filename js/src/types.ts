@@ -48,8 +48,10 @@ export interface BrowserUseOptions extends DomainOptions {
   instructions?: string;
   operationTimeoutMs?: number;
   cellTimeoutMs?: number;
-  /** Whole model response, including connection setup. Default 300000 ms. */
+  /** Connection setup until the model's first stream event. Default 300000 ms. A timeout starts a new step. */
   modelTimeoutMs?: number;
+  /** Whole model response while events flow. Default 930000 ms (Python browser-use). */
+  modelStreamTimeoutMs?: number;
   /** Whole compaction response. Default 120000 ms; original context survives failure. */
   compactionTimeoutMs?: number;
   /** Initial context-recovery backoff; doubles up to 30 seconds within the run deadline. */

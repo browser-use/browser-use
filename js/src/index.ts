@@ -127,6 +127,7 @@ export class BrowserUse {
       : undefined;
     positiveInteger('hookTimeoutMs', options.hookTimeoutMs ?? 30_000);
     positiveInteger('modelTimeoutMs', options.modelTimeoutMs ?? 300_000);
+    positiveInteger('modelStreamTimeoutMs', options.modelStreamTimeoutMs ?? 930_000);
     positiveInteger('compactionTimeoutMs', options.compactionTimeoutMs ?? 120_000);
     positiveInteger('compactionRetryDelayMs', options.compactionRetryDelayMs ?? 1000);
     const separator = options.model.indexOf('/');
