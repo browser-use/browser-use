@@ -53,6 +53,10 @@ NOTICES_PER_CELL = 5
 # strict_domains: names only a local or private network resolves (RFC 6761 .localhost, RFC 6762 .local, ICANN's
 # .internal, RFC 8375 .home.arpa); a single label ('metadata', 'jenkins') resolves through the local search domain
 LOCAL_SUFFIXES = ('.localhost', '.local', '.internal', '.home.arpa')
+# strict_domains: IPv6 addresses that carry an IPv4 one in their last 32 bits and reach it: NAT64 (64:ff9b::10.0.0.1 is
+# 10.0.0.1 through a NAT64 gateway, as on AWS IPv6-only subnets), IPv4-compatible and IPv4-translated
+EMBEDS_IPV4 = tuple(map(ipaddress.IPv6Network, ('64:ff9b::/96', '::/96', '::ffff:0:0:0/96')))
+LOCAL_NAT64 = ipaddress.IPv6Network('64:ff9b:1::/48')  # RFC 8215: a network's own translator; not global
 NETWORK = ('http', 'https', 'ws', 'wss')
 
 
@@ -75,7 +79,7 @@ def canonical_host(host: str) -> str:
 		return str(ipaddress.ip_address(h))
 	labels = h.split('.')
 	if re.fullmatch(r'\d+|0x[0-9a-f]*', labels[-1]):  # WHATWG: a host ending in a number is an IPv4 address
-		with contextlib.suppress(OSError):
+		with contextlib.suppress(OSError, ValueError):  # ValueError: a NUL byte
 			return socket.inet_ntoa(socket.inet_aton(h))
 	if not h.isascii():
 		with contextlib.suppress(idna.IDNAError, UnicodeError):
@@ -199,8 +203,13 @@ def is_private(host: str) -> bool:
 		ip = ipaddress.ip_address(host)
 	except ValueError:
 		return '.' not in host or host.endswith(LOCAL_SUFFIXES)
-	if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:  # [::ffff:169.254.169.254]
-		ip = ip.ipv4_mapped
+	if isinstance(ip, ipaddress.IPv6Address):
+		if ip.ipv4_mapped:  # [::ffff:169.254.169.254]
+			ip = ip.ipv4_mapped
+		elif any(ip in net for net in EMBEDS_IPV4):  # [64:ff9b::a9fe:a9fe]
+			ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+		elif ip in LOCAL_NAT64:
+			return True
 	return not ip.is_global
 
 
@@ -489,7 +498,10 @@ class Guard:
 			navigation = params.get('resourceType') == 'Document' and frame in self.pages
 			# strict: every network request; chrome-extension:, chrome: and the like never leave the browser
 			checked = navigation or (self.rules.strict and url.split(':', 1)[0].lower() in WEB)
-			why = self.rules.blocked(url) if checked else None
+			try:
+				why = self.rules.blocked(url) if checked else None
+			except Exception as e:  # - fail this request, not the connection: a dropped one stops all interception
+				why = f'blocked: browser-use could not read this URL ({type(e).__name__})'
 			if why:
 				with self._lock:
 					self.blocks += 1

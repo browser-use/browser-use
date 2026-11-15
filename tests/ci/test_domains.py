@@ -815,11 +815,17 @@ def test_strict_blocks_private_and_local_addresses_unless_allowed_domains_names_
 		'http://printer.local/',
 		'http://router.home.arpa/',
 		'ws://127.0.0.1/',
+		'http://[64:ff9b::a00:1]/',  # NAT64: 10.0.0.1 through the network's NAT64 gateway
+		'http://[64:ff9b::169.254.169.254]/',
+		'http://[64:ff9b:1::a00:1]/',  # local-use NAT64 prefix
+		'http://[::a9fe:a9fe]/',  # IPv4-compatible
 	):
 		assert strict.blocked(url) == (
 			f'blocked: {parse_host(url)} is a private or local address (strict_domains=True; allowed_domains can name it)'
 		), url
 	assert strict.blocked('https://8.8.8.8/') is None and strict.blocked('https://example.org/') is None
+	assert strict.blocked('http://[64:ff9b::808:808]/') is None  # NAT64 of a public address
+	assert strict.blocked('http://a\x00.1/') is None  # a NUL byte: Chrome refuses the host; reading it raised ValueError
 	assert strict.blocked('chrome://settings') is None  # not a network request
 	assert not DomainRules.of(prohibited=['evil.com']).blocked('http://169.254.169.254/')  # unchanged without strict
 	named = DomainRules.of(['example.com', 'localhost:8080', '*.corp.internal'], strict=True)
@@ -956,6 +962,8 @@ async def test_strict_runs_no_cell_while_the_request_filter_is_down(chrome, site
 			await asyncio.sleep(0.1)
 		r = await repl.call('exec', f'open({str(ran)!r}, "w").close()', 30)
 		assert r['error_type'] == 'DomainFilterDown' and 'so it did not run this cell' in r['error'], r
+		r = await repl.call('eval', f'open({str(ran)!r}, "w").close()', 30)  # finish_from_repl's expression
+		assert r['error_type'] == 'DomainFilterDown', r
 		assert not ran.exists()
 		guard.ws_url = real
 		assert await asyncio.to_thread(guard.connected.wait, 15)
@@ -996,3 +1004,29 @@ async def test_agent_with_strict_domains_wires_the_filter(chrome, site, tmp_path
 	assert '[blocked: evil.localhost is not in allowed_domains (allowed.localhost). The browser did not load' in str(returns[0])
 	assert checks == [1]
 	assert evil_hits() == []
+
+
+def test_strict_guard_fails_a_request_it_cannot_judge_and_keeps_its_connection(monkeypatch):
+	"""An exception while judging a paused request used to escape the guard's read loop: the connection dropped and
+	Chrome let every request through until the reconnect. Now that request fails and the guard reads on."""
+	sent = []
+	guard = Guard('ws://unused', DomainRules.of(['allowed.localhost'], strict=True))
+	guard._ws = type('Ws', (), {'send': lambda self, raw: sent.append(json.loads(raw))})()
+
+	def broken(self, url):
+		raise ValueError('unreadable')
+
+	monkeypatch.setattr(DomainRules, 'blocked', broken)
+	guard._handle(
+		{
+			'method': 'Fetch.requestPaused',
+			'params': {'requestId': 'r1', 'frameId': 'f', 'resourceType': 'XHR', 'request': {'url': 'http://x/'}},
+		}
+	)
+	assert [(m['method'], m['params']) for m in sent] == [
+		('Fetch.failRequest', {'requestId': 'r1', 'errorReason': 'BlockedByClient'})
+	]
+	assert guard.take() == (
+		['[blocked: browser-use could not read this URL (ValueError). The browser did not load http://x/]'],
+		1,
+	)

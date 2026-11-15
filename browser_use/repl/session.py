@@ -305,11 +305,11 @@ class Repl:
 	"""mode='ultrafast' adds the `bu` helpers to the worker (BU_MODE=ultrafast). reattach: starts the browser-harness
 	daemon again after a cell lost it (Browser.start). after_cell: runs after each cell, outside the worker; returns
 	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell). before_cell: runs
-	before each cell; a string it returns is the cell's error and the cell does not run (Browser.before_cell). search: defines
-	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
-	worker, answered here (Browser.list_downloads). feedback: answers report_issue() with the confirmation the cell
-	gets (telemetry/feedback.RunReports); without it nothing is sent. highlight_actions: orange corner brackets around
-	what the agent clicks or types into (repl/highlight.py)."""
+	before each cell and finish_from_repl expression ('eval'); a string it returns is the error and the code does not
+	run (Browser.before_cell). search: defines search() in the worker, answered here (the API key stays in this
+	process). downloads: defines downloads() in the worker, answered here (Browser.list_downloads). feedback: answers
+	report_issue() with the confirmation the cell gets (telemetry/feedback.RunReports); without it nothing is sent.
+	highlight_actions: orange corner brackets around what the agent clicks or types into (repl/highlight.py)."""
 
 	def __init__(
 		self,
@@ -464,7 +464,7 @@ class Repl:
 		if self._lock_loop is not (loop := asyncio.get_running_loop()):  # reused from a new loop (asyncio.run per run)
 			self.lock, self._lock_loop = asyncio.Lock(), loop
 		async with self.lock:
-			if op == 'exec' and self.before_cell is not None and (why := await self.before_cell()):
+			if op in ('exec', 'eval') and self.before_cell is not None and (why := await self.before_cell()):
 				return {
 					'output': '',
 					'images': [],

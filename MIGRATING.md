@@ -230,14 +230,14 @@ How it is enforced:
   page that needs a CDN only works when the CDN is in `allowed_domains`. Each blocked request is reported at the top of
   that cell's output (up to 5 per cell).
 - It blocks private, loopback, link-local, shared and reserved addresses, cloud metadata included (`169.254.169.254`,
-  `fd00:ec2::254`, `[::ffff:169.254.169.254]`, `0xa9.0xfe.0xa9.0xfe`), and names only a local network resolves
-  (`localhost`, `*.localhost`, `*.local`, `*.internal`, `*.home.arpa`, a single label like `http://metadata/`), for
-  navigations, requests and `http_get` alike. A pattern in `allowed_domains` that names the host lets it through
+  `fd00:ec2::254`, `[::ffff:169.254.169.254]`, NAT64 `[64:ff9b::a9fe:a9fe]`, `0xa9.0xfe.0xa9.0xfe`), and names only
+  a local network resolves (`localhost`, `*.localhost`, `*.local`, `*.internal`, `*.home.arpa`, a single label like
+  `http://metadata/`), for navigations, requests and `http_get` alike. A pattern in `allowed_domains` that names the host lets it through
   (`'localhost:8080'`, `'*.corp.internal'`); a catch-all such as `'http*://*'` does not.
 - It fails closed for the agent: while browser-use's filter connection is down (Chrome stops intercepting the moment
-  it closes), the REPL runs no cell: it waits up to 15 s for the reconnect, then the cell fails with `strict_domains=True:
-  browser-use is not connected to the browser's request filter ... so it did not run this cell` and runs nothing. The
-  first cell after a reconnect says requests went unfiltered meanwhile.
+  it closes), the REPL runs no cell and no `finish_from_repl` expression: it waits up to 15 s for the reconnect, then
+  fails with `strict_domains=True: browser-use is not connected to the browser's request filter ... so it did not run
+  this cell` and runs nothing. The first cell after a reconnect says requests went unfiltered meanwhile.
 - `strict_domains=True` alone (no lists) blocks only private and local addresses. `Browser('chrome')` (your open
   Chrome) raises: it has no filter connection.
 - Cost: one round trip to browser-use per request instead of per navigation. On a local Chrome, a page with 30
