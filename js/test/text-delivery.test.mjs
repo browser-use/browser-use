@@ -49,3 +49,23 @@ test('after the repair turn, valid JSON text is accepted for a structured schema
   assert.equal(result.status, 'completed');
   assert.deepEqual(result.output, { city: 'Paris' });
 });
+
+test('a text answer on the last request is delivered with a warning, not dropped', async () => {
+  const { result } = await scripted(
+    [call('javascript', { code: '1' }), text('Summary in [the report](report.md).')],
+    { options: { maxSteps: 2 } },
+  );
+  assert.equal(result.status, 'completed');
+  assert.equal(result.output, 'Summary in [the report](report.md).');
+  assert.match(result.warnings.join('\n'), /linked files do not exist/);
+});
+
+test('JSON text on the delivery-only turn is accepted for a structured schema', async () => {
+  const schema = Type.Object({ city: Type.String() });
+  const { result } = await scripted([call('javascript', { code: '1' }), text('{"city":"Paris"}')], {
+    schema,
+    options: { maxSteps: 2 },
+  });
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(result.output, { city: 'Paris' });
+});

@@ -269,7 +269,7 @@ export async function runAgent(
   let verdict: boolean | undefined;
   /** Python check_delivery: one repair for a placeholder or links to files that do not exist. Not on the run's
    * last request, where nothing can follow it: there the result is delivered and the problem noted. */
-  const deliveryProblem = (output: unknown, text: string, strict = false): string | undefined => {
+  const deliveryProblem = (output: unknown, text: string, last = false): string | undefined => {
     if (checkedDelivery) return undefined;
     let problem: string | undefined;
     if (!ALNUM.test(text) || (typeof output !== 'string' && holdsNothing(output)))
@@ -290,7 +290,7 @@ export async function runAgent(
         problem = `These linked files do not exist in the workspace: ${missing.slice(0, 10).join(', ')}.`;
     }
     if (!problem) return undefined;
-    if (!strict && (steps >= maxSteps || finishRepairs >= 2)) {
+    if (last || steps >= maxSteps || finishRepairs >= 2) {
       if (warnings.length < 32) warnings.push(`Delivered as it is on the last request: ${problem}`);
       return undefined;
     }
@@ -315,12 +315,13 @@ export async function runAgent(
     splitResponse = key;
     return `Not delivered: ${others.join(', ')} came in the same response as this ${name}, so it was not the final answer. Deliver once, in a response with no tool call after the delivery: finish_from_js with the existing records, or finish with the full answer.`;
   };
-  /** strict: a text reply that a spent budget would otherwise drop is taken only when it has no delivery problem. */
+  /** last: nothing can follow this delivery (a text reply on a spent budget, or after the repair turn), so a delivery
+   * problem is noted instead of refused: refusing it there lost the answer (Python check_delivery). */
   const acceptResult = async (
     output: unknown,
     signal?: AbortSignal,
     success?: boolean,
-    strict = false,
+    last = false,
   ) => {
     if (!Check(schema, output))
       throw rejectedDelivery(
@@ -329,7 +330,7 @@ export async function runAgent(
       );
     const serialized = typeof output === 'string' ? output : JSON.stringify(output);
     const problem =
-      serialized === undefined ? undefined : deliveryProblem(output, serialized, strict);
+      serialized === undefined ? undefined : deliveryProblem(output, serialized, last);
     if (problem) throw new Error(problem);
     if (config.validateResult) {
       const feedback = await bounded(
@@ -810,13 +811,27 @@ export async function runAgent(
               .join('\n')
           : undefined;
       };
-      // Python on_text: for a string schema a plain-text reply is the answer (the repair cost one extra request on
-      // ~95% of gpt-6-luna runs). A structured schema, or a tool call written as text, gets the delivery repair.
-      const reply = replyText();
-      let problem = '';
-      if (reply !== undefined && stringSchema && !TOOL_CALL_MARKUP.test(reply)) {
+      /** A text reply as a result value: the text for a string schema, else its JSON; undefined when not JSON. */
+      const textValue = (text: string): unknown => {
+        if (stringSchema) return text;
         try {
-          await acceptResult(reply, options.signal, undefined, stopped !== undefined);
+          return JSON.parse(text);
+        } catch {
+          return undefined;
+        }
+      };
+      // Python on_text: for a string schema a plain-text reply is the answer (the repair cost one extra request on
+      // ~95% of gpt-6-luna runs), and on the delivery-only turn JSON text is for a structured one. Otherwise a
+      // structured schema, or a tool call written as text, gets the delivery repair.
+      const reply = replyText();
+      const replyValue =
+        reply !== undefined && !TOOL_CALL_MARKUP.test(reply) && (stringSchema || finalizing)
+          ? textValue(reply)
+          : undefined;
+      let problem = '';
+      if (replyValue !== undefined) {
+        try {
+          await acceptResult(replyValue, options.signal, undefined, stopped !== undefined);
           stopped = undefined;
         } catch (cause) {
           if (options.signal?.aborted) throw cause;
@@ -845,20 +860,14 @@ export async function runAgent(
           while (await recover());
           // Python: after the repair turn, text is accepted when it is a valid result (JSON for a structured schema).
           const late = replyText();
-          if (late !== undefined && !TOOL_CALL_MARKUP.test(late)) {
-            let value: unknown = late;
-            if (!stringSchema)
-              try {
-                value = JSON.parse(late);
-              } catch {
-                value = undefined;
-              }
-            if (value !== undefined)
-              await acceptResult(value, options.signal, undefined, stopped !== undefined).then(
-                () => (stopped = undefined),
-                () => {},
-              );
-          }
+          const value =
+            late !== undefined && !TOOL_CALL_MARKUP.test(late) ? textValue(late) : undefined;
+          // Nothing follows the repair turn: a delivery problem is noted, not refused.
+          if (value !== undefined)
+            await acceptResult(value, options.signal, undefined, true).then(
+              () => (stopped = undefined),
+              () => {},
+            );
         }
       }
     }
