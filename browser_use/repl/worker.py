@@ -3,8 +3,9 @@
 Namespace = browser-harness helpers + screenshot/show_image/checkpoint/type_secret/solve_captcha/report_issue (+ bu in
 ultrafast mode, see ax.py; + search when web search is on; + downloads for a cloud browser or a Chrome the Browser launched).
 Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init line ({"secrets": [[name, value, domain|null], ...],
-"search": bool, "downloads": bool}), then one JSON line per message. search(), downloads() and report_issue() send
-{"type": "search" | "downloads" | "feedback", "args": {...}} mid-cell and read the parent's one-line answer. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
+"search": bool, "downloads": bool, "approve_on": [kind, ...]}), then one JSON line per message. search(), downloads(),
+report_issue() and the helpers' approvals (upload_file, type_secret, navigations: Agent(approve=...)) send
+{"type": "search" | "downloads" | "feedback" | "approve", "args": {...}} mid-cell and read the parent's one-line answer. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
 partial output on disk.
 """
 
@@ -38,9 +39,9 @@ from collections import Counter
 from pathlib import Path
 
 from browser_use import ax
-from browser_use.domains import DomainRules
+from browser_use.domains import DomainRules, origin
 from browser_use.exceptions import BrowserConnectionLost
-from browser_use.remote_upload import set_files, uploader
+from browser_use.remote_upload import local_paths, set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.capture import CDP_TIMEOUT_S, SCREENSHOT_TIMEOUT_S, capture
 from browser_use.repl.highlight import Highlighter
@@ -494,7 +495,7 @@ EDITABLE = """function () {
 }"""
 
 
-def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
+def _install(ns: dict, secrets: list, ask=None, approve_on=()) -> tuple[ax.AxHelpers | None, Captcha]:
 	env = dict(os.environ)  # the allowlisted env the parent gave us
 	from browser_harness import helpers  # loads .env files and agent_helpers.py into this process
 
@@ -550,6 +551,34 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			stats.count('events', 'domain_blocked')
 			raise PermissionError(why)
 
+	def approve(kind: str, detail: dict) -> None:
+		"""Agent(approve=...): the parent decides before the effect happens; a denial raises PermissionError with its
+		reason. Asked only from the main thread, which alone reads the control channel: elsewhere it fails closed."""
+		if threading.current_thread() is not threading.main_thread():
+			raise PermissionError(
+				f'{kind} needs an approval, which only the main thread can ask for: do it in sequence, not from threads. '
+				'Nothing was done.'
+			)
+		if (why := ask('approve', {'kind': kind, 'detail': detail})) is not None:  # type: ignore[misc]
+			raise PermissionError(why)
+
+	def page_origin(session_id) -> str | None:
+		"""Origin of the page a call on session_id (None: the attached tab) acts on, from the browser's record of its
+		target, never page JS."""
+		try:
+			if session_id is None:
+				info = plain('Target.getTargetInfo', targetId=_attached_tab())
+			else:
+				info = plain('Target.getTargetInfo', session_id=session_id)
+			return origin(info['targetInfo']['url'])
+		except Exception:  # - unknown: the request says so and approve() decides
+			return None
+
+	def approve_navigation(method, params) -> None:
+		url = str(params.get('url') or '')
+		if method in NAVIGATING and (o := origin(url)) and not (rules and rules.blocked(url)):  # blocked: _cdp says so
+			approve('new_origin', {'origin': o, 'url': url})
+
 	def pending_dialog(method, session_id):
 		if session_id is not None or not (method in FROZEN_BY_DIALOG or method.startswith('Input.')):
 			return None
@@ -577,6 +606,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		that did not say why. While the daemon saw one open, such a call gets DIALOG_PROBE_S and then says so; a call that
 		opens one itself (a click on a confirm button, js("alert(1)"), a navigation a beforeunload prompt holds) says so
 		as soon as it opens."""
+		if 'new_origin' in approve_on:  # here, on the main thread: raced() below sends from a thread
+			approve_navigation(method, params)
 		dialog = pending_dialog(method, session_id)
 		if dialog:
 			params['_response_timeout'] = min(params.get('_response_timeout', SCREENSHOT_TIMEOUT_S), DIALOG_PROBE_S)
@@ -688,6 +719,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		return raw_cdp(method, session_id, _response_timeout=params.pop('_response_timeout', CDP_TIMEOUT_S), **params)
 
 	def set_input_files(session_id, params) -> int:
+		if 'upload' in approve_on:
+			approve('upload', {'files': local_paths(params.get('files') or []), 'origin': page_origin(session_id)})
 		object_id = params.get('objectId')
 		if not object_id:
 			node = {k: params[k] for k in ('backendNodeId', 'nodeId') if k in params}
@@ -884,6 +917,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 					f'type_secret({name!r}): the focused <{node["nodeName"].lower()}> is not an editable field. Click or focus '
 					'the input first.'
 				)
+			if 'type_secret' in approve_on:  # the frame the keys reach, as the domain scope above reads it
+				approve('type_secret', {'secret': name, 'origin': origin(url)})
 			_type_keys(value)
 
 		if scoped:
@@ -910,7 +945,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		secret_names=secret_names,
 		solve_captcha=captcha.solve,
 	)
-	ns['upload_file'] = uploader(plain, lambda: cloud)
+	check = (lambda paths: approve('upload', {'files': paths, 'origin': page_origin(None)})) if 'upload' in approve_on else None
+	ns['upload_file'] = uploader(plain, lambda: cloud, check)
 	bu = None
 	if os.environ.get('BU_MODE') != 'ultrafast':
 		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.
@@ -1155,8 +1191,8 @@ def main() -> None:
 	sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	_redact_between_cells(secrets)  # after reconfigure(): it seeks, which a pipe refuses
 	ns: dict = {'__name__': '__main__', '__bu_display': _display}
-	bu, captcha = _install(ns, secrets)
 	ask = _ask_parent(rfile, wfile)
+	bu, captcha = _install(ns, secrets, ask, frozenset(init.get('approve_on') or ()))
 	if init.get('search'):
 		ns['search'] = _counted('search', _search(ask))
 	if init.get('downloads'):

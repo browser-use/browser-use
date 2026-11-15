@@ -97,8 +97,9 @@ def set_files(cdp, object_id: str, path, remote: bool) -> int:
 			call('function (key) { delete this.ownerDocument.defaultView[key] }', key)
 
 
-def uploader(cdp, remote: Callable[[], bool]):
-	"""upload_file(selector, path) on the attached tab; remote(): whether the browser is a cloud browser."""
+def uploader(cdp, remote: Callable[[], bool], check: Callable[[list[str]], None] | None = None):
+	"""upload_file(selector, path) on the attached tab; remote(): whether the browser is a cloud browser. check(paths)
+	runs before any file is set and raises to stop it (Agent(approve=...))."""
 
 	def upload_file(selector, path):
 		"""Set local file(s) on a file input. path: a file path or a list of them (relative to the working directory).
@@ -106,6 +107,8 @@ def uploader(cdp, remote: Callable[[], bool]):
 		el = cdp('Runtime.evaluate', expression=find(selector))['result']
 		if 'objectId' not in el:
 			raise RuntimeError(f'no element for {selector}')
+		if check is not None:
+			check(local_paths(path))
 		return set_files(cdp, el['objectId'], path, remote())
 
 	return upload_file
