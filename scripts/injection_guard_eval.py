@@ -106,6 +106,7 @@ async def main(model: Any) -> None:
 		session = SimpleNamespace(
 			actions=[(Action(n, 'python', {'code': c}, task, None), None) for n, c in enumerate(earlier, 1)],
 			hook_requests=requests,
+			time_left=lambda: 60.0,
 		)
 		token = RUNNING.set(cast(Any, session))
 		try:

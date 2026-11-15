@@ -11,7 +11,7 @@ before_action returns:
   raises                refuse it (fail closed); the model reads the exception class and message
 
 After MAX_REFUSED_IN_ROW refusals in a row, or MAX_REFUSED in one run, the run stops trying (as Claude Code's auto
-mode): the next turn is delivery-only, and the model delivers what it has with success=false.
+mode): the next turn is delivery-only, and the model is told to deliver what it has with success=false.
 
 Secret values (sensitive_data) are replaced with `<secret:name>` in what the hooks receive, as in the cell output.
 A guard for what the agent does through browser-use, not a sandbox: see MIGRATING.md "Action hooks".

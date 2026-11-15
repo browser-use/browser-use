@@ -183,6 +183,34 @@ class Session:
 RUNNING: ContextVar[Session | None] = ContextVar('browser_use_running', default=None)
 
 
+async def refused(s: Session, action: Action) -> str | None:
+	"""Ask before_action about one action: None to run it, else what the model reads (the refusal, and after too many the
+	note that stops the run); after_action sees a refused action here."""
+	why = None
+	if s.before_action:
+		running = RUNNING.set(s)
+		try:
+			why = await decide(s.before_action, action)
+		finally:
+			RUNNING.reset(running)
+	s.actions.append((action, why))
+	if why is None:
+		s.refused_in_row = 0
+		return None
+	s.rec.retry('refused')
+	logger.info(printable(f'step {action.step}: {action.tool} refused: {why[:200]}'))
+	s.refused_in_row += 1
+	text = refusal(why)
+	if not s.finalizing and (stop := stop_after(sum(r is not None for _, r in s.actions), s.refused_in_row)):
+		logger.warning(stop.split(':')[0] + ': the next turn is delivery-only')
+		s.budget_hit, s.finalizing = 'refused', True  # a later call of this response gets NOT_RUN
+		s.rec.delivery()
+		text = f'{text}\n{stop}'
+	if s.after_action:
+		await observe(s.after_action, ActionOutcome(action, why, text, None))
+	return text
+
+
 async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	"""Run Python in the persistent REPL (browser-harness helpers and raw cdp() pre-imported).
 
@@ -349,19 +377,17 @@ def _outputs(output_type: Any) -> list[Any]:
 	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool | None = None):
 		check_split_delivery(ctx)
 		s = ctx.deps
-		# The expression runs in the REPL as a cell does and can call any helper: it is an action for the hooks too
+		# the expression is Python in the REPL (it can do anything a cell does): an action for the hooks, also on the
+		# delivery-only turn, or it was the way past before_action
 		action = Action(ctx.run_step, 'finish_from_repl', redact({'expression': expression}, s.repl.secrets), s.task, s.host)
-		if s.before_action and (why := await decide(s.before_action, action)) is not None:
-			s.rec.retry('refused')
-			if s.after_action:
-				await observe(s.after_action, ActionOutcome(action, why, refusal(why), None))
-			raise ModelRetry(refusal(why))
+		if (s.before_action or s.after_action) and (text := await refused(s, action)) is not None:
+			raise ModelRetry(text)  # what an output tool returns is the run's result
 		started = time.monotonic()
-		r = await s.repl.call('eval', expression, s.cell_timeout_s)
-		if s.after_action:  # Repl.call redacted value and error
+		r = await ctx.deps.repl.call('eval', expression, ctx.deps.cell_timeout_s)
+		if s.after_action:
+			output = f'Expression failed: {r["error"]}' if r['error'] else r['value'] or ''
 			urls = redact(list((r.get('stats') or {}).get('pages') or []), s.repl.secrets)
-			outcome = ActionOutcome(action, None, r.get('value') or '', r['error'] or None, urls, time.monotonic() - started)
-			await observe(s.after_action, outcome)
+			await observe(s.after_action, ActionOutcome(action, None, output, r['error'] or None, urls, time.monotonic() - started))
 		if r['error']:
 			ctx.deps.rec.retry('finish_expr_error')
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
@@ -533,8 +559,8 @@ class BrowserLoop(AbstractCapability[Session]):
 		return ActionResult(error=f'{type(error).__name__}: {error}')
 
 	async def wrap_tool_execute(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
-		"""before_action may refuse the call; after_action sees what it did (hooks.py). Output tools are not actions here:
-		finish touches no browser, and finish_from_repl calls the hooks itself (its expression runs in the REPL)."""
+		"""before_action may refuse the call; after_action sees what it did (hooks.py). Output tools are not here:
+		finish touches no browser, and finish_from_repl, which evaluates Python, checks itself (refused())."""
 		if ctx.deps.finalizing and tool_def.kind == 'function':
 			# The delivery-only turn withholds python where it cannot force finish (Claude), yet Claude still called it
 			# (2/2 runs, one ended empty): refuse it instead of running more browser actions.
@@ -544,28 +570,8 @@ class BrowserLoop(AbstractCapability[Session]):
 			return await self._execute(ctx, call, tool_def, args, handler)
 		plain = args if isinstance(args, dict) else to_jsonable_python(args, fallback=str)
 		action = Action(ctx.run_step, call.tool_name, redact(dict(plain), s.repl.secrets), s.task, s.host)
-		why = None
-		if s.before_action:
-			running = RUNNING.set(s)
-			try:
-				why = await decide(s.before_action, action)
-			finally:
-				RUNNING.reset(running)
-		s.actions.append((action, why))
-		if why is not None:
-			s.rec.retry('refused')
-			logger.info(printable(f'step {ctx.run_step}: {call.tool_name} refused: {why[:200]}'))
-			s.refused_in_row += 1
-			text = refusal(why)
-			if not s.finalizing and (stop := stop_after(sum(r is not None for _, r in s.actions), s.refused_in_row)):
-				logger.warning(stop.split(':')[0] + ': the next turn is delivery-only')
-				s.budget_hit, s.finalizing = 'refused', True  # a later call of this response gets NOT_RUN
-				s.rec.delivery()
-				text = f'{text}\n{stop}'
-			if s.after_action:
-				await observe(s.after_action, ActionOutcome(action, why, text, None))
+		if (text := await refused(s, action)) is not None:
 			return text
-		s.refused_in_row = 0
 		started, s.last_cell = time.monotonic(), None
 		try:
 			result = await self._execute(ctx, call, tool_def, args, handler)
