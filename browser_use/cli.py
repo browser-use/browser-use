@@ -435,6 +435,7 @@ def _run_feedback_command(argv: list[str]) -> int:
 	team, also with usage stats off (the user sends it). Waits for the send, so the line it prints is true."""
 	import argparse
 
+	from browser_use.config import CONFIG
 	from browser_use.telemetry import feedback
 	from browser_use.telemetry.service import telemetry
 
@@ -455,6 +456,9 @@ def _run_feedback_command(argv: list[str]) -> int:
 			"browser-use feedback: say what happened, e.g. browser-use feedback 'goto_url hangs on example.com'", file=sys.stderr
 		)
 		return 2
+	if CONFIG.BROWSER_USE_OFFLINE:
+		print('BROWSER_USE_OFFLINE=1: nothing was sent.', file=sys.stderr)
+		return 1
 	sender = telemetry()
 	sender.notice = False  # the CLI's stderr stays its own
 	job = feedback.capture('cli', text, args.category, consent=True)
@@ -1161,7 +1165,13 @@ def browser_use_tui_main() -> int | None:
 def main() -> int | None:
 	global _delegated_to_harness
 
+	import os
+
+	from browser_use.config import CONFIG, OFFLINE_HARNESS_ENV
+
 	_delegated_to_harness = False
+	if CONFIG.BROWSER_USE_OFFLINE:  # browser-harness in this process and every one it starts: no telemetry, no update check
+		os.environ.update(OFFLINE_HARNESS_ENV)
 	args = sys.argv[1:]
 	start_time = time.monotonic()
 	command = _command_name(args)

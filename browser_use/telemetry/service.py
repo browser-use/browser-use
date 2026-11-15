@@ -263,7 +263,8 @@ class ProductTelemetry:
 			logger.debug('telemetry: %s', e)
 
 	def capture_run(self, job: Job) -> None:
-		if not (self.enabled or job.consent):
+		# BROWSER_USE_OFFLINE: not even the user's own feedback (enabled is already False)
+		if not (self.enabled or (job.consent and not CONFIG.BROWSER_USE_OFFLINE)):
 			self._active.pop(job.run_id, None)
 			return
 		try:

@@ -31,6 +31,7 @@ from browser_harness import admin, helpers
 from browser_harness.auth import AuthError
 
 from browser_use.auth import clean_api_key, cloud_error_text, corrupt_store_message
+from browser_use.config import CONFIG
 from browser_use.exceptions import MissingAPIKeyError
 from browser_use.remote_upload import uploader
 
@@ -229,6 +230,11 @@ def _loopback(host: str) -> bool:
 
 def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], namespace: dict[str, Any] | None) -> dict:
 	"""browser-harness's start_remote_daemon with one-line errors, then route this process to the new daemon."""
+	if CONFIG.BROWSER_USE_OFFLINE:
+		raise CloudBrowserError(
+			'BROWSER_USE_OFFLINE=1: start_remote_daemon() would start a Browser Use Cloud browser. Drive a local browser, '
+			'or unset BROWSER_USE_OFFLINE.'
+		)
 	os.environ.setdefault('BH_TAB_MARKER', '0')  # the daemon spawned below inherits it
 	_check_socket_path(name)
 	if admin.daemon_alive(name):

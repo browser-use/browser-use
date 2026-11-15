@@ -329,6 +329,28 @@ of the browser) are neither opened nor returned unless `BH_OPEN_LIVE_URL=1`, and
 `upload_file` sends the file's bytes through the page on a cloud browser. `stop_remote_daemon(name)` stops the cloud
 browser even after its daemon was killed (again on a stopped one: a no-op), and a new `start_remote_daemon(name)` first stops one still recorded.
 
+## Network inventory
+
+Everything browser-use itself can contact. `BROWSER_USE_OFFLINE=1` (also `true`, `yes`, `on`) leaves only your model
+endpoint and your browser: telemetry, feedback and update checks send nothing, and whatever would need Browser Use
+raises a `ValueError` naming it when `Agent(...)` or `Browser(...)` is constructed, before any browser starts.
+
+| Destination | When | What is sent | How to turn it off |
+|---|---|---|---|
+| your model provider (`api.openai.com`, `api.anthropic.com`, Google, your `base_url`) | every run; the judge too (`judge=True`) | the conversation: task, cell output, screenshots; one free GET of the model before the first run (official endpoints only) | your choice of `llm`; not affected by `BROWSER_USE_OFFLINE` |
+| your browser (local Chrome, `cdp_url`) | every run | CDP on 127.0.0.1 or your `cdp_url`; the browser's own traffic (pages, and Chrome's own Google services) is the browser's | not affected |
+| `api.browser-use.com/api/v4/llm/v1` (gateway) | `llm=None` (`bu-fast`), `'bu-*'`, `ChatBrowserUse()`, `ChatOpenAI(base_url=<gateway>)` | the conversation, as to any provider, with your Browser Use key | pass your own `llm`; offline raises |
+| `api.browser-use.com/api/v4/browsers`, the cloud browser's CDP host | `Browser()` (the default), `cloud_profile_id=...`; `start_remote_daemon()` in the CLI and MCP server | browser settings, then all page traffic runs there; uploads and downloads go through it | `Browser('chromium')`, `Browser('chrome')` or `cdp_url=`; offline raises |
+| `api.browser-use.com/api/v4/search` | `Agent(web_search=True)` (off by default) | each query, and one empty POST before the run | leave it off; offline raises |
+| `eu.i.posthog.com` | usage telemetry: each run, and each CLI / MCP call | model, steps, cost, timing, helper names, URLs without query strings, scrubbed errors and result ([Trust model](#trust-model-for-secrets)); never the task, typed text, code or secrets | `ANONYMIZED_TELEMETRY=false` or `browser-use telemetry disable`; offline |
+| `eu.i.posthog.com` (feedback) | `report_issue()` in a cell, the `browser_feedback` MCP tool, `browser_use.feedback()`, `browser-use feedback` | your message, scrubbed | the first two follow telemetry; your own `feedback()` / `browser-use feedback` only offline |
+| `pypi.org/pypi/browser-use/json` | CLI and `--cli-mcp` only, when attaching a browser fails, at most once a day | a GET, nothing of yours | `BROWSER_USE_NO_UPDATE_CHECK=1`, `CI`; offline |
+| browser-harness's PostHog and `pypi.org/pypi/browser-harness/json` | never from browser-use: the CLI sends its scrubbed events through the row above and turns its update banner off; the agent's worker sets `BH_TELEMETRY=0` | | offline also sets `BH_TELEMETRY=0` and `BH_UPDATE_CHECK=0` for every browser-harness the CLI or worker starts |
+| fetch-use proxy | never: browser-harness's `http_get()` uses it when `BROWSER_USE_API_KEY` is set, and browser-use replaces it with plain HTTP from this machine | | |
+| `api.browser-use.com` (sign-in), PyPI (`uv tool install`), Playwright's Chromium download | only the commands that do it: `browser-use login`, `browser-use skill install --install-cli`, `browser-use install`; `--cli-mcp` installs Chromium on a machine without a display or browser | your key (to check it) | do not run them; offline does not block them |
+
+OpenTelemetry spans go only where you send them ([Observability](#observability)).
+
 ## Trust model for secrets
 
 The REPL worker runs model-written Python as your user. 1.0 limits what it can see by default:

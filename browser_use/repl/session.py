@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from browser_use import search as web
+from browser_use.config import CONFIG, OFFLINE_HARNESS_ENV
 
 MODES = ('default', 'ultrafast')
 STREAM_LIMIT = 256 * 1024 * 1024
@@ -48,6 +49,7 @@ ENV_ALLOW = {
 	# corporate proxies and CAs: http_get() and requests/httpx in cells need them like the parent does
 	'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE',
 	'CURL_CA_BUNDLE',
+	'BROWSER_USE_OFFLINE',  # the worker's own browser_use imports (feedback(), the update check) honor it too
 }  # fmt: skip
 ENV_ALLOW_PREFIXES = ('LC_', 'BU_', 'BH_')  # browser-harness reads BU_NAME, BH_RUNTIME_DIR, BH_TMP_DIR, ...
 ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE', 'BU_HIGHLIGHT_ACTIONS'}  # CDP URLs can carry credentials; Repl sets the rest
@@ -386,6 +388,8 @@ class Repl:
 		# A browser-harness CLI call from a cell would send its piped code and output (page text) as cli_event, and the
 		# allowlisted env drops ANONYMIZED_TELEMETRY. The run is already counted (agent_event).
 		env['BH_TELEMETRY'] = '0'
+		if CONFIG.BROWSER_USE_OFFLINE:  # a `browser-harness` call from a cell: no PyPI update check either
+			env.update(OFFLINE_HARNESS_ENV)
 		env['BU_MODEL_CODE'] = '1'  # the model's code: its browser_use.feedback() is not the user's consent (feedback.py)
 		env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # page text is Unicode; Windows defaults to cp1252
 		if self.mode == 'ultrafast':

@@ -35,12 +35,13 @@ from browser_use.agent.views import AgentHistoryList
 from browser_use.auth import browser_use_api_key
 from browser_use.browser import Browser
 from browser_use.browser import browser as browser_module
-from browser_use.config import load_env
+from browser_use.config import check_online, load_env
 from browser_use.exceptions import BrowserConfigError, MissingAPIKeyError, removed
 from browser_use.llm import (
 	GATEWAY_URL,
 	ChatBrowserUse,
 	as_chat_model,
+	browser_use_gateway_url,
 	gateway_alias,
 	gateway_llm,
 	provider_preflight,
@@ -311,6 +312,13 @@ class Agent:
 			)
 		self.task, self.llm, self.browser, self.tools = task, as_chat_model(llm), browser, tools
 		self._tasks = [task]  # every task this agent ran (follow-ups too): telemetry never sends their text
+		if url := browser_use_gateway_url(self.llm):  # the default model too: a run would call it, not fail
+			check_online(
+				f'the model {gateway_alias(self.llm)} (the Browser Use gateway at {url})',
+				'Pass your own: llm=ChatOpenAI(...), ChatAnthropic(...), ChatGoogle(...) or a Pydantic AI model',
+			)
+		if web_search:
+			check_online('Agent(web_search=True) (Browser Use web search)', 'Pass web_search=False')
 		# bu-fast and bu-ultrafast are evaluated in ultrafast mode (Google Flights: 0/3 in default mode, 3/3)
 		fast = gateway_alias(self.llm) in ('bu-fast', 'bu-ultrafast')
 		self.mode = check_mode(mode if mode is not None else 'ultrafast' if fast else 'default')

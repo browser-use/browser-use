@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 CATEGORIES = ('bug', 'docs', 'missing', 'other')
 MAX_MESSAGE = 2000  # characters
 MAX_PER_RUN = 3  # report_issue() calls sent per Agent.run(), browser_feedback calls per MCP server process
-OFF = 'Feedback is off (ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable`): nothing was sent.'
+OFF = 'Feedback is off (BROWSER_USE_OFFLINE=1, ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable`): nothing was sent.'
 SENT = 'Reported to the Browser Use team. Thanks; carry on.'
 MODEL_CODE = 'From an agent cell use report_issue(...), from an MCP client the browser_feedback tool: nothing was sent.'
 MCP_TOOL = {  # browser_feedback, on --cli-mcp and on the server that only reports why nothing can run (cli.py)
@@ -59,13 +59,14 @@ def capture(
 	consent, or the user's path called from a model's code). Scrubbed in the telemetry thread, as agent_event: secrets
 	(sensitive_data), each task and each typed text as placeholders when given. run: the agent's model, run_id, step
 	and last_error_type."""
+	from browser_use.config import CONFIG
 	from browser_use.telemetry.service import Job, telemetry
 
 	text = message.strip() if isinstance(message, str) else ''
 	if source in ('python', 'cli') and os.environ.get('BU_MODEL_CODE'):  # a model's report under the user's name
 		return None
 	sender = telemetry()
-	if not text or not (consent or sender.enabled):
+	if not text or not (consent or sender.enabled) or CONFIG.BROWSER_USE_OFFLINE:
 		return None
 	kind = category if category in CATEGORIES else 'other'
 
@@ -86,9 +87,9 @@ def capture(
 
 def feedback(message: str, category: str = 'bug') -> bool:
 	"""Tell the Browser Use team what went wrong with browser-use: a bug, wrong docs, a missing feature. category: 'bug',
-	'docs', 'missing' or 'other'. Sent in the background, also with usage stats off (you asked to send it); secrets,
-	API keys, emails, URL queries and home folders in the text are replaced before it leaves. True if it was queued;
-	False from an agent cell or an MCP client's code (they report with report_issue() or browser_feedback)."""
+	'docs', 'missing' or 'other'. Sent in the background, also with usage stats off (you asked to send it), never with
+	BROWSER_USE_OFFLINE=1; secrets, API keys, emails, URL queries and home folders in the text are replaced before it
+	leaves. True if it was queued; False offline, or from an agent cell or an MCP client's code (they report with report_issue() or browser_feedback)."""
 	return capture('python', message, category, consent=True) is not None
 
 

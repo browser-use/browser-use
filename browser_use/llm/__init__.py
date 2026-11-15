@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 from pydantic import SecretStr
 
 from browser_use.auth import browser_use_api_key, clean_api_key
+from browser_use.config import is_browser_use_host
 from browser_use.utils import urlopen_keyed
 
 logger = logging.getLogger(__name__)
@@ -503,6 +504,15 @@ def gateway_alias(llm: Any) -> str | None:
 		return llm.model
 	llm = gateway_llm(llm) or llm
 	return llm.model if isinstance(llm, ChatBrowserUse) else None
+
+
+def browser_use_gateway_url(llm: Any) -> str | None:
+	"""The URL of any gateway form when it is Browser Use's own host; None for any other model, and for
+	ChatBrowserUse(base_url=...) on another host (your own endpoint)."""
+	if isinstance(llm, ChatOpenAI) and llm.is_gateway:
+		return GATEWAY_URL
+	llm = gateway_llm(llm) or llm
+	return llm.base_url if isinstance(llm, ChatBrowserUse) and is_browser_use_host(llm.base_url) else None
 
 
 def as_chat_model(llm: Any) -> Any:

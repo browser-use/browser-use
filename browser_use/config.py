@@ -4,6 +4,10 @@ import os
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
+
+# BROWSER_USE_OFFLINE=1 also turns off browser-harness's own telemetry and update check, in every process it starts
+OFFLINE_HARNESS_ENV = {'BH_TELEMETRY': '0', 'BH_UPDATE_CHECK': '0'}
 
 
 def load_env() -> None:
@@ -33,7 +37,14 @@ class Config:
 		return os.getenv('BROWSER_USE_LOGGING_LEVEL', 'info').lower()
 
 	@property
+	def BROWSER_USE_OFFLINE(self) -> bool:
+		"""Nothing goes to Browser Use (MIGRATING.md "Network inventory"): only your model endpoint and your browser."""
+		return os.getenv('BROWSER_USE_OFFLINE', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+	@property
 	def ANONYMIZED_TELEMETRY(self) -> bool:
+		if self.BROWSER_USE_OFFLINE:
+			return False
 		value = os.getenv('ANONYMIZED_TELEMETRY', 'true').strip().lower()
 		return value != '' and value[0] in 'ty1'  # '' in 'ty1' is True: an empty value left telemetry on
 
@@ -46,6 +57,18 @@ class Config:
 
 
 CONFIG = Config()
+
+
+def is_browser_use_host(url: str) -> bool:
+	"""browser-use.com or a subdomain (the gateway, the cloud API, search)."""
+	host = (urlparse(url).hostname or '').lower()
+	return host == 'browser-use.com' or host.endswith('.browser-use.com')
+
+
+def check_online(what: str, fix: str) -> None:
+	"""With BROWSER_USE_OFFLINE set, refuse what would contact Browser Use, before anything starts."""
+	if CONFIG.BROWSER_USE_OFFLINE:
+		raise ValueError(f'BROWSER_USE_OFFLINE=1: {what} would contact Browser Use. {fix}, or unset BROWSER_USE_OFFLINE.')
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here
