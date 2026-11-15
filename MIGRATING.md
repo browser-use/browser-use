@@ -44,6 +44,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | `use_judge`, `ground_truth` | kept as `judge` and `judge_context` (below) |
 | everything else 0.x took | removed: [Removed in 1.0](#removed-in-10) |
 | new: `judge`, `judge_context` | `judge=True` (the default): after each run that took a step, one request to the agent's own model, at low effort, judges the trace (120k characters of text, secrets redacted) against the task; with vision on (`use_vision=False` sends text only) it also sends the last 4 distinct images of the run, the final page included, as they are (not redacted). A model that rejects images is asked once more with the text alone. `result.judgement` holds `success`, `failure_reason`, `description`, `prompt_injection_detected`, `bot_block_or_captcha_detected` and `gotchas` (short, general lessons about the sites for the next agent, also on a success: what the agent had to retry or work around); its tokens and cost are added to `result.usage` and `result.cost_usd`. A judge that fails logs a warning and leaves `result.judgement` `None`. `judge_context` is your criteria or expected answer, which the judge puts first. With usage stats on, `agent_event` carries the judgement, each text scrubbed as error messages are. `judge=False` sends no judge request |
+| new: `before_action`, `after_action` | see every tool call (a Python cell, or one of your `Tools` actions) before it runs, refuse it, and see what it did: [Action hooks](#action-hooks) |
 | new: `reasoning`, `mode`, `workspace`, `web_search`, `max_context_chars`, `highlight_actions` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway a bu-* alias's own effort, a listed OpenAI model 'medium'; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'` (the default on `bu-fast` and `bu-ultrafast`; `mode='default'` opts out); `workspace` holds the agent's files (default: a new temp dir `browser-use-*`, kept after the run: it holds page text, screenshots and cell output, so delete it when done, or pass your own `workspace=`); `web_search=True` gives the agent `search()` (Browser Use web search on the gateway host, `POST /api/v4/search`, with the gateway model's key or the Browser Use key; billed per search; each charge the response reports (`browser_use.charge_usd`) is added to `result.cost_usd`, a response without one adds nothing, and an unknown model cost stays `None`) off by default; `True` raises without a Browser Use key or with `allowed_domains`. Off, the system prompt is unchanged; `max_context_chars`: past 75% of this many characters of conversation the agent compacts its history into a summary checkpoint (default 4 per token of the model's context window, as Browser Use Pi, or 240k when pydantic-ai does not know the window; unused where the provider compacts server-side: OpenAI Responses, the gateway); `highlight_actions=False` turns off the orange corner brackets around what the agent clicks or types into (on by default) |
 
 ## Agent methods
@@ -152,7 +153,7 @@ Each raises the one error above (the tuning knobs marked "ignored" warn instead;
 
 | 0.x | Status | In 1.0 |
 |---|---|---|
-| step callbacks: `register_new_step_callback`, `register_done_callback`, `register_external_agent_status_raise_error_callback`, `register_should_stop_callback`, `run(on_step_start=...)`, `run(on_step_end=...)` | removed | live: each step logs one INFO line (`step N: <first line of the cell> -> <error>`) to `logging.getLogger('browser_use')`, after a `Task: ... (workspace ...)` line and before `completed in N steps`; add a `logging.Handler` to it to stream progress to an MCP client or web UI (`BROWSER_USE_LOGGING_LEVEL=warning` silences it). After the run: `result.messages`; the result `run()` returns; to stop early, cancel the task awaiting `run()` or pass `run(timeout=...)` |
+| step callbacks: `register_new_step_callback`, `register_done_callback`, `register_external_agent_status_raise_error_callback`, `register_should_stop_callback`, `run(on_step_start=...)`, `run(on_step_end=...)` | removed | `Agent(before_action=..., after_action=...)` ([Action hooks](#action-hooks)): each sees every tool call, before and after it runs; `before_action` can refuse it. Also live: each step logs one INFO line (`step N: <first line of the cell> -> <error>`) to `logging.getLogger('browser_use')`, after a `Task: ... (workspace ...)` line and before `completed in N steps`; add a `logging.Handler` to it to stream progress to an MCP client or web UI (`BROWSER_USE_LOGGING_LEVEL=warning` silences it). After the run: `result.messages`; the result `run()` returns; to stop early, cancel the task awaiting `run()` or pass `run(timeout=...)` |
 | `agent.pause()`, `resume()`, `stop()`, `step()`, `take_step()`, `multi_act()` | removed | `task = asyncio.create_task(agent.run())`, then `task.cancel()` (from another thread: `loop.call_soon_threadsafe(task.cancel)`); `run()` raises `CancelledError` and the browser stops. For a partial result, bound the run: `run(timeout=..., max_steps=...)` |
 | history replay: `save_history()`, `load_and_rerun()`, `rerun_history()`, `detect_variables()`, `AgentHistoryList.save_to_file()` / `load_from_file()` | removed | `result.messages` holds the transcript; run the task again |
 | judge: `judge_llm`, `AgentHistoryList.judgement()` / `is_judged()` / `is_validated()` | removed | the judge uses the agent's own `llm`; `result.judgement` (`use_judge` and `ground_truth` are kept as `judge` and `judge_context`) |
@@ -267,7 +268,7 @@ ActionResult, ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle`.
 | `browser_use.llm.models`, the 0.x model instances `browser_use.llm.openai_gpt_4o`, `.google_gemini_2_5_flash`, `.anthropic_claude_sonnet_4_0`, `.azure_*`, `.mistral_*`, `.cerebras_*`, `.bu_*`, `get_llm_by_name()` | a Pydantic AI model string, e.g. `llm='openai:gpt-6-luna'`, or the Chat class: each error names it (`ChatOpenAI('gpt-4o')` for `openai_gpt_4o`) |
 | `browser_use.browser.session`, `.profile`, `.views`, `.watchdogs`, `.session_manager`, `.context` (`BrowserContext`, `BrowserContextConfig`), `ProxySettings` | `from browser_use import Browser`, options passed to `Browser(...)`; a proxy is `cloud_proxy_country_code` on cloud browsers (`Browser('chromium')` has no proxy yet) |
 | `Browser.list_chrome_profiles()` | `Browser('chrome', profile='Work')` takes a profile's display or directory name; a name that matches none raises with the list of your profiles |
-| `browser_use.browser.events` (`ScreenshotEvent`, ...), `agent.service.AgentHookFunc` | each step logs one INFO line to `logging.getLogger('browser_use')`; add a `logging.Handler` to stream progress, and read `result.messages` after the run |
+| `browser_use.browser.events` (`ScreenshotEvent`, ...), `agent.service.AgentHookFunc` | `Agent(before_action=..., after_action=...)` ([Action hooks](#action-hooks)); each step also logs one INFO line to `logging.getLogger('browser_use')`; add a `logging.Handler` to stream progress, and read `result.messages` after the run |
 | `browser_use.browser.cloud` | `Browser()` is a cloud browser (`cloud_profile_id=`, `cloud_proxy_country_code=`, `cloud_timeout=`) |
 | `browser_use.controller`, `browser_use.tools.service`, `.registry`, `.views` | `from browser_use import Tools, ActionResult` (`Controller` is the same class) |
 | `browser_use.agent.views`: `AgentOutput`, `AgentBrain`, `AgentState`, `AgentHistory`, `AgentStepInfo`, `StepMetadata`, `AgentError`, `AgentStructuredOutput` | `AgentHistoryList` and `ActionResult` are kept. The rest: the result `run()` returns (`status`, `text`, `output`, `error`, `usage`, `number_of_steps()`, `messages`); `Agent(output_model_schema=...)` for structured output |
@@ -328,6 +329,40 @@ and starts them with a 30-minute timeout unless `timeout=` is passed. The live v
 of the browser) are neither opened nor returned unless `BH_OPEN_LIVE_URL=1`, and cloud tabs get no title marker.
 `upload_file` sends the file's bytes through the page on a cloud browser. `stop_remote_daemon(name)` stops the cloud
 browser even after its daemon was killed (again on a stopped one: a no-op), and a new `start_remote_daemon(name)` first stops one still recorded.
+
+## Action hooks
+
+`Agent(task, before_action=policy, after_action=record)`. An action is one tool call: a Python cell (`action.tool ==
+'python'`, the code in `action.code`) or one of your `Tools` actions. `finish` is not an action. Both hooks may be plain
+functions or coroutines.
+
+```python
+from browser_use import Action, ActionOutcome, Agent
+
+def policy(action: Action) -> bool | str | None:
+	if action.code and 'upload_file' in action.code:
+		return 'uploads need a human approval'  # refused; the model reads this reason
+	return None  # run it
+
+def record(outcome: ActionOutcome) -> None:
+	print(outcome.action.step, outcome.action.tool, outcome.refused, outcome.urls, outcome.error)
+
+Agent('...', before_action=policy, after_action=record)
+```
+
+- `Action`: `step` (the model request that asked for it), `tool`, `args` (`{'code': ...}` for a cell), `task` (this
+  run's task), `host` (the hostname the last cell ended on, `None` before the first navigation).
+- `before_action` returns `None` or `True` to run it, `False` or a reason (`str`) to refuse it: nothing runs and the
+  model reads `Not run: <reason>. Do not try to get around it.` A hook that raises, or returns anything else, refuses
+  the action (fail closed). It can block to ask a human: the run waits (the run's `timeout` keeps counting).
+- `ActionOutcome`: `action`, `refused` (the reason, or `None`), `output` (what the model reads back), `error` (the
+  cell's error), `urls` (the cell's navigations in order, full URLs without the `#fragment`, at most 50), `duration_s`.
+  `after_action` also sees refused actions. An exception it raises is logged and ignored.
+- Secret values (`sensitive_data`) are replaced with `<secret:name>` in `args`, `task`, `output` and `urls`.
+- Not a sandbox, like [domain restrictions](#domain-restrictions): the hook sees the code before it runs, so it
+  decides on what the code says. Code can do things its text does not show (`exec` of a string it builds, a click whose
+  effect depends on the page), and a cell does several things at once. For a hard boundary on where the browser goes,
+  use `Browser(allowed_domains=...)`; run untrusted tasks in a container or VM.
 
 ## Trust model for secrets
 

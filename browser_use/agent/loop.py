@@ -60,6 +60,7 @@ from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai.usage import UsageLimits
 from pydantic_core import PydanticSerializationError, to_json, to_jsonable_python
 
+from browser_use.agent.hooks import Action, ActionOutcome, AfterAction, BeforeAction, decide, observe, refusal
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
@@ -135,6 +136,11 @@ class Session:
 	success: bool | None = None  # the verdict finish/finish_from_repl must give; None for a plain-text delivery
 	messages: list[ModelMessage] = field(default_factory=list)
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
+	before_action: BeforeAction | None = None  # Agent(before_action=...): may refuse each tool call (hooks.py)
+	after_action: AfterAction | None = None  # Agent(after_action=...): sees what each tool call did
+	task: str = ''  # this run's task, secret values redacted (what the hooks see)
+	host: str | None = None  # the hostname the last cell was on (Action.host)
+	last_cell: dict | None = None  # the last python() result: after_action reads its error and URLs
 	stats: RunStats = field(default_factory=RunStats)  # telemetry counts
 	finish_via: str | None = None  # finish | finish_from_repl | text: how the result was delivered
 	budget_hit: str | None = None  # max_steps | timeout | browser_gone: what forced the delivery-only turn
@@ -183,6 +189,8 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	grace = 10 if getattr(repl, 'mode', 'default') == 'ultrafast' else 0
 	r = await repl.call('exec', code, min(ctx.deps.cell_timeout_s + grace, max(left, 1.0)))
 	ctx.deps.stats.add_cell(r, code, time.monotonic() - started)
+	ctx.deps.last_cell = r
+	ctx.deps.host = (r.get('stats') or {}).get('host') or ctx.deps.host
 	ctx.deps.rec.phase('repl_start', getattr(repl, 'start_ns', 0) - starts)
 	ctx.deps.rec.cell(r, code, now() - t0, ctx.deps.vision)
 	if r.get('browser_gone'):  # a model left without a browser went looking for another one (the user's own Chrome)
@@ -500,12 +508,41 @@ class BrowserLoop(AbstractCapability[Session]):
 		return ActionResult(error=f'{type(error).__name__}: {error}')
 
 	async def wrap_tool_execute(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
-		"""Custom tools (Tools) run in this process, so the worker's redaction never saw their results: redact them
-		(strings, ActionResult and other models, nested values) and their retry messages before the model does."""
+		"""before_action may refuse the call; after_action sees what it did (hooks.py). Output tools (finish) are not
+		actions: they deliver the result and touch no browser."""
 		if ctx.deps.finalizing and tool_def.kind == 'function':
 			# The delivery-only turn withholds python where it cannot force finish (Claude), yet Claude still called it
 			# (2/2 runs, one ended empty): refuse it instead of running more browser actions.
 			return NOT_RUN
+		s = ctx.deps
+		if tool_def.kind != 'function' or not (s.before_action or s.after_action):
+			return await self._execute(ctx, call, tool_def, args, handler)
+		plain = args if isinstance(args, dict) else to_jsonable_python(args, fallback=str)
+		action = Action(ctx.run_step, call.tool_name, redact(dict(plain), s.repl.secrets), s.task, s.host)
+		if s.before_action and (why := await decide(s.before_action, action)) is not None:
+			s.rec.retry('refused')
+			logger.info(printable(f'step {ctx.run_step}: {call.tool_name} refused: {why[:200]}'))
+			if s.after_action:
+				await observe(s.after_action, ActionOutcome(action, why, refusal(why), None))
+			return refusal(why)
+		started, s.last_cell = time.monotonic(), None
+		result = await self._execute(ctx, call, tool_def, args, handler)
+		if s.after_action:
+			cell = s.last_cell if call.tool_name == 'python' else None
+			if cell is not None:
+				pages = list((cell.get('stats') or {}).get('pages') or [])
+				output, error, urls = cell.get('output') or '', cell.get('error') or None, redact(pages, s.repl.secrets)
+			else:
+				shown = result[0] if call.tool_name == 'python' and isinstance(result, list) and result else result
+				text = shown if isinstance(shown, str) else as_text(to_jsonable_python(shown, fallback=str))
+				error = getattr(result, 'error', None) if isinstance(result, ActionResult) else None
+				output, urls = redact(text, s.repl.secrets), []
+			await observe(s.after_action, ActionOutcome(action, None, output, error, urls, time.monotonic() - started))
+		return result
+
+	async def _execute(self, ctx: RunContext[Session], call, tool_def, args, handler) -> Any:
+		"""Custom tools (Tools) run in this process, so the worker's redaction never saw their results: redact them
+		(strings, ActionResult and other models, nested values) and their retry messages before the model does."""
 		secrets = ctx.deps.repl.secrets
 		if call.tool_name == 'python' or tool_def.kind != 'function':
 			return await handler(args)
