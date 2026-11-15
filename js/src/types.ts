@@ -80,8 +80,14 @@ export interface BrowserUseOptions extends DomainOptions {
 }
 /** Per-run context controls. Unset fields keep today's behavior. */
 export interface ContextSettings {
-  /** Screenshots kept in tool results; older ones are removed. Default 2. */
+  /** Screenshots kept when old ones are pruned. Default 2. */
   keepScreenshots?: number;
+  /**
+   * Old screenshots are pruned in one batch once more than this many tool results carry one, so the cached
+   * prompt prefix stays unchanged between prunes. Default 20 (Python browser-use). Set it to keepScreenshots to
+   * prune on every new screenshot.
+   */
+  pruneScreenshotsAt?: number;
   /** Trim old screenshots and long tool output in one batch when the context reaches this many tokens. */
   trimAtTokens?: number;
   /** Compact when the context reaches this many tokens. Default 65% of the model window. */

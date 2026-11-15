@@ -19,6 +19,16 @@ export function contextSettings(
   const keep = input?.keepScreenshots;
   if (keep !== undefined && (!Number.isSafeInteger(keep) || keep < 0 || keep > 10))
     throw new Error('context.keepScreenshots must be an integer from 0 to 10.');
+  const pruneAt = input?.pruneScreenshotsAt;
+  if (
+    pruneAt !== undefined &&
+    (!Number.isSafeInteger(pruneAt) ||
+      pruneAt < (keep ?? DEFAULT_KEEP_SCREENSHOTS) ||
+      pruneAt > MAX_PRUNE_SCREENSHOTS_AT)
+  )
+    throw new Error(
+      `context.pruneScreenshotsAt must be an integer from keepScreenshots to ${MAX_PRUNE_SCREENSHOTS_AT}.`,
+    );
   for (const name of ['trimAtTokens', 'compactAtTokens'] as const) {
     const value = input?.[name];
     if (value === undefined) continue;
@@ -61,7 +71,14 @@ export const contextWindowError = (message: string) =>
 const checkpointPrefix = 'Conversation checkpoint:';
 const hasImage = (m: AgentMessage) =>
   m.role === 'toolResult' && m.content.some((c) => c.type === 'image');
+/** Python browser-use 1.0.5 agent/loop.py PRUNE_IMAGES_AT / KEEP_IMAGE_RESULTS. Screenshots pile up until more than
+ * PRUNE_SCREENSHOTS_AT tool results carry one, then all but the newest KEEP lose them in one go. Removing one rewrites
+ * an earlier message and breaks the provider's prompt cache from there on: pruning on every new screenshot made each
+ * such request a cache miss (BU Bench 1.0.3: $0.434 vs $0.208 per task). Not never: Anthropic rejects >100 images. */
 const DEFAULT_KEEP_SCREENSHOTS = 2;
+const DEFAULT_PRUNE_SCREENSHOTS_AT = 20;
+const MAX_PRUNE_SCREENSHOTS_AT = 90;
+const REMOVED_SCREENSHOT = '[older screenshot removed]';
 /** A batch trim must free at least this many tokens. */
 const MIN_TRIM_TOKENS = 15_000;
 const TRIMMED_TEXT_CHARS = 2000;
@@ -157,6 +174,8 @@ export class RunContext {
   private retained: AgentMessage[] = [];
   private usageAfter = 0;
   private trimBefore = 0;
+  /** Screenshots in tool results before this body index are removed; it moves only on a prune. */
+  private pruneBefore = 0;
   beforeSummary?: () => void;
   force = false;
   compactions = 0;
@@ -175,27 +194,35 @@ export class RunContext {
     const body = conversation(messages);
     return this.summary ? [...this.retained, this.summary, ...body.slice(this.covered)] : body;
   }
-  /** Screenshots outside the kept ones go at once, or only before the batch-trim line when one is set. */
+  /** Screenshots before the prune line (or the batch-trim line) are replaced by a note; long output only before the trim line. */
   private projectAt(projected: AgentMessage[], trimBefore: number): AgentMessage[] {
-    const batched = this.settings.trimAtTokens !== undefined;
-    const count = this.settings.keepScreenshots ?? DEFAULT_KEEP_SCREENSHOTS;
-    const keep = new Set(count > 0 ? projected.filter(hasImage).slice(-count) : []);
     return projected.map((m, i) => {
       if (m.role !== 'toolResult') return m;
       const cold = i < trimBefore;
-      const strip = batched ? cold : !keep.has(m);
-      if (!strip && !cold) return m;
+      const strip = cold || i < this.pruneBefore;
+      if (!strip) return m;
       return {
         ...m,
-        content: m.content
-          .filter((c) => !(strip && c.type === 'image'))
-          .map((c) =>
-            cold && c.type === 'text' && c.text.length > TRIMMED_TEXT_CHARS
+        content: m.content.map((c) =>
+          c.type === 'image'
+            ? { type: 'text' as const, text: REMOVED_SCREENSHOT }
+            : cold && c.type === 'text' && c.text.length > TRIMMED_TEXT_CHARS
               ? { ...c, text: c.text.slice(0, TRIMMED_TEXT_CHARS) + trimmedMarker }
               : c,
-          ),
+        ),
       };
     });
+  }
+  /** Python _prune_images: once more than pruneScreenshotsAt tool results after the line carry a screenshot, the line
+   * moves to the newest keepScreenshots of them. Between prunes the projected prefix stays byte-identical. */
+  prune(messages: AgentMessage[]) {
+    const body = this.body(messages);
+    const shots = body.flatMap((m, i) => (i >= this.pruneBefore && hasImage(m) ? [i] : []));
+    const at = this.settings.pruneScreenshotsAt ?? DEFAULT_PRUNE_SCREENSHOTS_AT;
+    if (shots.length <= at) return false;
+    const keep = this.settings.keepScreenshots ?? DEFAULT_KEEP_SCREENSHOTS;
+    this.pruneBefore = keep > 0 ? shots.at(-keep)! : shots.at(-1)! + 1;
+    return true;
   }
   project(messages: AgentMessage[]): AgentMessage[] {
     return [
@@ -421,6 +448,7 @@ export class RunContext {
     this.covered = messages.length;
     this.usageAfter = messages.length;
     this.trimBefore = 0;
+    this.pruneBefore = 0;
     this.force = false;
     this.compactions++;
   }

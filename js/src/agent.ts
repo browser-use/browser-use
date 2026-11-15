@@ -398,6 +398,7 @@ export async function runAgent(
           throw new Error('Cost limit reached during context preparation.');
         }
       };
+      context.prune(messages);
       context.trim(messages, agent.state.systemPrompt);
       while (options.compaction !== false && context.baseFits(agent.state.systemPrompt)) {
         signal?.throwIfAborted();
