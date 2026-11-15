@@ -1,9 +1,11 @@
 import type { StreamFn } from '@earendil-works/pi-agent-core';
 import { createAssistantMessageEventStream, type AssistantMessage } from '@earendil-works/pi-ai';
 
-/** Bound connection setup and the entire response, even if a transport ignores abort. */
-export function deadlineStream(streamFn: StreamFn, timeoutMs: number): StreamFn {
+/** Bound connection setup and the entire response, even if a transport ignores abort. A function deadline is
+ * read when each request starts (the time left in the run). */
+export function deadlineStream(streamFn: StreamFn, deadline: number | (() => number)): StreamFn {
   return (model, context, options) => {
+    const timeoutMs = Math.max(1, Math.round(typeof deadline === 'function' ? deadline() : deadline));
     const output = createAssistantMessageEventStream();
     const controller = new AbortController();
     let ended = false;

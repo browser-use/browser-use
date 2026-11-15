@@ -57,6 +57,8 @@ const TRANSIENT_MODEL_ERRORS = [
   /^Request timed out\.$/,
   /^stream inactive >\d+s$/,
 ];
+const NO_TIME =
+  'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_js with what you have.';
 /** Python agent/loop.py TOOL_CALL_MARKUP: a tool call written as text ran nothing and is no answer. */
 const TOOL_CALL_MARKUP = /<\/?tool_call>/;
 // httpx and openai transport failures, relayed bare ("ReadError") or with their message.
@@ -119,6 +121,11 @@ export async function runAgent(
   const settings = contextSettings(options.context, model);
   runtime.beginRun();
   const start = Date.now();
+  /** Python Session.delivery_at: the delivery-only turn starts at 90% of the budget, or earlier on a short budget so
+   * the delivery request has up to 30 s. */
+  const deliveryAt = timeoutMs - Math.max(0.1 * timeoutMs, Math.min(30_000, 0.5 * timeoutMs));
+  /** Milliseconds until the delivery-only turn starts, or on a delivery turn until the run's end. */
+  const timeLeft = () => (delivering() ? timeoutMs : deliveryAt) - (Date.now() - start);
   let previousMessages = session?.messages.length ?? 0;
   const hookTimeout = config.hookTimeoutMs ?? 30_000;
   let steps = 0;
@@ -155,9 +162,21 @@ export async function runAgent(
     executionMode: 'sequential',
     replay: 'never',
     execute: async (_id, params: { code: string }, signal) => {
+      // A cell never runs into the delivery turn's time (Python agent/loop.py python()).
+      const left = deliveryAt - (Date.now() - start);
+      if (left <= 0)
+        return {
+          content: [{ type: 'text', text: NO_TIME }],
+          details: {},
+        };
       let result;
       try {
-        result = await runtime.execute(params.code, config.cellTimeoutMs ?? 30_000, signal);
+        result = await runtime.execute(
+          params.code,
+          config.cellTimeoutMs ?? 30_000,
+          signal,
+          Math.max(left, 1000),
+        );
       } catch (error) {
         if (!(error instanceof CellError)) throw error;
         // Pi converts thrown tools to text-only errors. Restore their native evidence
@@ -318,7 +337,8 @@ export async function runAgent(
           maxTokens: Math.min(selected.maxTokens, 32768, Math.floor(selected.contextWindow * 0.15)),
           ...(delivering() && keepTools ? { toolChoice: deliveryChoice } : {}),
         }),
-      config.modelTimeoutMs ?? 300_000,
+      // Never past the delivery turn's start, or on that turn the run's end (Python _deadlines).
+      () => Math.min(config.modelTimeoutMs ?? 300_000, Math.max(1000, timeLeft())),
     ),
     initialState: {
       model,
@@ -464,7 +484,7 @@ export async function runAgent(
       if (
         !finalizing &&
         ((maxSteps >= 2 && steps >= maxSteps - 1) ||
-          Date.now() - start >= timeoutMs * 0.9 ||
+          Date.now() - start >= deliveryAt ||
           (options.maxCostUsd !== undefined &&
             sumUsage(current.messages.slice(previousMessages)).cost.total +
               retriedUsage.cost.total +

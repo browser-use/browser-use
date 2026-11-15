@@ -218,8 +218,14 @@ export class BrowserRuntime {
     return JSON.parse(result.valueJson);
   }
 
-  execute(code: string, timeoutMs = 30_000, signal?: AbortSignal): Promise<CellResult> {
-    return this.executeCell(code, timeoutMs, signal, false);
+  /** capMs bounds the whole cell, ultrafast's page-state grace included (the time left before delivery). */
+  execute(
+    code: string,
+    timeoutMs = 30_000,
+    signal?: AbortSignal,
+    capMs?: number,
+  ): Promise<CellResult> {
+    return this.executeCell(code, timeoutMs, signal, false, capMs);
   }
 
   private async executeCell(
@@ -227,6 +233,7 @@ export class BrowserRuntime {
     timeoutMs: number,
     signal: AbortSignal | undefined,
     captureJson: boolean,
+    capMs?: number,
   ): Promise<CellResult> {
     positiveInteger('timeoutMs', timeoutMs);
     if (this.closed) throw new Error('BrowserUse is closed.');
@@ -251,10 +258,14 @@ export class BrowserRuntime {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const outputFile = join(directory, `${randomUUID()}.txt`);
       await writeFile(outputFile, '', { flag: 'wx', mode: 0o600 });
-      // Ultrafast prints the page state after the cell's code, so its cells may run up to 10 s past timeoutMs.
+      // Ultrafast prints the page state after the cell's code, so its cells may run up to 10 s past timeoutMs,
+      // out of the time left (Python 1.0.5 ed35726de): added on top, a short run lost its delivery turn.
       const response = this.receive(
         worker,
-        timeoutMs + (this.config.mode === 'ultrafast' ? 10_000 : 0),
+        Math.min(
+          timeoutMs + (this.config.mode === 'ultrafast' ? 10_000 : 0),
+          capMs === undefined ? Infinity : Math.max(1, Math.ceil(capMs)),
+        ),
         signal,
       );
       worker.send(
