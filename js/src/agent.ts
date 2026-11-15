@@ -155,6 +155,8 @@ export async function runAgent(
     save: (messages: AgentMessage[]) => void;
     checkpoint?: (messages: AgentMessage[], usage: Usage) => Promise<void>;
     eventsPath?: string;
+    /** Sent as the provider session (OpenAI prompt_cache_key), so one run's requests share a cache route. */
+    runId?: string;
   },
 ): Promise<RunResult<unknown>> {
   const maxSteps = positiveInteger('maxSteps', options.maxSteps ?? DEFAULT_MAX_STEPS);
@@ -457,6 +459,7 @@ export async function runAgent(
     ? `Run journal (JSON path): ${JSON.stringify(session.eventsPath)}\nRead relevant JSONL events to recover original tool execution times and observations. Event timestamps are not simultaneous page snapshots; never replace missing capture times with report time.\n`
     : '';
   const agent = new Agent({
+    ...(session?.runId ? { sessionId: session.runId } : {}),
     streamFn: deadlineStream(
       (selected, request, settings) => {
         retryAfterMs = undefined;
