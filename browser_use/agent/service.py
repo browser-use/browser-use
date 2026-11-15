@@ -33,6 +33,7 @@ from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_run
 from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run, usage_and_cost
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
 from browser_use.agent.views import AgentHistoryList
+from browser_use.audit import AuditRun, AuditSink, check_sink
 from browser_use.auth import browser_use_api_key
 from browser_use.browser import Browser
 from browser_use.browser import browser as browser_module
@@ -239,7 +240,10 @@ class Agent:
 	the agent's screenshots. False turns them off. judge: after each run one more request to the same llm judges it
 	against the task: result.judgement (success, failure_reason, description, prompt_injection_detected,
 	bot_block_or_captcha_detected, gotchas), its tokens and cost counted in result.usage and result.cost_usd; False turns
-	it off. judge_context: your criteria or the expected answer, which the judge puts first (0.x ground_truth)."""
+	it off. judge_context: your criteria or the expected answer, which the judge puts first (0.x ground_truth).
+	audit_log: a .jsonl path (appended to) or a function taking a dict: one hash-chained record per run_start, action,
+	outcome and run_end, secrets redacted, no page text; browser_use.audit.verify(path) checks it. audit_metadata: a
+	JSON dict written into run_start (who ran it, on whose behalf)."""
 
 	def __init__(
 		self,
@@ -263,6 +267,8 @@ class Agent:
 		judge_context: str | None = None,
 		before_action: BeforeAction | None = None,
 		after_action: AfterAction | None = None,
+		audit_log: AuditSink | None = None,
+		audit_metadata: dict[str, Any] | None = None,
 		**kwargs: Any,
 	):
 		# 0.x use_judge and ground_truth: the same options under their old names
@@ -287,6 +293,7 @@ class Agent:
 			raise TypeError(f'judge_context must be a str or None, not {type(judge_context).__name__}')
 		check_hook(before_action, 'before_action')
 		check_hook(after_action, 'after_action')
+		check_sink(audit_log, audit_metadata)
 		if max_context_chars is not None and (type(max_context_chars) is not int or max_context_chars < 1):
 			raise ValueError(f'max_context_chars must be a positive int or None, not {max_context_chars!r}')
 		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) bu-fast instead
@@ -332,6 +339,7 @@ class Agent:
 		self.web_search, self.max_context_chars, self.highlight_actions = web_search, max_context_chars, highlight_actions
 		self.judge, self.judge_context = judge, judge_context or None
 		self.before_action, self.after_action = before_action, after_action
+		self.audit_log, self.audit_metadata = audit_log, dict(audit_metadata or {})
 		self._judge_cost: float | None = None  # the last run's judge cost (telemetry)
 		self._final_page: BinaryContent | None = None  # the last run's final page, for the judge
 		self._search: WebSearch | None = None  # set by _build when search() is on
@@ -484,6 +492,7 @@ class Agent:
 		prior = len(self._history or []) if follow_up else 0  # messages of earlier tasks, not counted for this run
 		self._downloads = []
 		before = set((self.workspace / 'downloads').glob('*'))
+		audit = await self._audit_start(self.audit_log, run_id, follow_up) if self.audit_log is not None else None
 		self._telemetry_started(run_id, rec, max_steps, timeout)
 		self._reports.start(run_id, rec, model_id(self._model_name), list(dict.fromkeys(self._tasks)), self.sensitive_data)
 		_ACTIVE[0] += 1
@@ -538,14 +547,17 @@ class Agent:
 				)
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}
+			before_action, after_action = self.before_action, self.after_action
+			if audit:  # the audit wraps the user's hooks: both run, and it records their final decision
+				before_action, after_action = audit.hooks(before_action, after_action)
 			session = Session(
 				repl=self._repl,
 				timeout_s=timeout,
 				max_steps=max_steps,
 				vision=self.use_vision,
 				rec=rec,
-				before_action=self.before_action,
-				after_action=self.after_action,
+				before_action=before_action,
+				after_action=after_action,
 				task=redact(self.task, self.sensitive_data),
 				**compacted,
 			)
@@ -608,10 +620,37 @@ class Agent:
 					if error_type is None:
 						await self._judge(result)
 				finally:
+					if audit:  # after the judge: cost_usd includes it
+						await audit.end(result, error_type)
 					meta = {'run_id': run_id, 'rec': rec, 'phase': phase, 'number': number, 'concurrent': concurrent}
 					self._capture(
 						result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started, meta
 					)
+
+	async def _audit_start(self, sink: AuditSink, run_id: str, follow_up: bool) -> AuditRun:
+		"""Open the run's audit chain and write run_start. Raises before any browser starts when the line cannot be
+		written: a run that cannot be audited does not run."""
+		from browser_use.utils import get_browser_use_version
+
+		audit = AuditRun(sink, run_id, secret_forms(self.sensitive_data))
+		domains = self.browser.domains
+		try:
+			await audit.write(
+				'run_start',
+				version=get_browser_use_version(),
+				model=self._model_ref,
+				task=self.task,  # redacted by write()
+				follow_up=follow_up,
+				browser=self.browser.kind,
+				allowed_domains=list(domains.allowed),
+				prohibited_domains=list(domains.prohibited),
+				block_ip_addresses=domains.block_ips,
+				metadata=self.audit_metadata,
+			)
+		except BaseException:
+			audit.close()
+			raise
+		return audit
 
 	async def _judge(self, result: AgentHistoryList | None) -> None:
 		"""One request to the agent's own model judges a run that took steps (judge=False: none). Its tokens and cost, also
