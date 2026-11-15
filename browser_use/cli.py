@@ -214,7 +214,7 @@ def _run_mcp_server(command: str = 'browser-use --mcp') -> int:
 		'domain limits; browser-use --cli-mcp drives your own Chrome instead.'
 		if command == 'browser-use --mcp'
 		else f'{command} is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
-		'browser_login, browser_feedback) on its own Chromium; browser-use --mcp drives your own Chrome instead.',
+		'browser_login, browser_feedback) on its own Chromium; browser-use --cli-mcp drives your own Chrome instead.',
 		file=sys.stderr,
 	)
 	from browser_use.domains import DomainRules
