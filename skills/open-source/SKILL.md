@@ -87,6 +87,7 @@ Browser('chrome', profile='Work')           # a new Chrome on a temporary copy o
 Browser(cdp_url='http://127.0.0.1:9222')    # any CDP endpoint
 Browser(keep_alive=True)                    # run() leaves it running: await browser.stop()
 Browser(allowed_domains=['example.com'])    # also prohibited_domains, block_ip_addresses (every mode)
+Browser(allowed_domains=['example.com'], strict_domains=True)  # every request (fetch, images, iframes), no private IPs
 ```
 
 Give each concurrent Agent its own `Browser()`; one running Agent per Browser.

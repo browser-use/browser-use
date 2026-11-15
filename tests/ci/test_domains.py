@@ -1,4 +1,4 @@
-"""Browser(allowed_domains=..., prohibited_domains=..., block_ip_addresses=...) (browser_use/domains.py).
+"""Browser(allowed_domains=..., prohibited_domains=..., block_ip_addresses=..., strict_domains=...) (browser_use/domains.py).
 
 The matcher cases are ported from 0.x tests/ci/security/test_domain_filtering.py and test_ip_blocking.py (browser-use
 0.x main, SecurityWatchdog._is_url_allowed). The integration tests drive a real headless Chrome, one per enforcement
@@ -15,7 +15,7 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ToolReturnPart
 from websockets.sync.client import connect
 
-from browser_use import Agent, Browser
+from browser_use import Agent, Browser, domains
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.repl import Repl
 from tests.ci.conftest import script
@@ -508,6 +508,14 @@ class Site(http.server.BaseHTTPRequestHandler):
 	def do_GET(self):
 		host, port = self.headers['Host'].split(':')
 		Site.hits.append(f'{host}{self.path}')
+		path = self.path.split('?')[0]
+		if path in PROBE:  # strict_domains: every kind of request a page on an allowed host can send to evil
+			body = PROBE[path].replace('EVIL', f'http://evil.localhost:{port}')
+			self.send_response(200)
+			self.send_header('Content-Type', 'text/html' if path == '/probe' else 'text/javascript')
+			self.end_headers()
+			self.wfile.write(body.encode())
+			return
 		if self.path == '/redirect':
 			self.send_response(302)
 			self.send_header('Location', f'http://evil.localhost:{port}/redirected')
@@ -522,6 +530,26 @@ class Site(http.server.BaseHTTPRequestHandler):
 		self.send_header('Content-Type', 'text/html')
 		self.end_headers()
 		self.wfile.write(body.encode())
+
+	do_POST = do_GET  # sendBeacon
+
+
+# ?<run> keeps the service worker of one run apart from another's (a scope of its own installs it again)
+PROBE = {
+	'/probe': """<link rel=stylesheet href="EVIL/css"><img src="EVIL/img"><script src="EVIL/script"></script>
+<iframe src="EVIL/iframe"></iframe><script>
+const run = location.search.slice(1)
+fetch('EVIL/fetch').catch(() => 0)
+fetch('/redirect').catch(() => 0)
+const xhr = new XMLHttpRequest(); xhr.open('GET', 'EVIL/xhr'); xhr.send()
+navigator.sendBeacon('EVIL/beacon', 'x')
+new Worker('/worker.js')
+navigator.serviceWorker.register('/sw.js?' + run, {scope: '/' + run + '/'})
+</script>""",
+	'/worker.js': "fetch('EVIL/worker')",
+	'/sw.js': "self.oninstall = e => e.waitUntil(fetch('EVIL/sw').catch(() => 0))",
+}
+PROBED = ('/css', '/img', '/script', '/iframe', '/fetch', '/redirected', '/xhr', '/beacon', '/worker', '/sw')
 
 
 @pytest.fixture(scope='module')
@@ -760,3 +788,211 @@ async def test_guard_reconnects_after_its_connection_drops(chrome, daemon, site,
 		await repl.close()
 		guard.close()
 	assert guard._ws is None and blocks == 1 and evil_hits() == []
+
+
+# strict_domains=True: every request, private addresses, fail closed
+
+
+def test_strict_blocks_private_and_local_addresses_unless_allowed_domains_names_them():
+	"""An agent with only prohibited_domains could fetch the cloud metadata service (169.254.169.254) or the host's own
+	services; strict_domains blocks them, in every spelling, and only a pattern that names the host lets one through."""
+	strict = DomainRules.of(prohibited=['evil.com'], strict=True)
+	for url in (
+		'http://169.254.169.254/latest/meta-data/',
+		'http://[::ffff:169.254.169.254]/',  # IPv4-mapped IPv6
+		'http://[fd00:ec2::254]/',
+		'http://0xa9.0xfe.0xa9.0xfe/',  # 169.254.169.254 as Chrome reads it
+		'http://127.0.0.1:8080/',
+		'http://[::1]/',
+		'http://10.0.0.1/',
+		'http://192.168.1.1/',
+		'http://100.64.0.1/',  # shared (CGNAT)
+		'http://0.0.0.0/',
+		'http://localhost/',
+		'http://app.localhost/',
+		'http://metadata/',  # single label: the local search domain resolves it
+		'http://metadata.google.internal/',
+		'http://printer.local/',
+		'http://router.home.arpa/',
+		'ws://127.0.0.1/',
+	):
+		assert strict.blocked(url) == (
+			f'blocked: {parse_host(url)} is a private or local address (strict_domains=True; allowed_domains can name it)'
+		), url
+	assert strict.blocked('https://8.8.8.8/') is None and strict.blocked('https://example.org/') is None
+	assert strict.blocked('chrome://settings') is None  # not a network request
+	assert not DomainRules.of(prohibited=['evil.com']).blocked('http://169.254.169.254/')  # unchanged without strict
+	named = DomainRules.of(['example.com', 'localhost:8080', '*.corp.internal'], strict=True)
+	assert named.blocked('http://localhost:8080/') is None and named.blocked('https://wiki.corp.internal/') is None
+	assert (
+		named.blocked('http://localhost:9000/')
+		== 'blocked: localhost is not in allowed_domains (example.com, localhost:8080, *.corp.internal)'
+	)
+	assert DomainRules.of(['http*://*'], strict=True).blocked('http://169.254.169.254/')  # a catch-all names no host
+	assert DomainRules.from_json(named.to_json()) == named and DomainRules.of(strict=True)
+	assert DomainRules.of(strict=True).prompt() == (
+		'The browser blocks every request to private or local addresses, including the requests pages make (fetch, '
+		'images, iframes); do not try to get around it.'
+	)
+	assert named.prompt().endswith(
+		'The browser blocks every request to other hosts and to private or local addresses, including the requests pages '
+		'make (fetch, images, iframes); do not try to get around it.'
+	)
+
+
+def parse_host(url: str) -> str:
+	from browser_use.domains import parse_url
+
+	u = parse_url(url)
+	assert u is not None
+	return u.host
+
+
+def test_strict_domains_options():
+	assert Browser('chromium', allowed_domains=['example.com'], strict_domains=True).domains.strict
+	assert Browser(cdp_url='http://127.0.0.1:9222', strict_domains=True).domains  # alone: private addresses only
+	assert Browser('chrome', profile='Work', strict_domains=True).domains.strict
+	with pytest.raises(ValueError, match=r"Browser\('chrome'\) \(your open Chrome\) does not take strict_domains=True"):
+		Browser('chrome', allowed_domains=['example.com'], strict_domains=True)
+	with pytest.raises(TypeError, match='strict_domains must be True or False'):
+		Browser('chromium', strict_domains='yes')  # type: ignore[arg-type]
+
+
+async def probe(guard: Guard, repl: Repl, url: str, until) -> list[str]:
+	"""Open url in the agent's tab and collect the guard's notices until until(notices) or 10 s."""
+	r = await repl.call('exec', f'goto_url({url!r}); wait_for_load(); print(page_info()["url"])', 30)
+	assert r['error'] is None and url[:20] in r['output'], r
+	notices, deadline = [], time.monotonic() + 10
+	while not until(notices) and time.monotonic() < deadline:
+		await asyncio.sleep(0.2)
+		notices += guard.take()[0]
+	await repl.call('exec', 'goto_url("about:blank")', 30)
+	return notices
+
+
+async def test_strict_guard_fails_every_request_to_a_disallowed_host(chrome, daemon, site, tmp_path, monkeypatch):
+	"""Without strict_domains a page on an allowed host loads images, scripts, iframes, fetch/XHR, beacons and worker
+	requests from any host (the default, unchanged). With it, the browser fails each of them, also from a dedicated
+	worker, a service worker and a redirect hop, and the allowed host's own requests still load."""
+	monkeypatch.setattr(domains, 'NOTICES_PER_CELL', 50)
+	allowed = site['allowed']
+	repl = Repl(tmp_path, daemon)
+	try:
+		Site.hits.clear()
+		loose = Guard(chrome['ws'], RULES)
+		loose.start()
+		try:
+			await probe(loose, repl, f'{allowed}/probe?loose', lambda _: {'/img', '/fetch', '/iframe'} <= evil_paths())
+		finally:
+			loose.close()
+		assert {'/img', '/fetch', '/iframe'} <= evil_paths()  # what strict_domains is for
+
+		await asyncio.sleep(1)  # the loose run's stragglers
+		Site.hits.clear()
+		strict = Guard(chrome['ws'], DomainRules.of(['allowed.localhost'], strict=True))
+		strict.start()
+		try:
+			notices = await probe(
+				strict, repl, f'{allowed}/probe?strict', lambda n: all(any(f'{p}]' in x for x in n) for p in PROBED)
+			)
+		finally:
+			strict.close()
+	finally:
+		await repl.close()
+	assert evil_hits() == []
+	for path in PROBED:
+		assert (
+			f'[blocked: evil.localhost is not in allowed_domains (allowed.localhost). The browser did not load {site["evil"]}{path}]'
+			in notices
+		), path
+	assert {'allowed.localhost/probe?strict', 'allowed.localhost/worker.js', 'allowed.localhost/sw.js?strict'} <= set(Site.hits)
+
+
+def evil_paths() -> set[str]:
+	return {'/' + h.split('/', 1)[1] for h in evil_hits()}
+
+
+async def test_strict_guard_blocks_private_addresses_from_any_page(chrome, daemon, site, tmp_path):
+	"""With only prohibited_domains, a page (here a data: URL, always allowed) cannot reach 127.0.0.1 or the metadata
+	service: the browser fails the request before it is sent."""
+	port = site['allowed'].rsplit(':', 1)[1]
+	page = f'data:text/html,<img src="http://127.0.0.1:{port}/private"><img src="http://169.254.169.254/latest/meta-data/">'
+	Site.hits.clear()
+	guard = Guard(chrome['ws'], DomainRules.of(prohibited=['evil.localhost'], strict=True))
+	guard.start()
+	repl = Repl(tmp_path, daemon)
+	try:
+		notices = await probe(guard, repl, page, lambda n: len(n) >= 2)
+	finally:
+		await repl.close()
+		guard.close()
+	assert not [h for h in Site.hits if h.startswith('127.0.0.1')]
+	assert sorted(notices) == [
+		f'[blocked: 127.0.0.1 is a private or local address (strict_domains=True; allowed_domains can name it). The '
+		f'browser did not load http://127.0.0.1:{port}/private]',
+		'[blocked: 169.254.169.254 is a private or local address (strict_domains=True; allowed_domains can name it). The '
+		'browser did not load http://169.254.169.254/latest/meta-data/]',
+	]
+
+
+async def test_strict_runs_no_cell_while_the_request_filter_is_down(chrome, site, tmp_path, monkeypatch):
+	"""Chrome stops intercepting the moment the guard's connection closes: with strict_domains the REPL refuses every
+	cell until it is back, then says requests went unfiltered meanwhile."""
+	import browser_use.browser.browser as browser_module
+
+	monkeypatch.setattr(browser_module, 'GUARD_START_S', 1.0)
+	browser = Browser(cdp_url=chrome['http'], allowed_domains=['allowed.localhost'], strict_domains=True)
+	env = await browser.start()
+	repl = Repl(tmp_path, env, before_cell=browser.before_cell, after_cell=browser.after_cell)
+	ran = tmp_path / 'ran'
+	try:
+		guard = browser._guard
+		assert guard is not None and guard.connected.is_set()
+		real, guard.ws_url = guard.ws_url, 'ws://127.0.0.1:9/devtools/browser/x'  # its reconnects fail
+		guard._ws.close()
+		for _ in range(50):
+			if not guard.connected.is_set():
+				break
+			await asyncio.sleep(0.1)
+		r = await repl.call('exec', f'open({str(ran)!r}, "w").close()', 30)
+		assert r['error_type'] == 'DomainFilterDown' and 'so it did not run this cell' in r['error'], r
+		assert not ran.exists()
+		guard.ws_url = real
+		assert await asyncio.to_thread(guard.connected.wait, 15)
+		r = await repl.call('exec', f'open({str(ran)!r}, "w").close(); print("ran")', 30)
+	finally:
+		await repl.close()
+		await browser.stop()
+	assert r['error'] is None and ran.exists()
+	assert r['output'].startswith(
+		"[strict_domains: browser-use lost its connection to the browser's request filter (1x since the last cell); "
+		'requests pages made until it reconnected were not filtered]\nran'
+	), r['output']
+
+
+async def test_agent_with_strict_domains_wires_the_filter(chrome, site, tmp_path):
+	"""Agent(browser=Browser(..., strict_domains=True)): the prompt line, a blocked subresource's notice in the cell
+	output, and the before-cell check."""
+	Site.hits.clear()
+	model, seen = script(
+		('python', {'code': f'goto_url({site["allowed"] + "/probe?agent"!r}); wait_for_load(); wait(1); print("CELL")'}),
+		('finish', {'success': True, 'result': 'done'}),
+	)
+	browser = Browser(cdp_url=chrome['http'], allowed_domains=['allowed.localhost'], strict_domains=True)
+	checks, before_cell = [], browser.before_cell
+
+	async def counted():
+		checks.append(1)
+		return await before_cell()
+
+	browser.before_cell = counted  # type: ignore[method-assign]
+	result = await Agent('Visit a page', model, browser=browser, workspace=tmp_path).run()
+	assert result.status == 'completed', result.error
+	first = next(m for m in seen[0] if isinstance(m, ModelRequest))
+	assert 'The browser blocks every request to other hosts and to private or local addresses' in (first.instructions or '')
+	returns = [
+		p.content for m in result.messages if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, ToolReturnPart)
+	]
+	assert '[blocked: evil.localhost is not in allowed_domains (allowed.localhost). The browser did not load' in str(returns[0])
+	assert checks == [1]
+	assert evil_hits() == []

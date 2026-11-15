@@ -525,6 +525,7 @@ class Agent:
 					secrets=self.sensitive_data,
 					reattach=self.browser.reattach,
 					after_cell=self.browser.after_cell if self.browser.domains else None,
+					before_cell=self.browser.before_cell if self.browser.domains.strict else None,
 					search=self._search,
 					downloads=self._list_downloads if self.browser.use_cloud or self._launched() else None,
 					highlight_actions=self.highlight_actions,
@@ -764,6 +765,7 @@ class Agent:
 			'allowed_domains_n': len(browser.domains.allowed),
 			'prohibited_domains_n': len(browser.domains.prohibited),
 			'block_ip_addresses': bool(browser.domains.block_ips),
+			'strict_domains': browser.domains.strict,
 			'gateway': self._gateway is not None,
 			'model_api': kind
 			if kind != 'other'
