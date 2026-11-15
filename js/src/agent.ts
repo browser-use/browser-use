@@ -27,7 +27,7 @@ import type {
   ContextMetrics,
 } from './types.js';
 import { redact } from './history.js';
-import { SEARCH_PROMPT, SYSTEM_PROMPT, downloadsPrompt } from './prompt.js';
+import { SEARCH_PROMPT, SYSTEM_PROMPT, captchaPrompt, downloadsPrompt } from './prompt.js';
 import { launchesBrowser } from './browser.js';
 import { AX_PROMPT } from './ax.js';
 import {
@@ -490,7 +490,7 @@ export async function runAgent(
     initialState: {
       model,
       messages: session?.messages ?? [],
-      systemPrompt: `${SYSTEM_PROMPT}${downloadsPrompt(launchesBrowser(config.browser) ? 'local' : config.browser?.kind === 'chrome' ? undefined : 'remote')}${config.mode === 'ultrafast' ? AX_PROMPT : ''}${config.webSearch ? SEARCH_PROMPT : ''}\nWorkspace directory (JSON string): ${JSON.stringify(workspace)}. Relative file-tool paths and the JavaScript working directory start here. Save deliverables inside this directory; files outside it are not included by BrowserUse.files(). Use relative paths or the exact workspace value, not a guessed parent directory.\n${journalGuidance}${config.sensitiveData ? `Named secrets (values withheld): ${JSON.stringify(Object.fromEntries(Object.entries(config.sensitiveData).map(([name, entry]) => [name, entry.domains])))}. Use await fillSecret(name, backendNodeId, page) on an input found in the AX tree. Never read back, print or save credentials.\n` : ''}${config.instructions ?? ''}`,
+      systemPrompt: `${SYSTEM_PROMPT}${downloadsPrompt(launchesBrowser(config.browser) ? 'local' : config.browser?.kind === 'chrome' ? undefined : 'remote')}${config.browser?.kind === 'cloud' ? captchaPrompt(config.browser.captchaSolver !== false) : ''}${config.mode === 'ultrafast' ? AX_PROMPT : ''}${config.webSearch ? SEARCH_PROMPT : ''}\nWorkspace directory (JSON string): ${JSON.stringify(workspace)}. Relative file-tool paths and the JavaScript working directory start here. Save deliverables inside this directory; files outside it are not included by BrowserUse.files(). Use relative paths or the exact workspace value, not a guessed parent directory.\n${journalGuidance}${config.sensitiveData ? `Named secrets (values withheld): ${JSON.stringify(Object.fromEntries(Object.entries(config.sensitiveData).map(([name, entry]) => [name, entry.domains])))}. Use await fillSecret(name, backendNodeId, page) on an input found in the AX tree. Never read back, print or save credentials.\n` : ''}${config.instructions ?? ''}`,
       thinkingLevel: config.reasoning ?? 'medium',
       tools: [
         javascript,

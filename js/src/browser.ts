@@ -15,6 +15,8 @@ export interface CloudBrowserOptions {
   profileId?: string;
   timeoutMinutes?: number;
   proxyCountryCode?: string;
+  /** Default true. false switches the browser's automatic captcha solver off (Python Browser(captcha_solver=False)). */
+  captchaSolver?: boolean;
 }
 export interface ChromeBrowserOptions {
   cdpUrl?: string;
@@ -95,6 +97,8 @@ async function discoverChrome(options: ChromeBrowserOptions) {
 async function openCloud(options: CloudBrowserOptions) {
   if (typeof options.apiKey !== 'string' || !options.apiKey.trim())
     throw new Error('Browser.cloud requires apiKey.');
+  if (options.captchaSolver !== undefined && typeof options.captchaSolver !== 'boolean')
+    throw new Error('captchaSolver must be true or false.');
   const timeout = options.timeoutMinutes ?? 30;
   if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 240)
     throw new Error('timeoutMinutes must be an integer from 1 to 240.');

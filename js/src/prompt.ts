@@ -51,6 +51,13 @@ export function downloadsPrompt(where: 'local' | 'remote' | undefined): string {
   return '';
 }
 
+/** Python CAPTCHA_PROMPT / NO_CAPTCHA_PROMPT, for a Browser.cloud browser only (as Python adds them for its cloud browser). */
+export function captchaPrompt(solver: boolean): string {
+  return solver
+    ? "\nThe browser is a Browser Use Cloud browser. It solves captchas automatically, usually in 20-60 s. On a captcha or 'verify you are human' check, call await solveCaptcha(): it waits for the solver (up to 95 s) and returns {solved, detail, seconds}; 'still solving' means call it again. While cell output says the solver is working, do not reload, navigate, switch tabs or click the challenge. Take over only after the solver failed or found no captcha."
+    : '\nThe browser is a Browser Use Cloud browser. Its automatic captcha solver is off: handle captchas yourself.';
+}
+
 /** Browser Use Cloud's web search block; the worker defines search() when webSearch is configured. */
 export const SEARCH_PROMPT = `
 <web_search>

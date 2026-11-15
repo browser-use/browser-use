@@ -204,6 +204,9 @@ export class BrowserUse {
         ...(options.focusTab ? { focusTab: true } : {}),
         ...(options.browserSwitching ? { browserSwitching: true } : {}),
         ...(options.dedicatedBrowser ? { dedicatedBrowser: true } : {}),
+        ...(options.browser?.kind === 'cloud' && options.browser.captchaSolver === false
+          ? { captchaSolver: false as const }
+          : {}),
         workspace,
         ...(launchesBrowser(options.browser) ? { downloadPath: join(workspace, 'downloads') } : {}),
         operationTimeoutMs,

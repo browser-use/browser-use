@@ -50,11 +50,21 @@ export interface WorkerConfig extends importPolicy {
   focusTab?: boolean;
   browserSwitching?: boolean;
   dedicatedBrowser?: boolean;
+  /** Browser.cloud({captchaSolver: false}): the solver is switched off on connect and solveCaptcha() keeps it off. */
+  captchaSolver?: false;
   operationTimeoutMs: number;
   maxOutputChars: number;
 }
 export type WorkerRequest =
-  | { type: 'execute'; code: string; captureJson?: boolean; outputFile?: string; runId?: string }
+  | {
+      type: 'execute';
+      code: string;
+      captureJson?: boolean;
+      outputFile?: string;
+      runId?: string;
+      /** The cell deadline, so long helpers can return before it. */
+      timeoutMs?: number;
+    }
   | { type: 'close' };
 export type WorkerResponse =
   | { type: 'action'; action: BrowserAction }
