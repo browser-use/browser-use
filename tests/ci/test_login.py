@@ -273,7 +273,7 @@ def test_automatic_login_requires_an_interactive_desktop(monkeypatch, terminal, 
 
 	monkeypatch.setattr(auth.sys, 'platform', 'linux')
 	monkeypatch.setattr(auth.sys.stdin, 'isatty', lambda: terminal)
-	for name in ('CI', 'BROWSER_USE_AUTO_LOGIN', 'DISPLAY', 'WAYLAND_DISPLAY'):
+	for name in ('CI', 'GITHUB_ACTIONS', 'BROWSER_USE_AUTO_LOGIN', 'DISPLAY', 'WAYLAND_DISPLAY'):
 		monkeypatch.delenv(name, raising=False)
 	if ci:
 		monkeypatch.setenv('CI', ci)
