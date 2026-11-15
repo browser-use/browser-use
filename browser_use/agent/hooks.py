@@ -10,6 +10,9 @@ before_action returns:
   a non-empty str       refuse it; the model reads "Not run: <your reason>." and can choose another way
   raises                refuse it (fail closed); the model reads the exception class and message
 
+After MAX_REFUSED_IN_ROW refusals in a row, or MAX_REFUSED in one run, the run stops trying (as Claude Code's auto
+mode): the next turn is delivery-only, and the model delivers what it has with success=false.
+
 Secret values (sensitive_data) are replaced with `<secret:name>` in what the hooks receive, as in the cell output.
 A guard for what the agent does through browser-use, not a sandbox: see MIGRATING.md "Action hooks".
 """
@@ -56,6 +59,13 @@ class ActionOutcome:
 	duration_s: float = 0.0
 
 
+MAX_REFUSED_IN_ROW = 3  # a model that keeps asking for what the policy refuses is stuck or steered: stop it there
+MAX_REFUSED = 20
+STOPPED = (
+	'{n} actions were refused{row}: stop here. Do not run more actions. Deliver what you have now with finish, '
+	'success=false, and say which actions were refused.'
+)
+
 Decision = bool | str | None
 BeforeAction = Callable[[Action], Decision | Awaitable[Decision]]
 AfterAction = Callable[[ActionOutcome], None | Awaitable[None]]
@@ -101,3 +111,12 @@ async def observe(after: AfterAction, outcome: ActionOutcome) -> None:
 
 def refusal(reason: str) -> str:
 	return f'Not run: {reason.rstrip(".")}. Do not try to get around it.'
+
+
+def stop_after(refused: int, in_row: int) -> str | None:
+	"""The note that ends the run's work once refusals pass the limits (appended to the refusal), else None."""
+	if in_row >= MAX_REFUSED_IN_ROW:
+		return STOPPED.format(n=in_row, row=' in a row')
+	if refused >= MAX_REFUSED:
+		return STOPPED.format(n=refused, row=' in this run')
+	return None

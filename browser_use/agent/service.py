@@ -218,6 +218,20 @@ def _unsupported(kwargs: dict[str, Any], where: str) -> TypeError:
 	)
 
 
+def pricing_ref(model: Any) -> str:
+	"""The ref usage_and_cost prices this model's requests by: 'provider:name', or 'browser-use:name' on the gateway."""
+	name = getattr(model, 'model_name', str(model))
+	if gateway_llm(model):  # cost is only what the gateway charged (charge_usd), never a retail estimate
+		return f'browser-use:{name}'
+	system = getattr(model, 'system', None)  # 'anthropic', 'google-gla', ...: prices are looked up per provider
+	base_url = str(getattr(model, 'base_url', '') or '')
+	if system == 'openai' and base_url and urlparse(base_url).hostname != 'api.openai.com':
+		# ChatOpenAI(base_url=...) to DeepSeek, OpenRouter, xAI: the price is the provider's at that URL, not OpenAI's
+		with contextlib.suppress(Exception):  # a backend genai-prices does not know: no price, cost_usd None
+			system = calc_price(RequestUsage(), model_ref=name, provider_api_url=base_url).provider.id
+	return f'{system}:{name}' if system and ':' not in name else name
+
+
 class Agent:
 	"""agent = Agent('task'); result = await agent.run(); result.final_result()
 
@@ -387,16 +401,8 @@ class Agent:
 		model, settings = resolve_model(self.llm)  # raises here, before any browser: missing key or extra
 		self._model = model
 		self._model_name = getattr(model, 'model_name', str(model))
-		system = getattr(model, 'system', None)  # 'anthropic', 'google-gla', ...: prices are looked up per provider
-		base_url = str(getattr(model, 'base_url', '') or '')
-		if system == 'openai' and base_url and urlparse(base_url).hostname != 'api.openai.com':
-			# ChatOpenAI(base_url=...) to DeepSeek, OpenRouter, xAI: the price is the provider's at that URL, not OpenAI's
-			with contextlib.suppress(Exception):  # a backend genai-prices does not know: no price, cost_usd None
-				system = calc_price(RequestUsage(), model_ref=self._model_name, provider_api_url=base_url).provider.id
-		self._model_ref = f'{system}:{self._model_name}' if system and ':' not in self._model_name else self._model_name
+		self._model_ref = pricing_ref(model)
 		self._gateway = gateway_llm(model)  # any form: ChatBrowserUse, ChatOpenAI(base_url=gateway), pydantic_model()
-		if self._gateway:  # cost is only what the gateway charged (charge_usd), never a retail estimate
-			self._model_ref = f'browser-use:{self._model_name}'
 		self._provider = getattr(self.llm, 'provider', None) or getattr(model, 'system', '')
 		self._search = self._web_search()
 		if self.reasoning is not None and not reasoning_supported(model):

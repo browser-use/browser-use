@@ -21,7 +21,7 @@ from browser_use.repl import redact
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentHistoryList
 
-__all__ = ['JUDGE_PROMPT', 'Judgement', 'judge_run']
+__all__ = ['JUDGE_PROMPT', 'Judgement', 'judge_run', 'low_effort']
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +111,20 @@ def screenshots(messages: list[ModelMessage], final: BinaryContent | None = None
 	return shots[:MAX_SCREENSHOTS][::-1]
 
 
+def low_effort(model: Any, model_settings: Any) -> tuple[Any, dict[str, Any]]:
+	"""The model and settings for one side request (the judge, injection_guard's critic): the run's own at low effort,
+	without the loop's tool and deadline settings. Responses requests stream, as the loop: some backends take only
+	streamed ones."""
+	settings = {k: v for k, v in (model_settings or {}).items() if k not in DROPPED}
+	for key in EFFORT_KEYS:
+		if settings.get(key) and settings[key] != 'none':
+			settings[key] = 'low'
+	responses = isinstance(model, OpenAIResponsesModel)
+	if responses and 'openai_reasoning_effort' not in settings and reasoning_supported(model):
+		settings['openai_reasoning_effort'] = 'low'  # a gateway bu-* alias sends none in the loop: its own effort
+	return (StreamedRequest(model) if responses else model), settings
+
+
 def prompt(task: str, result: AgentHistoryList, judge_context: str | None) -> str:
 	final = f'status: {result.status}\nsuccess reported by the agent: {result.success}\n'
 	if result.error:
@@ -135,16 +149,9 @@ async def judge_run(
 	One request: an answer that does not fit the schema is not retried. -> (the judgement with secrets redacted, or None
 	when the judge failed (logged); the judge's messages, also a failed one's, for usage and cost). The task, the context
 	and the trace are redacted before they are sent; the last screenshots and the final page (final) go with them as images."""
-	settings = {k: v for k, v in (agent.model_settings or {}).items() if k not in DROPPED}
-	for key in EFFORT_KEYS:
-		if settings.get(key) and settings[key] != 'none':
-			settings[key] = 'low'
-	model = agent.model  # Responses requests stream, as the loop: some backends take only streamed ones
-	responses = isinstance(model, OpenAIResponsesModel)
-	if responses and 'openai_reasoning_effort' not in settings and reasoning_supported(model):
-		settings['openai_reasoning_effort'] = 'low'  # a gateway bu-* alias sends none in the loop: its own effort
+	model, settings = low_effort(agent.model, agent.model_settings)
 	judge = Agent(
-		StreamedRequest(model) if responses else model,
+		model,
 		output_type=Judgement,
 		instructions=JUDGE_PROMPT,
 		model_settings=cast(Any, settings),
