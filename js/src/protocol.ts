@@ -36,6 +36,8 @@ export interface WorkerConfig extends importPolicy {
   highlightActions?: boolean;
   approveConnection?: boolean;
   workspace: string;
+  /** A browser this SDK launched: where its downloads are saved (workspace/downloads). */
+  downloadPath?: string;
   targetId?: string;
   focusTab?: boolean;
   browserSwitching?: boolean;

@@ -3,7 +3,7 @@ import { Session, type Runtime } from 'node:inspector';
 import { createRequire } from 'node:module';
 import { createContext, constants } from 'node:vm';
 import { inspect } from 'node:util';
-import { readFile, writeFile, rename, stat } from 'node:fs/promises';
+import { readFile, readdir, writeFile, rename, stat } from 'node:fs/promises';
 import { appendFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -24,6 +24,62 @@ const send = (message: WorkerResponse) => process.send!(clean(message));
 process.chdir(config.workspace);
 let browser = CDP.lazy(config.endpoint, config.operationTimeoutMs, config.approveConnection);
 installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }));
+browser.nameDialogs = config.mode !== 'ultrafast';
+/** Downloads the browser announced, by guid; downloads() lists the finished ones (Python 1.0.5 cbaffd69a). */
+const downloadsSeen = new Map<string, { name: string; size?: number | undefined; done: boolean }>();
+function watchDownloads() {
+  const previous = browser.observeEvent;
+  browser.observeEvent = (method, raw, session) => {
+    previous?.(method, raw, session);
+    const event = raw as {
+      guid?: string;
+      suggestedFilename?: string;
+      state?: string;
+      receivedBytes?: number;
+      totalBytes?: number;
+    };
+    if (!event?.guid) return;
+    // Cloud browsers send both the Browser and the Page event for one download.
+    if (method === 'Browser.downloadWillBegin' || method === 'Page.downloadWillBegin') {
+      if (!downloadsSeen.has(event.guid))
+        downloadsSeen.set(event.guid, { name: event.suggestedFilename || event.guid, done: false });
+    } else if (
+      (method === 'Browser.downloadProgress' || method === 'Page.downloadProgress') &&
+      event.state === 'completed'
+    ) {
+      const entry = downloadsSeen.get(event.guid) ?? { name: event.guid, done: false };
+      downloadsSeen.set(event.guid, {
+        ...entry,
+        done: true,
+        size: event.receivedBytes || event.totalBytes,
+      });
+    }
+  };
+  // A browser this SDK launched saves downloads in workspace/downloads, set when the connection opens (never
+  // earlier: the browser stays untouched until the agent uses it). Others keep their own setting: the agent is
+  // told never to call Browser.setDownloadBehavior (Python's prompt).
+  const downloadPath = config.downloadPath;
+  if (downloadPath)
+    browser.onConnect = (connection) =>
+      connection.send('Browser.setDownloadBehavior', {
+        behavior: 'allow',
+        downloadPath,
+        eventsEnabled: true,
+      });
+}
+watchDownloads();
+/** The files the browser finished downloading so far: [{name, size}]. */
+async function downloads() {
+  const listed = new Map<string, number | undefined>();
+  for (const entry of downloadsSeen.values()) if (entry.done) listed.set(entry.name, entry.size);
+  if (config.downloadPath)
+    for (const name of await readdir(config.downloadPath).catch(() => [] as string[])) {
+      if (name.endsWith('.crdownload')) continue;
+      const info = await stat(join(config.downloadPath, name)).catch(() => undefined);
+      if (info?.isFile()) listed.set(name, info.size);
+    }
+  return [...listed].map(([name, size]) => ({ name, ...(size !== undefined ? { size } : {}) }));
+}
 let highlight = config.highlightActions ? actionHighlighter(browser) : undefined;
 let tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
 const chromiumEmptyPageUrls = new Set([
@@ -193,6 +249,7 @@ Object.assign(realm, {
   page,
   ...(bu ? { bu } : {}),
   ...(webSearch ? { search } : {}),
+  downloads,
   workspace: config.workspace,
   async reconnect(endpoint?: string) {
     let targetId: string | undefined = (Reflect.get(realm, 'page') as Page)?.targetId;
@@ -208,6 +265,8 @@ Object.assign(realm, {
     browser.close();
     browser = CDP.lazy(config.endpoint, config.operationTimeoutMs, config.approveConnection);
     installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }));
+    browser.nameDialogs = config.mode !== 'ultrafast';
+    watchDownloads();
     highlight = config.highlightActions ? actionHighlighter(browser) : undefined;
     browser.observeResponse = captureResponse;
     tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));

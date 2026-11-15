@@ -195,6 +195,12 @@ export function validCdpUrl(cdpUrl: string): string {
   return cdpUrl;
 }
 
+/** Whether openBrowser launches a local Chromium for these options (no kind and no cdpUrl, or Browser.chromium). */
+export function launchesBrowser(options: BrowserOptions = {}): boolean {
+  if (options.kind !== undefined) return options.kind === 'chromium';
+  return !('cdpUrl' in options && options.cdpUrl);
+}
+
 export async function openBrowser(options: BrowserOptions = {}) {
   if (
     options.kind !== undefined &&

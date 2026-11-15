@@ -8,7 +8,7 @@ import type { Api, Model, Usage } from '@earendil-works/pi-ai';
 import { Type, type Static, type TSchema } from 'typebox';
 import { navigationPolicy, validateSensitiveData } from './policy.js';
 import { telemetry } from './telemetry.js';
-import { openBrowser, validCdpUrl } from './browser.js';
+import { launchesBrowser, openBrowser, validCdpUrl } from './browser.js';
 import { BrowserRuntime, workerExecutable } from './runtime.js';
 import { runAgent, zeroUsage } from './agent.js';
 import { Recorder } from './recording.js';
@@ -201,6 +201,7 @@ export class BrowserUse {
         ...(options.browserSwitching ? { browserSwitching: true } : {}),
         ...(options.dedicatedBrowser ? { dedicatedBrowser: true } : {}),
         workspace,
+        ...(launchesBrowser(options.browser) ? { downloadPath: join(workspace, 'downloads') } : {}),
         operationTimeoutMs,
         maxOutputChars,
       },
