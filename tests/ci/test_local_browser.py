@@ -446,6 +446,34 @@ def test_playwright_chromium_from_browser_use_install_is_found_last(tmp_path, mo
 		_local.find_binary()  # rc5 local-2: the library error names the documented fix, not only `browser-use doctor`
 
 
+def test_relative_playwright_cache_keeps_cli_fallback(tmp_path, monkeypatch):
+	"""Playwright's browser must not look like an attachable system Chrome."""
+	from browser_harness import admin, daemon
+
+	from browser_use.mcp.cli_mcp import _no_chrome_here
+
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setattr(sys, 'platform', 'linux')
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', './pw')
+	binary = tmp_path / 'pw/chromium-1248/chrome-linux64/chrome'
+	binary.parent.mkdir(parents=True)
+	binary.write_text('')
+	monkeypatch.setattr(admin, '_is_local_chrome_mode', lambda: True)
+	monkeypatch.setattr(_local, 'live_debug_dirs', lambda: [])
+	monkeypatch.setattr(_local, 'has_display', lambda: True)
+	monkeypatch.setattr(daemon, 'PROFILES', [])
+
+	def no_daemon():
+		raise RuntimeError('no daemon')
+
+	monkeypatch.setattr(admin, 'require_existing_daemon', no_daemon)
+	assert _no_chrome_here() == 'no Chrome, Chromium or Edge is installed'
+	assert _local.find_binary() in _local.playwright_chromium()
+
+
 def test_a_file_named_like_a_browser_in_the_working_directory_is_never_launched(tmp_path, monkeypatch):
 	"""cubic: the Linux names not on PATH stayed in the list as bare names, which is_file() read in the working directory:
 	a file named ./chromium there was launched as the browser."""

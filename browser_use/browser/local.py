@@ -219,7 +219,7 @@ def playwright_chromium() -> list[str]:
 		else:
 			root = str(Path.home() / '.cache/ms-playwright')
 	builds = sorted(
-		Path(root).expanduser().glob('chromium-*'),
+		Path(root).expanduser().absolute().glob('chromium-*'),
 		key=lambda p: int(p.name.split('-')[-1]) if p.name.split('-')[-1].isdigit() else -1,
 		reverse=True,
 	)
