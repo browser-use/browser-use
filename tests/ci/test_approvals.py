@@ -99,8 +99,8 @@ async def test_new_origin_asks_once_per_origin_and_a_denied_one_is_never_opened(
 
 	model, seen = script(
 		('python', {'code': f"goto_url('http://127.0.0.1:{port}/a'); goto_url('http://127.0.0.1:{port}/b'); wait_for_load(); print(page_info()['url'])"}),
-		('python', {'code': f"new_tab('http://localhost:{port}/a')"}),
-		('python', {'code': "print('tabs', [t['url'] for t in list_tabs()])"}),
+		('python', {'code': f"n, here = len(list_tabs()), current_tab()['targetId']; new_tab('http://localhost:{port}/a')"}),
+		('python', {'code': "print('tabs', [t['url'] for t in list_tabs()], len(list_tabs()) - n, current_tab()['targetId'] == here)"}),
 		('finish', {'success': True, 'result': 'done'}),
 	)  # fmt: skip
 	try:
@@ -112,7 +112,7 @@ async def test_new_origin_asks_once_per_origin_and_a_denied_one_is_never_opened(
 	returns = texts(seen)
 	assert f'http://127.0.0.1:{port}/b' in returns[0], returns[0]
 	assert f'Not allowed: access to http://localhost:{port} was denied (not on the list)' in returns[1], returns[1]
-	assert f'localhost:{port}' not in returns[2], returns[2]
+	assert f'localhost:{port}' not in returns[2] and returns[2].strip().endswith(' 0 True'), returns[2]  # no blank tab either
 	assert asked == [f'http://127.0.0.1:{port}', f'http://localhost:{port}']  # the approved origin is remembered
 
 
@@ -159,3 +159,88 @@ def test_approve_options_are_checked_before_any_browser_starts():
 	with pytest.raises(ValueError, match="unknown kind 'click'"):
 		Agent('t', 'test', approve=lambda r: True, approve_on={'click'})
 	assert Agent('t', 'test', approve=lambda r: True).approve_on == {'upload', 'type_secret'}
+
+
+async def test_type_secret_after_a_slow_approval_types_only_into_the_frame_that_was_approved(daemon, tmp_path):
+	"""The page had minutes to move focus while a human decided: keys must not reach another origin."""
+	focus = '<input id=pw><script>pw.focus()</script>'
+	away = "location.href = location.href.replace('127.0.0.1', 'localhost').replace('/a', '/b')"
+	pages = {
+		'/a': focus + f"<script>setInterval(async () => (await (await fetch('/go')).text()) && ({away}), 100)</script>",
+		'/b': focus,
+	}
+	server, port = serve(pages)
+	asked: list[dict] = []
+
+	async def slow_yes(kind: str, detail: dict) -> str | None:
+		asked.append(detail)
+		pages['/go'] = 'yes'  # while the human decides, the page navigates to another origin
+		await asyncio.sleep(3)
+		return None
+
+	repl = Repl(tmp_path, daemon, secrets={'pw': 'hunter2-Zq9'}, approve=slow_yes, approve_on={'type_secret'})
+	try:
+		r = await repl.call('exec', f"goto_url('http://127.0.0.1:{port}/a'); wait_for_load(); type_secret('pw')", 30)
+		after = await repl.call('exec', "print(page_info()['url'], repr(js('document.querySelector(\"#pw\").value')))", 30)
+	finally:
+		await repl.close()
+		server.shutdown()
+	assert asked == [{'secret': 'pw', 'origin': f'http://127.0.0.1:{port}'}]
+	assert 'PermissionError' in (r['error'] or ''), r
+	assert f'localhost:{port}/b' in after['output'] and "''" in after['output'], after
+
+
+async def test_a_denied_upload_drops_no_file_through_a_drag_event(daemon, tmp_path):
+	"""Input.dispatchDragEvent(data={'files': [...]}) hands local files to a drop zone: an upload like setFileInputFiles."""
+	zone = (
+		'<div id=z style="width:300px;height:300px" ondragenter="event.preventDefault()" ondragover="event.preventDefault()" '
+		'ondrop="event.preventDefault(); window.got = [...event.dataTransfer.files].map(f => f.name)"></div>'
+	)
+	server, port = serve({'/z': zone})
+	(tmp_path / 'secret.txt').write_text('payroll')
+	asked: list[tuple[str, dict]] = []
+
+	async def no(kind: str, detail: dict) -> str | None:
+		asked.append((kind, detail))
+		return 'Not allowed: no'
+
+	drag = (
+		"data = {'items': [], 'files': [str(Path('secret.txt').resolve())], 'dragOperationsMask': 1}\n"
+		"for t in ('dragEnter', 'dragOver', 'drop'):\n"
+		'\ttry:\n'
+		"\t\tcdp('Input.dispatchDragEvent', type=t, x=100, y=100, data=data)\n"
+		'\texcept PermissionError:\n'
+		"\t\tprint('denied', t)\n"
+		"print('got', js('window.got || []'))"
+	)
+	repl = Repl(tmp_path, daemon, approve=no, approve_on={'upload'})
+	try:
+		await repl.call('exec', f"goto_url('http://127.0.0.1:{port}/z'); wait_for_load()", 30)
+		r = await repl.call('exec', 'from pathlib import Path\n' + drag, 30)
+	finally:
+		await repl.close()
+		server.shutdown()
+	assert 'got []' in r['output'], r
+	assert asked and asked[0][0] == 'upload' and asked[0][1]['files'] == [str((tmp_path / 'secret.txt').resolve())], asked
+
+
+async def test_an_approved_upload_or_unknown_origin_does_not_approve_the_next_one():
+	"""The human approved these files on this page; a different file, or a page nobody could name, asks again."""
+	calls: list[dict] = []
+
+	def yes(request: ApprovalRequest):
+		calls.append(request.detail)
+		return True
+
+	approvals = Approvals(yes, 'task')
+	cv, key = (
+		{'files': ['/home/me/cv.pdf'], 'origin': 'https://jobs.example'},
+		{'files': ['/home/me/.ssh/id_rsa'], 'origin': 'https://jobs.example'},
+	)
+	assert await approvals.ask('upload', cv) is None
+	assert await approvals.ask('upload', cv) is None  # the same files to the same origin: remembered
+	assert await approvals.ask('upload', key) is None
+	unknown = {'secret': 'pw', 'origin': None}
+	assert await approvals.ask('type_secret', unknown) is None
+	assert await approvals.ask('type_secret', unknown) is None
+	assert calls == [cv, key, unknown, unknown]

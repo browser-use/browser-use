@@ -154,7 +154,8 @@ def check_approve(approve: Any, approve_on: Any) -> frozenset[str]:
 
 class Approvals:
 	"""One run's approvals: asks approve() and remembers what it allowed per (kind, origin), per secret for
-	type_secret. Denials are not remembered: the next attempt asks again."""
+	type_secret and per files for upload (the human approved cv.pdf, not every file). Denials, and anything on a page
+	whose origin is unknown, are not remembered: the next attempt asks again."""
 
 	def __init__(self, approve: Approve, task: str):
 		self.approve, self.task = approve, task
@@ -164,7 +165,7 @@ class Approvals:
 	async def ask(self, kind: str, detail: dict[str, Any]) -> str | None:
 		"""None when allowed, else the text the cell's PermissionError carries. Fails closed: a raise, a timeout or
 		any answer but True or a reason denies."""
-		key = (kind, detail.get('origin'), detail.get('secret'))
+		key = (kind, detail.get('origin'), detail.get('secret'), tuple(detail.get('files') or ()))
 		if key in self.allowed:
 			return None
 		request = ApprovalRequest(kind, detail, self.step, self.task)
@@ -175,7 +176,8 @@ class Approvals:
 		except Exception as e:
 			value = f'approve raised {type(e).__name__}: {e}'
 		if value is True:
-			self.allowed.add(key)
+			if key[1] is not None:
+				self.allowed.add(key)
 			return None
 		why = value.strip() if isinstance(value, str) and value.strip() else 'denied'
 		logger.info(f'step {request.step}: {request.message} {why}')

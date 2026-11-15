@@ -384,19 +384,21 @@ Agent('Apply with cv.pdf', approve=ask, approve_on={'upload', 'type_secret', 'ne
 
 | kind | when | `request.detail` |
 |---|---|---|
-| `upload` | `upload_file()`, `cdp('DOM.setFileInputFiles', ...)` | `files` (absolute paths), `origin` of the tab (or out-of-process frame) |
-| `type_secret` | `type_secret(name)`, before any key is sent | `secret` (the name, never the value), `origin` of the frame the keys reach |
-| `new_origin` | `goto_url()`, `new_tab(url)`, `cdp('Page.navigate' / 'Target.createTarget', url=...)` to an http(s) or file: URL | `origin`, `url` |
+| `upload` | `upload_file()`, `cdp('DOM.setFileInputFiles', ...)`, `cdp('Input.dispatchDragEvent', data={'files': [...]})` | `files` (absolute paths), `origin` of the tab, or of the out-of-process frame a `session_id` names (a same-process frame or a drop target inside the tab gets the tab's) |
+| `type_secret` | `type_secret(name)`, before any key is sent; if the focused field or its origin changed while `approve` decided, nothing is typed | `secret` (the name, never the value), `origin` of the frame the keys reach |
+| `new_origin` | `goto_url()`, `new_tab(url)` (before it opens a tab), `cdp('Page.navigate' / 'Target.createTarget', url=...)` to an http(s) or file: URL | `origin`, `url` |
 
-- The default `approve_on` is `{'upload', 'type_secret'}`; `new_origin` is off because every new site asks.
+- The default `approve_on` is `{'upload', 'type_secret'}`; `new_origin` is off because every new site asks. A set you pass
+  replaces the default: `{'new_origin'}` alone stops asking about uploads and secrets.
 - `ApprovalRequest`: `kind`, `detail`, `step` (the model request whose cell caused it), `task`, and `message` (the
   question for a human, such as `Allow upload of cv.pdf to https://jobs.example?`). Secret values in `detail` are
   replaced with `<secret:name>`.
 - Only `True` allows it. `False`, a reason (`str`), anything else, an exception, or no answer within 15 minutes denies
   it (fail closed): the cell raises `PermissionError: Not allowed: upload of cv.pdf to https://jobs.example was denied
   (<reason>). Nothing was done. Do not try to get around it.` The model reads it and can choose another way.
-- What `approve` allowed is remembered for the run, per kind and origin (per secret for `type_secret`): the second
-  upload to the same site does not ask again. A denial is not remembered; the next attempt asks again.
+- What `approve` allowed is remembered for the run: per origin for `new_origin`, per origin and secret for
+  `type_secret`, per origin and files for `upload` (the same file to the same site does not ask again; another file
+  does). A denial, or anything on a page whose origin is unknown, is not remembered; the next attempt asks again.
 - `approve` may be a plain function or a coroutine. A plain function runs in a thread, so it may block on a human
   (a terminal prompt, a Slack button, a ticket). The cell's 120 s deadline stops while it waits; the run's `timeout`
   keeps counting.

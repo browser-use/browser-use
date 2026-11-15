@@ -608,6 +608,9 @@ def _install(ns: dict, secrets: list, ask=None, approve_on=()) -> tuple[ax.AxHel
 		as soon as it opens."""
 		if 'new_origin' in approve_on:  # here, on the main thread: raced() below sends from a thread
 			approve_navigation(method, params)
+		if 'upload' in approve_on and method == 'Input.dispatchDragEvent' and (files := (params.get('data') or {}).get('files')):
+			# a drag that carries local files hands them to the page as a file input does
+			approve('upload', {'files': local_paths(files), 'origin': page_origin(session_id)})
 		dialog = pending_dialog(method, session_id)
 		if dialog:
 			params['_response_timeout'] = min(params.get('_response_timeout', SCREENSHOT_TIMEOUT_S), DIALOG_PROBE_S)
@@ -738,6 +741,8 @@ def _install(ns: dict, secrets: list, ask=None, approve_on=()) -> tuple[ax.AxHel
 		_check_redirects(check_url)
 	else:
 		install_tls_opener()  # http_get and urllib in cells verify as the OS does, as with rules
+	if 'new_origin' in approve_on:  # before new_tab opens a blank tab and attaches to it: a denial leaves the tabs as they were
+		helpers.__dict__['new_tab'] = _checked(helpers.new_tab, lambda url: approve_navigation('Page.navigate', {'url': url}))
 	if os.environ.get('BU_OWN_BROWSER') == '1':  # a browser we launched or were given: the agent's tab is the visible one,
 		# as in 0.x. A hidden tab never paints, so scroll() timed out and keys and clicks were dropped.
 		helpers.switch_tab = functools.partial(helpers.switch_tab, activate=True)  # new_tab() calls it too
@@ -919,6 +924,16 @@ def _install(ns: dict, secrets: list, ask=None, approve_on=()) -> tuple[ax.AxHel
 				)
 			if 'type_secret' in approve_on:  # the frame the keys reach, as the domain scope above reads it
 				approve('type_secret', {'secret': name, 'origin': origin(url)})
+				# a human may have taken minutes: the page could have navigated or moved focus to another frame meanwhile
+				try:
+					now_url, now_node = _recipient()
+				except Exception:  # - unknown now: only as unknown as when approve() was asked
+					now_url, now_node = '', {}
+				if origin(now_url) != origin(url) or (now_node or {}).get('backendNodeId') != (node or {}).get('backendNodeId'):
+					raise PermissionError(
+						f'type_secret({name!r}): the focused field changed while the approval was pending (now '
+						f'{now_url or "unknown"}). Nothing was typed. Focus the field and call type_secret again.'
+					)
 			_type_keys(value)
 
 		if scoped:
