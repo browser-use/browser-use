@@ -201,7 +201,11 @@ export class CDP {
     params: Commands[M]['paramsType'][0] = {} as Commands[M]['paramsType'][0],
     sessionId?: string,
   ): Promise<Commands[M]['returnType']> {
-    if (!this.nameDialogs || !sessionId || !(FROZEN_BY_DIALOG.has(method) || method.startsWith('Input.')))
+    if (
+      !this.nameDialogs ||
+      !sessionId ||
+      !(FROZEN_BY_DIALOG.has(method) || method.startsWith('Input.'))
+    )
       return this.sendNow(method, params, sessionId);
     const open = this.activity.dialogs.get(sessionId);
     const call = this.sendNow(method, params, sessionId);

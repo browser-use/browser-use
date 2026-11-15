@@ -4,7 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
-import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
+import {
+  createModels,
+  fauxProvider,
+  fauxAssistantMessage,
+  fauxToolCall,
+} from '@earendil-works/pi-ai';
 import { runAgent } from '../dist/agent.js';
 import { RunControl } from '../dist/control.js';
 

@@ -212,7 +212,11 @@ export class BrowserRuntime {
     });
   }
 
-  async readResult(expression: string, timeoutMs = DEFAULT_CELL_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> {
+  async readResult(
+    expression: string,
+    timeoutMs = DEFAULT_CELL_TIMEOUT_MS,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const result = await this.executeCell(expression, timeoutMs, signal, true);
     if (result.valueJson === undefined) throw new Error('Worker returned no result value.');
     return JSON.parse(result.valueJson);

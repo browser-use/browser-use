@@ -112,7 +112,12 @@ export async function prepareModelImages(
     if (imageMimeType(bytes) === 'image/gif' || palettePng(bytes)) {
       const plain = await convert(capture.data).catch(() => null);
       const plainBytes = plain && Buffer.from(plain.data, 'base64');
-      if (!plain || !plainBytes || imageMimeType(plainBytes) !== 'image/png' || palettePng(plainBytes)) {
+      if (
+        !plain ||
+        !plainBytes ||
+        imageMimeType(plainBytes) !== 'image/png' ||
+        palettePng(plainBytes)
+      ) {
         notes.push(
           `[Screenshot ${index + 1} omitted from model vision: it could not be converted from GIF or palette PNG. Original bytes are unchanged.]`,
         );

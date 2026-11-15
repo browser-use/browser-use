@@ -771,7 +771,11 @@ export async function runAgent(
       providerRetried = true;
       providerRetries++;
       drop();
-      const wait = Math.min(retryAfterMs ?? retryHint(message) ?? 0, 60_000, Math.max(0, timeLeft()));
+      const wait = Math.min(
+        retryAfterMs ?? retryHint(message) ?? 0,
+        60_000,
+        Math.max(0, timeLeft()),
+      );
       if (wait > 0) await delay(wait, undefined, { signal: options.signal });
       if (stopped || options.signal?.aborted) return false;
       await agent.continue();
@@ -792,10 +796,14 @@ export async function runAgent(
       await agent.prompt(task);
       while (await recover());
       // A budget that ran out on this very reply does not discard it: the reply is the delivery.
-      const spent = () => stopped === undefined || stopped === 'max_steps' || stopped === 'cost_limit';
+      const spent = () =>
+        stopped === undefined || stopped === 'max_steps' || stopped === 'cost_limit';
       const replyText = () => {
         const ending = agent.state.messages.at(-1);
-        return !completion && spent() && ending?.role === 'assistant' && ending.stopReason === 'stop'
+        return !completion &&
+          spent() &&
+          ending?.role === 'assistant' &&
+          ending.stopReason === 'stop'
           ? ending.content
               .filter((c) => c.type === 'text')
               .map((c) => c.text)

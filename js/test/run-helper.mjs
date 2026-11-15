@@ -2,7 +2,12 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
+import {
+  createModels,
+  fauxProvider,
+  fauxAssistantMessage,
+  fauxToolCall,
+} from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { runAgent } from '../dist/agent.js';
 
@@ -11,7 +16,10 @@ export const call = (name, args) =>
 export const text = (value) => fauxAssistantMessage(value);
 
 /** Runs a task against scripted responses. Returns the result, every request context and the workspace. */
-export async function scripted(responses, { schema = Type.String(), options = {}, config = {}, runtime = {}, setup } = {}) {
+export async function scripted(
+  responses,
+  { schema = Type.String(), options = {}, config = {}, runtime = {}, setup } = {},
+) {
   const workspace = await mkdtemp(join(tmpdir(), 'bu-parity-'));
   try {
     await setup?.(workspace);

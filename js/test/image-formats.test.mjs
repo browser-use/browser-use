@@ -27,7 +27,11 @@ test('GIF and palette PNG previews are re-encoded as plain PNG (xAI rejects them
 });
 
 test('a failed conversion omits the preview with a note instead of poisoning the request', async () => {
-  const { images, notes } = await prepareModelImages([image(gif, 'image/gif')], undefined, async () => null);
+  const { images, notes } = await prepareModelImages(
+    [image(gif, 'image/gif')],
+    undefined,
+    async () => null,
+  );
   assert.equal(images.length, 0);
   assert.match(notes[0], /could not be converted from GIF or palette PNG/);
 });

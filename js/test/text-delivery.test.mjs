@@ -13,9 +13,12 @@ test('a plain-text reply is the answer for a string schema, with no repair reque
 
 test('a structured schema still gets the delivery repair', async () => {
   const schema = Type.Object({ city: Type.String() });
-  const { result, requests } = await scripted([text('Paris'), call('finish', { result: { city: 'Paris' } })], {
-    schema,
-  });
+  const { result, requests } = await scripted(
+    [text('Paris'), call('finish', { result: { city: 'Paris' } })],
+    {
+      schema,
+    },
+  );
   assert.equal(result.status, 'completed');
   assert.deepEqual(result.output, { city: 'Paris' });
   assert.equal(result.finishRepairs, 1);

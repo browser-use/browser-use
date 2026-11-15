@@ -8,7 +8,10 @@ test('the prompt carries Python 1.0.5 select and download guidance', () => {
   assert.match(SYSTEM_PROMPT, /Native <select>: never click it/);
   assert.match(SYSTEM_PROMPT, /never call Browser\.setDownloadBehavior/);
   assert.doesNotMatch(SYSTEM_PROMPT, /Browser\.setDownloadBehavior plus/);
-  assert.match(downloadsPrompt('local'), /land in downloads\/ in the workspace; await downloads\(\)/);
+  assert.match(
+    downloadsPrompt('local'),
+    /land in downloads\/ in the workspace; await downloads\(\)/,
+  );
   assert.match(downloadsPrompt('remote'), /await downloads\(\)/);
   assert.equal(downloadsPrompt(undefined), '');
   assert.equal(launchesBrowser(undefined), true);
@@ -42,7 +45,10 @@ test('default mode: a click that opens a JS dialog fails at once, naming the dia
     sessionId: 's1',
     params: { type: 'confirm', message: 'Delete this item?' },
   });
-  await assert.rejects(click, /A JavaScript confirm is open \("Delete this item\?"\): the page is frozen/);
+  await assert.rejects(
+    click,
+    /A JavaScript confirm is open \("Delete this item\?"\): the page is frozen/,
+  );
   assert.ok(Date.now() - started < 1000);
   // While it stays open, a page call gets a short probe, then names it.
   const read = cdp.send('Runtime.evaluate', { expression: '1' }, 's1');
@@ -62,7 +68,11 @@ test('default mode: a click that opens a JS dialog fails at once, naming the dia
 test('without nameDialogs (ultrafast accepts dialogs itself) calls are untouched', async () => {
   const { cdp, socket, emit } = fakeConnection();
   const click = cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 1, y: 1 }, 's1');
-  emit({ method: 'Page.javascriptDialogOpening', sessionId: 's1', params: { type: 'alert', message: 'hi' } });
+  emit({
+    method: 'Page.javascriptDialogOpening',
+    sessionId: 's1',
+    params: { type: 'alert', message: 'hi' },
+  });
   emit({ id: socket.sent.at(-1).id, result: {} });
   assert.deepEqual(await click, {});
   cdp.close();

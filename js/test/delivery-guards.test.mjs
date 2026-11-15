@@ -19,7 +19,10 @@ test('a delivery followed by another call in the same response is refused once',
     response(['finish', { result: 'stub', success: false }], ['javascript', { code: 'more()' }]),
     response(['finish', { result: 'stub again' }], ['javascript', { code: 'more()' }]),
   ]);
-  assert.match(lastResults(requests[1]).join('\n'), /Not delivered: javascript came in the same response/);
+  assert.match(
+    lastResults(requests[1]).join('\n'),
+    /Not delivered: javascript came in the same response/,
+  );
   // Refused in one response per run: the second split delivery is taken.
   assert.equal(result.status, 'completed');
   assert.equal(result.output, 'stub again');
@@ -60,7 +63,9 @@ test('a link to a file missing from the workspace gets one repair; existing file
   const { result, requests } = await scripted(
     [
       call('finish', { result: 'See [report](report.md) and `missing.csv`.' }),
-      call('finish', { result: 'See [report](report.md), `downloads.csv` and [site](https://x.test).' }),
+      call('finish', {
+        result: 'See [report](report.md), `downloads.csv` and [site](https://x.test).',
+      }),
     ],
     {
       setup: async (workspace) => {
@@ -77,14 +82,18 @@ test('a link to a file missing from the workspace gets one repair; existing file
 });
 
 test('on the last request a flawed answer is delivered with a warning, not refused', async () => {
-  const { result } = await scripted([call('finish', { result: '...' })], { options: { maxSteps: 1 } });
+  const { result } = await scripted([call('finish', { result: '...' })], {
+    options: { maxSteps: 1 },
+  });
   assert.equal(result.status, 'completed');
   assert.equal(result.output, '...');
   assert.match(result.warnings.join('\n'), /Delivered as it is on the last request/);
 });
 
 test('finish takes an optional success verdict', async () => {
-  const { result, requests } = await scripted([call('finish', { result: 'blocked by login', success: false })]);
+  const { result, requests } = await scripted([
+    call('finish', { result: 'blocked by login', success: false }),
+  ]);
   assert.equal(result.success, false);
   const tool = getCurrentTools(requests[0].messages).find((t) => t.name === 'finish');
   assert.ok(tool.parameters.properties.success);

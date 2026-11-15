@@ -58,7 +58,11 @@ test('Retry-After never runs into the delivery turn', async () => {
 
 test('the provider retry is used once per run', async () => {
   const code = 'upstream_stream_failed: The upstream stream failed.';
-  const { result } = await scripted([failed(code), call('javascript', { code: '1' }), failed(code)]);
+  const { result } = await scripted([
+    failed(code),
+    call('javascript', { code: '1' }),
+    failed(code),
+  ]);
   assert.equal(result.status, 'error');
   assert.equal(result.providerRetries, 1);
 });
