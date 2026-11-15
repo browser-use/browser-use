@@ -16,9 +16,31 @@ from pydantic_ai.messages import ModelRequest, ToolReturnPart
 from websockets.sync.client import connect
 
 from browser_use import Agent, Browser
-from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
+from browser_use.domains import DomainRules, Guard, cookie_for, disallowed_tabs, sweep
 from browser_use.repl import Repl
 from tests.ci.conftest import script
+
+
+@pytest.mark.parametrize(
+	'domain, patterns, kept',
+	[
+		('github.com', ['github.com'], True),  # host-only cookie of the listed host
+		('.github.com', ['github.com'], True),  # domain cookie: Chrome sends it to github.com
+		('www.github.com', ['github.com'], True),  # as allowed_domains: a one-dot domain covers www
+		('gist.github.com', ['github.com'], False),  # never sent to github.com
+		('.gist.github.com', ['github.com'], False),
+		('.github.com.evil.test', ['github.com'], False),
+		('GitHub.COM', ['github.com'], True),
+		('acme.atlassian.net', ['*.atlassian.net'], True),
+		('.atlassian.net', ['*.atlassian.net'], True),
+		('.atlassian.net', ['acme.atlassian.net'], True),  # a parent-domain cookie the listed site's login needs
+		('atlassian.net', ['acme.atlassian.net'], False),  # host-only: never sent to acme.atlassian.net
+		('other.atlassian.net', ['acme.atlassian.net'], False),
+		('.google.com', ['github.com', '*.atlassian.net'], False),
+	],
+)
+def test_logins_for_keeps_the_cookies_chrome_sends_to_the_listed_sites(domain, patterns, kept):
+	assert cookie_for(domain, tuple(patterns)) is kept
 
 
 def test_a_prohibited_scheme_pattern_without_a_port_blocks_every_port():

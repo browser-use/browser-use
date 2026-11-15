@@ -84,6 +84,7 @@ Browser('chromium')                         # a fresh local Chrome/Chromium with
                                             #   user_data_dir (a dedicated profile kept between runs)
 Browser('chrome')                           # the Chrome you have open (enable chrome://inspect/#remote-debugging)
 Browser('chrome', profile='Work')           # a new Chrome on a temporary copy of your profile 'Work'
+Browser('chrome', profile='Work', logins_for=['github.com'])  # that copy with only github.com's cookies
 Browser(cdp_url='http://127.0.0.1:9222')    # any CDP endpoint
 Browser(keep_alive=True)                    # run() leaves it running: await browser.stop()
 Browser(allowed_domains=['example.com'])    # also prohibited_domains, block_ip_addresses (every mode)
