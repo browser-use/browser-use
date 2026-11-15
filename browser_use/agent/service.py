@@ -564,6 +564,7 @@ class Agent:
 			self._history = session.messages  # raw: result.messages has secrets redacted
 			# the judge's turn resends what the run's last request sent, so the provider reads it from its prompt cache
 			self._judge_prefix = (_projected(session, session.messages), session.request_params)
+			result.blocks = session.stats.blocks()
 			# the judge sees the page as the run left it, before the browser stops
 			judged = self.judge and self.use_vision and result.steps
 			self._final_page = None
@@ -612,6 +613,7 @@ class Agent:
 				try:  # after the browser stopped (a cloud browser bills until then); a cancelled judge still sends the event
 					if error_type is None:
 						await self._judge(result)
+						self._block_notice(result)
 				finally:
 					meta = {
 						'run_id': run_id,
@@ -654,6 +656,33 @@ class Agent:
 			return
 		verdict = 'success' if judgement.success else f'failure: {judgement.failure_reason or judgement.description}'
 		logger.info(f'Judge: {verdict}' + ''.join(f'\n  gotcha: {g}' for g in judgement.gotchas))
+
+	def _block_notice(self, result: AgentHistoryList | None) -> None:
+		"""One WARNING when anti-bots walled pages and the judge did not call the run a success. A local browser gets the
+		cloud link (BROWSER_USE_CLOUD_HINTS=false leaves it out); a cloud browser, a proxy to try instead."""
+		if result is None or not result.blocks or (result.judgement is not None and result.judgement.success):
+			return
+		from browser_use.telemetry.stats import cdp_category, host
+
+		shown = result.blocks[:3]
+		walls = ', '.join(map(str, shown)) + (f' and {len(result.blocks) - 3} more' if len(result.blocks) > 3 else '')
+		browser, hint = self.browser, ''
+		if browser.use_cloud and browser.proxy:
+			other = 'de' if browser.proxy.lower() == 'us' else 'us'
+			hint = (
+				f' on a Browser Use cloud browser ({browser.proxy} proxy). Another exit country may pass: '
+				f"Browser(cloud_proxy_country_code='{other}')"
+			)
+		elif browser.use_cloud:
+			hint = " on a Browser Use cloud browser without a proxy. Turn one on: Browser(cloud_proxy_country_code='us')"
+		elif browser.kind == 'cdp' and cdp_category(host(browser.cdp_url)) == 'browser-use-cloud':
+			hint = ' on a Browser Use cloud browser. Another cloud_proxy_country_code may pass'
+		elif os.getenv('BROWSER_USE_CLOUD_HINTS', 'true').strip().lower() not in ('false', '0', 'no', 'off'):
+			hint = (
+				'. Cloud browsers pass most anti-bots, Browser() runs one: https://cloud.browser-use.com/'
+				f'?utm_source=oss&utm_medium=block_nudge&utm_content={shown[0].vendor}'
+			)
+		logger.warning(f'Blocked by {walls}{hint}')
 
 	def _failed(self, error: str, started: float) -> AgentHistoryList:
 		"""The result of a run that failed before the agent loop (preflight, browser start): status 'error', no steps."""
