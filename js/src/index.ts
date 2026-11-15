@@ -204,6 +204,7 @@ export class BrowserUse {
         ...(options.focusTab ? { focusTab: true } : {}),
         ...(options.browserSwitching ? { browserSwitching: true } : {}),
         ...(options.dedicatedBrowser ? { dedicatedBrowser: true } : {}),
+        ...(options.browser?.kind === 'cloud' ? { browserKind: 'cloud' as const } : {}),
         ...(options.browser?.kind === 'cloud' && options.browser.captchaSolver === false
           ? { captchaSolver: false as const }
           : {}),

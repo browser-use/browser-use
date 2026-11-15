@@ -52,6 +52,8 @@ export interface WorkerConfig extends importPolicy {
   dedicatedBrowser?: boolean;
   /** Browser.cloud({captchaSolver: false}): the solver is switched off on connect and solveCaptcha() keeps it off. */
   captchaSolver?: false;
+  /** Browser.cloud: uploadFile() sends bytes at once instead of trying a local path first. */
+  browserKind?: 'cloud';
   operationTimeoutMs: number;
   maxOutputChars: number;
 }

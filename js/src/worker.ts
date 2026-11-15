@@ -18,6 +18,7 @@ import { actionHighlighter } from './highlight.js';
 import { imageDimensions, imageMimeType, prepareModelImages } from './images.js';
 import { AxHelpers } from './ax.js';
 import { CaptchaWatch, disableCaptchaSolver } from './captcha.js';
+import { uploadFile } from './upload.js';
 
 // IPC initialization keeps connection details out of argv and environment.
 process.on('disconnect', () => process.exit(0));
@@ -294,6 +295,14 @@ Object.assign(realm, {
     if (timeoutMs < 1000)
       throw new Error('Too little cell time left; call solveCaptcha() in a new cell.');
     return captcha.solve({ timeoutMs });
+  },
+  /** Python upload_file: existing local file(s) onto a file input (backendNodeId or selector); bytes on remote browsers. */
+  uploadFile(
+    target: number | string,
+    path: string | string[],
+    targetPage: Page = Reflect.get(realm, 'page') as Page,
+  ) {
+    return uploadFile(targetPage, target, path, config.browserKind === 'cloud');
   },
   async fillSecret(
     name: string,

@@ -36,10 +36,17 @@ Ultrafast: the global \`bu\` in the javascript REPL. Each model call costs ~1 s,
   Ids are Chrome backendNodeIds: they work in bu.* and in every CDP DOM command.
 - Act: await bu.click(1400); await bu.type(812, 'Zurich'); await bu.type(830, 'Oct 14', {enter: true}). type replaces the field's text. bu.type(id, 'Canada') also picks a native select option; don't click it first.
   Each action prints one line: navigated to <url> / page changed / no change. Autocomplete: type, look, then click the suggestion.
-- Raw: upload to a file line with await page.cdp('DOM.setFileInputFiles', {backendNodeId: id, files: [await artifact('cv.txt', 'text')]}); keys await page.cdp('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}) then the same with type 'keyUp'; drag with Input.dispatchMouseEvent mousePressed, mouseMoved, mouseReleased.
+- Raw: keys await page.cdp('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}) then the same with type 'keyUp'; drag with Input.dispatchMouseEvent mousePressed, mouseMoved, mouseReleased.
 - If a helper fails once, do it raw. Read data with page.evaluate(() => ...), but confirm an outcome with bu.state() (visible text only), not innerText. Never add blind sleeps (setTimeout): actions and bu.state() wait for the page; for a specific condition use await page.waitFor(() => ...).
 - alert/confirm/prompt/beforeunload dialogs are accepted automatically; their text is printed as [dialog ...].
 `;
+
+/**
+ * Printed under the state that first shows a file line, so other pages' prompts carry none of it.
+ * A block with its own names, so it runs again as printed. It prints how many files it set, and throws when it set
+ * none: the cell stops there, before a submit that would go out without the file.
+ */
+const UPLOAD = `[upload] set a file line's files: put its id, the path of the user's existing file (never create one) and that file's MIME type into { const id = 0, path = 'cv.pdf', type = 'application/pdf'; const {object} = await page.cdp('DOM.resolveNode', {backendNodeId: id}); const r = await page.cdp('Runtime.callFunctionOn', {objectId: object.objectId, returnByValue: true, arguments: [require('fs').readFileSync(path, 'base64'), require('path').basename(path), type].map((value) => ({value})), functionDeclaration: "function(b, name, type) { if (this.type !== 'file') throw Error('not a file input'); const d = new DataTransfer(); d.items.add(new File([Uint8Array.from(atob(b), (c) => c.charCodeAt(0))], name, {type})); this.files = d.files; for (const t of ['input', 'change']) this.dispatchEvent(new Event(t, {bubbles: true})); return this.files.length }"}); if (r.exceptionDetails) throw Error('upload failed: ' + r.exceptionDetails.exception.description.split('\\n')[0]); console.log('files set: ' + r.result.value) } Good up to about 50 MB (100 MB drops the connection). A larger file, only when the browser runs on this machine: await page.cdp('DOM.setFileInputFiles', {backendNodeId: id, files: [require('path').resolve(path)]})`;
 
 /** State print and id-based actions on Chrome's accessibility tree. Raw page/CDP stays available. */
 export class AxHelpers {
@@ -55,6 +62,9 @@ export class AxHelpers {
   private dialogs: string[] = [];
   /** Role and name of every id in the last print: marks new ids and names targets in action lines. */
   private last = new Map<number, { role: string; name: string }>();
+  /** File lines the last look printed, and their document: the upload recipe is not repeated for them. */
+  private recipeFor = new Set<string>();
+  private recipeDoc: number | undefined;
   /** Set by every action; the worker prints the state after that cell. */
   acted = false;
   /** When the last action's settle began, 0 after a failed action. */
@@ -172,7 +182,6 @@ export class AxHelpers {
         title: document.title,
         n: w.__buN,
         doc: w.__buDoc,
-        files: !!document.querySelector('input[type=file]'),
       };
     });
   }
@@ -299,7 +308,7 @@ export class AxHelpers {
       this.capture(page),
       settled.probe ?? page.info(),
       this.visibleText(page).catch(() => undefined),
-      settled.probe?.files === false ? [] : this.fileInputs(page).catch(() => []),
+      this.fileInputs(page).catch(() => []),
     ]);
     const previous = this.last;
     this.last = new Map();
@@ -389,7 +398,7 @@ export class AxHelpers {
         const at = (k: string) => f.attributes?.find((_, i, a) => i % 2 === 1 && a[i - 1] === k);
         const name = at('aria-label') ?? at('name') ?? at('id') ?? '';
         this.last.set(f.backendNodeId, { role: 'file', name });
-        return `[${f.backendNodeId}] file "${name}" (hidden)`;
+        return `[${f.backendNodeId}] file "${name}" (hidden)${f.chosen ? ` = ${JSON.stringify(clip(f.chosen, 100))}` : ''}`;
       });
     lines.unshift(...hidden);
     const header = `[state] ${info.title} | ${info.url}${settled.pending ? ` | loading: ${settled.pending}` : ''}${this.flushDialogs()}`;
@@ -410,20 +419,47 @@ export class AxHelpers {
         ...lines.slice(lines.length - tail),
       ];
     }
-    const out = `${header}\n${body.join('\n')}\n[/state]`;
+    // Once per file line, not on every look, and never when the size cut left no file line to use it on.
+    // Ids repeat across documents, so a new document starts over. A page that never went quiet has no settle probe:
+    // ask it now, and take a page that cannot say as new, so the recipe prints rather than goes missing.
+    const doc = (settled.probe ?? (await this.probe(page).catch(() => undefined)))?.doc;
+    if (doc === undefined || doc !== this.recipeDoc) this.recipeFor.clear();
+    this.recipeDoc = doc;
+    const fileIds = body.flatMap((l) => l.match(/^\*?\[(\d+)\] file\b/)?.[1] ?? []);
+    const upload = fileIds.some((id) => !this.recipeFor.has(id)) ? `\n${UPLOAD}` : '';
+    this.recipeFor = new Set(fileIds);
+    const out = `${header}\n${body.join('\n')}${upload}\n[/state]`;
     this.log(out);
     return printed(out);
   }
 
+  /** Every file input, also inside open shadow roots and same-origin frames, with the names of its chosen files. */
   private async fileInputs(page: Page) {
-    const { root } = await page.cdp('DOM.getDocument', { depth: 0 });
-    const { nodeIds } = await page.cdp('DOM.querySelectorAll', {
-      nodeId: root.nodeId,
-      selector: 'input[type=file]',
+    const { result } = await page.cdp('Runtime.evaluate', {
+      expression: `(() => { const out = [], roots = [document]; for (const r of roots) for (const e of r.querySelectorAll('*')) { if (e.matches('input[type=file]')) out.push(e); if (e.shadowRoot) roots.push(e.shadowRoot); if (e.contentDocument) roots.push(e.contentDocument); } return out.length ? out : null; })()`,
+      objectGroup: 'bu-files',
     });
-    return Promise.all(
-      nodeIds.map(async (nodeId) => (await page.cdp('DOM.describeNode', { nodeId })).node),
-    );
+    if (!result.objectId) return [];
+    try {
+      const [{ result: items }, chosen] = await Promise.all([
+        page.cdp('Runtime.getProperties', { objectId: result.objectId, ownProperties: true }),
+        page.cdp('Runtime.callFunctionOn', {
+          objectId: result.objectId,
+          functionDeclaration: `function() { return this.map((e) => [...e.files].map((f) => f.name).join(', ')); }`,
+          returnByValue: true,
+        }),
+      ]);
+      return await Promise.all(
+        items
+          .filter((p) => /^\d+$/.test(p.name) && p.value?.objectId)
+          .map(async (p) => ({
+            ...(await page.cdp('DOM.describeNode', { objectId: p.value!.objectId! })).node,
+            chosen: String((chosen.result.value as string[])[Number(p.name)] ?? ''),
+          })),
+      );
+    } finally {
+      await page.cdp('Runtime.releaseObjectGroup', { objectGroup: 'bu-files' }).catch(() => {});
+    }
   }
 
   private async onNode<T>(page: Page, id: number, fn: string, argument?: unknown): Promise<T> {
@@ -464,7 +500,7 @@ export class AxHelpers {
         const e = this.nodeType === Node.ELEMENT_NODE ? this : this.parentElement;
         if (!e || !e.isConnected) throw Error('Target detached');
         if (e.matches(':disabled') || e.closest('[inert],[aria-disabled="true"]')) throw Error('Target disabled');
-        if (e.matches('input[type=file]')) throw Error("File input: clicking opens the OS file chooser; upload with DOM.setFileInputFiles instead");
+        if (e.matches('input[type=file]')) throw Error("File input: clicking opens the OS file chooser; set its files with the [upload] line of bu.state() instead");
         if (!e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true})) throw Error('Target hidden');
         const r = e.getBoundingClientRect(), x = r.x + r.width/2, y = r.y + r.height/2;
         if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) throw Error('Target outside viewport');
@@ -526,6 +562,7 @@ export class AxHelpers {
     try {
       detail = await body(page);
     } catch (error) {
+      this.recipeFor.delete(String(id)); // a failed action on a file line: the state after the cell prints the recipe again
       throw new Error(
         `${op} ${this.describe(id)} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
