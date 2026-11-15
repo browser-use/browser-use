@@ -29,6 +29,9 @@ export const DEFAULT_MAX_STEPS = 100;
 export const DEFAULT_RUN_TIMEOUT_MS = 1_700_000;
 export const DEFAULT_CELL_TIMEOUT_MS = 120_000;
 export const DEFAULT_OPERATION_TIMEOUT_MS = 20_000;
+/** How cell output prints objects. Node's default depth 2 printed nested data as [Object] and models re-queried it;
+ * the cell output cap (maxOutputChars, full text in a file) still bounds what the model sees. */
+export const CELL_INSPECT_OPTIONS = { depth: 6, maxArrayLength: 500, breakLength: 160 } as const;
 export interface WorkerConfig extends importPolicy {
   mode?: 'default' | 'ultrafast';
   webSearch?: { url: string; token: string };

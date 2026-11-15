@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { CDP } from './cdp.js';
 import { Page, Tabs } from './page.js';
 import type { Image, WorkerConfig, WorkerRequest, WorkerResponse } from './protocol.js';
+import { CELL_INSPECT_OPTIONS } from './protocol.js';
 import { installDomainPolicy, fillSecret } from './policy.js';
 import { redact } from './history.js';
 import { actionHighlighter } from './highlight.js';
@@ -395,7 +396,11 @@ function observe() {
     };
 }
 observe();
-realm.console = new (await import('node:console')).Console(sink, sink);
+realm.console = new (await import('node:console')).Console({
+  stdout: sink,
+  stderr: sink,
+  inspectOptions: CELL_INSPECT_OPTIONS,
+});
 
 async function evaluate(code: string, captureJson = false): Promise<string | undefined> {
   try {
@@ -442,7 +447,10 @@ async function evaluate(code: string, captureJson = false): Promise<string | und
         ),
       );
     } else if (result.type !== 'undefined') {
-      sink.write(result.unserializableValue ?? inspect(result.value, { maxStringLength: 20_000 }));
+      sink.write(
+        result.unserializableValue ??
+          inspect(result.value, { ...CELL_INSPECT_OPTIONS, maxStringLength: 20_000 }),
+      );
     }
   } finally {
     evaluator.post('Runtime.releaseObjectGroup', { objectGroup: 'cell' });
