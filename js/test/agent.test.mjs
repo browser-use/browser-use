@@ -143,7 +143,9 @@ test('model failures and plain unfinished answers are distinct from completion',
     const failure = await s.agent.run('Research');
     assert.equal(failure.status, 'error');
     assert.match(failure.error, /provider unavailable/);
-    assert.equal((await s.agent.run('Research')).status, 'incomplete');
+    // A string schema takes a text reply as the answer; a structured one repairs once, then stays unfinished.
+    const schema = Type.Object({ answer: Type.String() });
+    assert.equal((await s.agent.run('Research', { schema })).status, 'incomplete');
   } finally {
     await s.close();
   }
@@ -477,7 +479,8 @@ test('repair stops after one rejected correction', async () => {
     call('finish', { result: 'unreachable' }),
   ]);
   try {
-    const result = await s.agent.run('Deliver');
+    // Structured: for a string schema the text reply would be the answer.
+    const result = await s.agent.run('Deliver', { schema: Type.Object({ answer: Type.String() }) });
     assert.equal(result.status, 'incomplete');
     assert.equal(result.finishRepairs, 2);
     assert.equal(result.text, 'partial evidence');
@@ -1154,7 +1157,8 @@ test('OpenAI text-ending repair turn requires a delivery tool call', async () =>
     [
       (_context, options) => {
         assert.equal(options.toolChoice, undefined);
-        return fauxAssistantMessage('The answer is 42.');
+        // A tool call written as text: plain text would be the answer for a string schema.
+        return fauxAssistantMessage('<tool_call>{"name": "finish"}</tool_call>');
       },
       (context, options) => {
         assert.match(context.messages.at(-1).content[0].text, /single delivery repair/);

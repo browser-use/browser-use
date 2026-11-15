@@ -57,6 +57,8 @@ const TRANSIENT_MODEL_ERRORS = [
   /^Request timed out\.$/,
   /^stream inactive >\d+s$/,
 ];
+/** Python agent/loop.py TOOL_CALL_MARKUP: a tool call written as text ran nothing and is no answer. */
+const TOOL_CALL_MARKUP = /<\/?tool_call>/;
 // httpx and openai transport failures, relayed bare ("ReadError") or with their message.
 const TRANSIENT_TRANSPORT_ERRORS =
   /^(?:ReadError|ReadTimeout|RemoteProtocolError|APITimeoutError)(?::|$)/;
@@ -186,6 +188,7 @@ export async function runAgent(
       `Final delivery rejected: ${reason}\nOriginal result schema: ${JSON.stringify(schema)}\nRejected value or arguments: ${value}\nFor finish, put every result field inside the single result property: {"result": <value matching the schema>}. For finish_from_js, return that value directly. Repair this delivery in the current session; do not repeat completed browser actions.`,
     );
   };
+  const stringSchema = (schema as { type?: unknown }).type === 'string';
   const acceptResult = async (output: unknown, signal?: AbortSignal) => {
     if (!Check(schema, output))
       throw rejectedDelivery(
@@ -609,15 +612,41 @@ export async function runAgent(
         agent.state.messages = agent.state.messages.slice(0, -1);
         await agent.continue();
       }
-      const ending = agent.state.messages.findLast((m) => m.role === 'assistant');
+      // A budget that ran out on this very reply does not discard it: the reply is the delivery.
+      const spent = () => stopped === undefined || stopped === 'max_steps' || stopped === 'cost_limit';
+      const replyText = () => {
+        const ending = agent.state.messages.at(-1);
+        return !completion && spent() && ending?.role === 'assistant' && ending.stopReason === 'stop'
+          ? ending.content
+              .filter((c) => c.type === 'text')
+              .map((c) => c.text)
+              .join('\n')
+          : undefined;
+      };
+      // Python on_text: for a string schema a plain-text reply is the answer (the repair cost one extra request on
+      // ~95% of gpt-6-luna runs). A structured schema, or a tool call written as text, gets the delivery repair.
+      const reply = replyText();
+      let problem = '';
+      if (reply !== undefined && stringSchema && !TOOL_CALL_MARKUP.test(reply)) {
+        try {
+          await acceptResult(reply, options.signal);
+          stopped = undefined;
+        } catch (cause) {
+          if (options.signal?.aborted) throw cause;
+          problem = `\n${cause instanceof Error ? cause.message : String(cause)}`;
+        }
+      }
       // One delivery-only repair. The original timer, transcript and budgets remain in force.
-      if (!completion && !stopped && ending?.role === 'assistant' && ending.stopReason === 'stop') {
+      if (reply !== undefined && !completion && !stopped) {
+        const note = TOOL_CALL_MARKUP.test(reply)
+          ? 'That reply wrote a tool call as text; it was not run. '
+          : '';
         const repair: AgentMessage = {
           role: 'user',
           content: [
             {
               type: 'text',
-              text: 'The run ended without a validated delivery. Use finish_from_js for an existing result or finish for a concise answer. Preserve all verified records; report missing evidence honestly. Do not repeat browser actions. This is the single delivery repair; one correction may follow a rejected delivery.',
+              text: `${note}The run ended without a validated delivery. Use finish_from_js for an existing result or finish for a concise answer. Preserve all verified records; report missing evidence honestly. Do not repeat browser actions. This is the single delivery repair; one correction may follow a rejected delivery.${problem}`,
             },
           ],
           timestamp: Date.now(),
@@ -626,6 +655,22 @@ export async function runAgent(
         if (!checkBudgets([...agent.state.messages, repair], agent.state.systemPrompt)) {
           finishRepairs = 1;
           await agent.prompt(repair);
+          // Python: after the repair turn, text is accepted when it is a valid result (JSON for a structured schema).
+          const late = replyText();
+          if (late !== undefined && !TOOL_CALL_MARKUP.test(late)) {
+            let value: unknown = late;
+            if (!stringSchema)
+              try {
+                value = JSON.parse(late);
+              } catch {
+                value = undefined;
+              }
+            if (value !== undefined)
+              await acceptResult(value, options.signal).then(
+                () => (stopped = undefined),
+                () => {},
+              );
+          }
         }
       }
     }
