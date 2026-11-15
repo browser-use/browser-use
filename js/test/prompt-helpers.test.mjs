@@ -33,6 +33,14 @@ test('the prompt says every call is a full model turn (Python 1.0.5 prompt.py)',
   );
 });
 
+test('the prompt reads page text after an action; snapshot() is for control ids', () => {
+  assert.match(SYSTEM_PROMPT, /finds control ids, not content/);
+  assert.match(
+    SYSTEM_PROMPT,
+    /after goto or a click in the same cell: await page\.evaluate\(\(\) => document\.body\.innerText\)/,
+  );
+});
+
 /** A CDP connection over a fake socket: records commands, lets the test emit events. */
 function fakeConnection() {
   const socket = new EventTarget();

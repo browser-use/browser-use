@@ -6,7 +6,7 @@ Browser primitives:
 - page is the current tab. page = await tabs.open(url); await tabs.list(); page = await tabs.get(targetId).
 - await page.goto(url); await page.info() -> {url,title}.
 - await page.evaluate(fn, jsonArgument) runs in the page and returns JSON. It cannot capture Node variables. A string expression also works.
-- await snapshot() or page.snapshot() -> {url,title,nodes:[{id,role,name,value?,checked?,pressed?,selected?,expanded?,disabled?}]}.
+- await snapshot() or page.snapshot() -> {url,title,nodes:[{id,role,name,value?,checked?,pressed?,selected?,expanded?,disabled?}]} finds control ids, not content. To read a page, after goto or a click in the same cell: await page.evaluate(() => document.body.innerText).
 - await screenshot() or page.screenshot() captures the viewport and sends a native image to the model. Never print image bytes. Explicit raw Page.captureScreenshot calls are captured too.
 - await page.clickAt(x,y) sends real CDP mouse events in viewport coordinates.
 - await page.waitFor(fn, jsonArgument, {timeoutMs:10000}) returns void when the predicate becomes truthy. Example: await page.waitFor(() => document.querySelector('[role=status]')?.textContent.includes('Done')). Then read data with page.evaluate.
