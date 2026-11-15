@@ -811,8 +811,10 @@ export async function runAgent(
               .join('\n')
           : undefined;
       };
-      /** A text reply as a result value: the text for a string schema, else its JSON; undefined when not JSON. */
-      const textValue = (text: string): unknown => {
+      /** A text reply as a result value: the text for a string schema, else its JSON; undefined when not JSON. Text
+       * with no letter or digit is no answer where nothing can follow it (an empty reply never completes a run). */
+      const textValue = (text: string, last: boolean): unknown => {
+        if (last && !ALNUM.test(text)) return undefined;
         if (stringSchema) return text;
         try {
           return JSON.parse(text);
@@ -826,7 +828,7 @@ export async function runAgent(
       const reply = replyText();
       const replyValue =
         reply !== undefined && !TOOL_CALL_MARKUP.test(reply) && (stringSchema || finalizing)
-          ? textValue(reply)
+          ? textValue(reply, stopped !== undefined)
           : undefined;
       let problem = '';
       if (replyValue !== undefined) {
@@ -861,7 +863,7 @@ export async function runAgent(
           // Python: after the repair turn, text is accepted when it is a valid result (JSON for a structured schema).
           const late = replyText();
           const value =
-            late !== undefined && !TOOL_CALL_MARKUP.test(late) ? textValue(late) : undefined;
+            late !== undefined && !TOOL_CALL_MARKUP.test(late) ? textValue(late, true) : undefined;
           // Nothing follows the repair turn: a delivery problem is noted, not refused.
           if (value !== undefined)
             await acceptResult(value, options.signal, undefined, true).then(
