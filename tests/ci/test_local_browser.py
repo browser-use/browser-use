@@ -78,6 +78,24 @@ def test_fresh_browser_gets_its_own_temp_profile_and_stop_removes_everything(fak
 
 
 @posix_only
+@pytest.mark.parametrize('source', ['explicit', 'BH_CHROME_PATH', 'CHROME_PATH'])
+def test_relative_browser_binary_starts(fake_chrome, tmp_path, monkeypatch, source):
+	path = Path(fake_chrome('ok'))
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv('PATH', str(tmp_path / 'no-binaries'))
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	kwargs = {'executable_path': f'./{path.name}'} if source == 'explicit' else {}
+	if source != 'explicit':
+		monkeypatch.setenv(source, f'./{path.name}')
+	lb = _local.LocalBrowser()
+	try:
+		assert lb.start(headless=True, **kwargs).endswith('/fake')
+	finally:
+		lb.stop()
+
+
+@posix_only
 def test_kept_user_data_dir_survives_stop_and_a_stale_port_file_is_ignored(fake_chrome, tmp_path):
 	udd = tmp_path / 'kept'
 	udd.mkdir()
