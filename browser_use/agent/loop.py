@@ -387,7 +387,9 @@ def _outputs(output_type: Any) -> list[Any]:
 		if s.after_action:
 			output = f'Expression failed: {r["error"]}' if r['error'] else r['value'] or ''
 			urls = redact(list((r.get('stats') or {}).get('pages') or []), s.repl.secrets)
-			await observe(s.after_action, ActionOutcome(action, None, output, r['error'] or None, urls, time.monotonic() - started))
+			await observe(
+				s.after_action, ActionOutcome(action, None, output, r['error'] or None, urls, time.monotonic() - started)
+			)
 		if r['error']:
 			ctx.deps.rec.retry('finish_expr_error')
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
