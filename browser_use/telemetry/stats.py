@@ -16,6 +16,7 @@ import sys
 import sysconfig
 import warnings
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cache, lru_cache
 from importlib.metadata import PackageNotFoundError, version
@@ -30,6 +31,7 @@ MAX_NAME = 64  # characters per name
 MAX_URLS, MAX_URL = 50, 200  # per run, characters per URL
 MAX_ERRORS, MAX_ERROR = 20, 300  # per run, characters per error message
 MAX_RESULT = 500  # characters of the final result
+MAX_GOTCHAS = 5  # the judge's gotchas per run (as judge.MAX_GOTCHAS)
 CLI_CONTENT = ('task', 'output', 'steps')  # browser-harness cli_event fields that carry the code or its output
 
 
@@ -342,6 +344,20 @@ def provider_name(provider: Any) -> str:
 		return provider[:MAX_NAME]
 	name = getattr(provider, 'name', None)
 	return name[:MAX_NAME] if isinstance(name, str) else 'other'
+
+
+def judged(judgement: dict | None, cost: float | None, clean: Callable[[str], str | None]) -> dict | None:
+	"""The judge's whole answer as agent_event sends it: its text fields scrubbed (clean, as error messages), at most
+	MAX_GOTCHAS gotchas, and what the judge cost. None when the run was not judged."""
+	if judgement is None:
+		return None
+	return {
+		**judgement,
+		'failure_reason': clean(judgement['failure_reason']) if judgement['failure_reason'] else None,
+		'description': clean(judgement['description']) or '',
+		'gotchas': [g for g in (clean(g) for g in judgement['gotchas'][:MAX_GOTCHAS]) if g],
+		'cost_usd': cost,
+	}
 
 
 def top(counter: Counter, n: int = MAX_KEYS) -> dict[str, int]:

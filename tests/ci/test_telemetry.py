@@ -227,7 +227,7 @@ async def test_agent_event_sends_urls_errors_and_result_never_task_secrets_typed
 	assert r.status == 'completed', r.error
 	(props,) = sent
 	assert_absent(props, task, secret, typed, query, value, fragment, error, 'type_text(', 'wait_for_load()')
-	assert props['schema_version'] == 4 and props['agent_type'] == 'pydantic' and props['os']
+	assert props['schema_version'] == 5 and props['agent_type'] == 'pydantic' and props['os']
 	assert 'task' not in props and 'final_result_response' not in props
 	assert props['urls_visited'] == [f'http://127.0.0.1/{path}/{path}2', f'http://{other_host}.invalid/{path}3']  # no port
 	assert props['error_messages'] == ['ValueError']  # the cell raised it with what it read: its class, never the message
@@ -943,7 +943,7 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 	assert p['final_result'] == f'{c.result} <task>'  # the task, quoted whole (and with its secret redacted)
 	assert (event['event'], event['distinct_id'], event['uuid']) == ('agent_event', 'bu-test-device', str(uuid.UUID(p['run_id'])))
 	assert (p['schema_version'], p['status'], p['steps'], p['is_internal'], p['$lib']) == (
-		4,
+		5,
 		'completed',
 		5,
 		True,  # conftest: every test event is internal
@@ -2252,7 +2252,7 @@ async def test_report_issue_sends_scrubbed_feedback_joined_to_its_run_at_most_th
 	assert (first['source'], first['category'], first['step'], first['last_error_type']) == ('agent', 'bug', 2, 'ValueError')
 	assert first['run_id'] == run['properties']['run_id'] and first['model'] == run['properties']['model']
 	assert first['version'] and first['python_version'] and first['os'] and 'browser_harness_version' in first
-	assert (first['is_internal'], first['is_ci'] in (True, False), first['schema_version']) == (True, True, 4)
+	assert (first['is_internal'], first['is_ci'] in (True, False), first['schema_version']) == (True, True, 5)
 	assert [r['properties']['message'] for r in reports[1:]] == ['again 0', 'again 1']
 	assert {r['distinct_id'] for r in events} == {'bu-test-device'}
 	assert_absent({'events': events}, 'Zq9', user_key)

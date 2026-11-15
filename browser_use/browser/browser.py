@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import base64
 import concurrent.futures
 import contextlib
 import functools
@@ -813,6 +814,26 @@ class Browser:
 		if self.name:
 			with contextlib.suppress(Exception):  # the daemon is gone: the last tab known stays
 				self._agent_tab = _daemon_request(self.name, {'meta': 'current_tab'}, timeout=5)['targetId']
+
+	def _screenshot(self, timeout: float) -> bytes | None:
+		"""The agent's tab as JPEG, taken from this process through our daemon, never through the agent's REPL (its state,
+		notices and stats stay as they are). None when there is no daemon, the capture fails, or the tab is hidden: a
+		hidden tab's capture can hang (Linux headless, cloud), and activating it would switch the user's visible tab."""
+
+		def cdp(method: str, **params) -> dict:
+			return _daemon_request(
+				self._daemon_name(), {'method': method, 'params': params, 'session_id': None}, timeout=timeout
+			)['result']
+
+		try:
+			if (
+				cdp('Runtime.evaluate', expression='document.visibilityState', returnByValue=True)['result'].get('value')
+				== 'hidden'
+			):
+				return None
+			return base64.b64decode(cdp('Page.captureScreenshot', format='jpeg', quality=70)['data'])
+		except Exception:  # - no daemon, a gone browser or tab, a timeout: the judge goes without
+			return None
 
 	def _attach_agent_tab(self) -> None:
 		"""A daemon started again attaches a new blank tab of its own, so the next run saw about:blank, the agent's page

@@ -17,10 +17,19 @@ from urllib.parse import urlparse
 
 from genai_prices import calc_price
 from pydantic import TypeAdapter
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import (
+	BinaryContent,
+	ModelMessage,
+	ModelRequest,
+	ModelResponse,
+	RetryPromptPart,
+	ToolCallPart,
+	ToolReturnPart,
+)
 from pydantic_ai.usage import RequestUsage
 
-from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run
+from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_run
+from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run, usage_and_cost
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.auth import browser_use_api_key
@@ -100,7 +109,8 @@ REMOVED = {  # 0.x Agent(...) and run() arguments -> the 1.0 alternative ('' whe
 	'step_timeout': 'agent.run(timeout=seconds) bounds the agent loop.',
 	'calculate_cost': 'result.cost_usd is computed whenever the price is known.',
 	'pricing_url': 'result.cost_usd is computed whenever the price is known.',
-	**dict.fromkeys(('generate_gif', 'demo_mode', 'fallback_llm', 'use_judge', 'judge_llm', 'ground_truth'), ''),
+	**dict.fromkeys(('generate_gif', 'demo_mode', 'fallback_llm'), ''),
+	'judge_llm': "the judge uses the agent's own llm.",
 	**dict.fromkeys(('skill_ids', 'skills', 'skill_service'), ''),  # Cloud Skills
 	# 0.1-0.8 arguments (every tag's Agent.__init__); they raised "not a browser-use 1.0 option" without an answer
 	**dict.fromkeys(('browser_context', 'context', 'page'), 'pass a Browser(...) as browser=...'),
@@ -153,7 +163,6 @@ IGNORED = {  # use_vision=False is kept (no screenshots reach the model); use_vi
 	'flash_mode',
 	'highlight_elements',  # 0.x Agent took it in **kwargs and did nothing with it (a BrowserProfile option)
 	'use_thinking',
-	'use_judge',
 	'max_failures',
 	'final_response_after_failure',
 	'calculate_cost',
@@ -226,7 +235,10 @@ class Agent:
 	conversation the agent compacts its history into a summary checkpoint (default 4 per token of the model's context
 	window, as Browser Use Pi; not used where the provider compacts server-side, as on OpenAI Responses and the gateway).
 	highlight_actions: orange corner brackets show for 1 s around what the agent clicks or types into (as 0.x); never in
-	the agent's screenshots. False turns them off."""
+	the agent's screenshots. False turns them off. judge: after each run one more request to the same llm judges it
+	against the task: result.judgement (success, failure_reason, description, prompt_injection_detected,
+	bot_block_or_captcha_detected, gotchas), its tokens and cost counted in result.usage and result.cost_usd; False turns
+	it off. judge_context: your criteria or the expected answer, which the judge puts first (0.x ground_truth)."""
 
 	def __init__(
 		self,
@@ -246,8 +258,13 @@ class Agent:
 		web_search: bool = False,
 		max_context_chars: int | None = None,
 		highlight_actions: bool = True,
+		judge: bool = True,
+		judge_context: str | None = None,
 		**kwargs: Any,
 	):
+		# 0.x use_judge and ground_truth: the same options under their old names
+		judge = kwargs.pop('use_judge', judge)
+		judge_context = kwargs.pop('ground_truth', judge_context)
 		# 0.x use_vision=False: no screenshot reaches the model (privacy, cost, text-only models); kept, not ignored
 		self.use_vision = kwargs.get('use_vision') is not False
 		for name in [n for n in kwargs if n in IGNORED]:
@@ -261,6 +278,10 @@ class Agent:
 			raise TypeError(f'web_search must be True or False, not {web_search!r}')
 		if not isinstance(highlight_actions, bool):
 			raise TypeError(f'highlight_actions must be True or False, not {highlight_actions!r}')
+		if not isinstance(judge, bool):
+			raise TypeError(f'judge must be True or False, not {judge!r}')
+		if judge_context is not None and not isinstance(judge_context, str):
+			raise TypeError(f'judge_context must be a str or None, not {type(judge_context).__name__}')
 		if max_context_chars is not None and (type(max_context_chars) is not int or max_context_chars < 1):
 			raise ValueError(f'max_context_chars must be a positive int or None, not {max_context_chars!r}')
 		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) bu-fast instead
@@ -304,6 +325,9 @@ class Agent:
 		self.sensitive_data = dict(sensitive_data or {})
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
 		self.web_search, self.max_context_chars, self.highlight_actions = web_search, max_context_chars, highlight_actions
+		self.judge, self.judge_context = judge, judge_context or None
+		self._judge_cost: float | None = None  # the last run's judge cost (telemetry)
+		self._final_page: BinaryContent | None = None  # the last run's final page, for the judge
 		self._search: WebSearch | None = None  # set by _build when search() is on
 		# As given, made absolute, symlinks kept: on macOS resolve() turned tempfile's /var/... into /private/var/..., and
 		# result.downloads[0].relative_to(workspace) raised ValueError. Default: made on first use (workspace).
@@ -522,6 +546,15 @@ class Agent:
 				explain_error=self._gateway.explain_error if self._gateway else None,
 			)
 			self._history = session.messages  # raw: result.messages has secrets redacted
+			# the judge sees the page as the run left it, before the browser stops
+			judged = self.judge and self.use_vision and result.steps
+			self._final_page = None
+			if judged:
+				with contextlib.suppress(TimeoutError):  # a slow page: the thread ends at its socket timeouts
+					shot = await asyncio.wait_for(
+						asyncio.to_thread(self.browser._screenshot, FINAL_SCREENSHOT_TIMEOUT_S), FINAL_SCREENSHOT_TIMEOUT_S
+					)
+					self._final_page = BinaryContent(shot, media_type='image/jpeg') if shot else None
 			self._compacted = {'checkpoint': session.checkpoint, 'covered': session.covered, 'usage_after': session.usage_after}
 			result.output_schema = self.output_model_schema
 			if result.status == 'error':
@@ -557,8 +590,36 @@ class Agent:
 				phase = loop_phase
 			finally:
 				rec.phase('shutdown', now() - t)
-				meta = {'run_id': run_id, 'rec': rec, 'phase': phase, 'number': number, 'concurrent': concurrent}
-				self._capture(result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started, meta)
+				try:  # after the browser stopped (a cloud browser bills until then); a cancelled judge still sends the event
+					if error_type is None:
+						await self._judge(result)
+				finally:
+					meta = {'run_id': run_id, 'rec': rec, 'phase': phase, 'number': number, 'concurrent': concurrent}
+					self._capture(
+						result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started, meta
+					)
+
+	async def _judge(self, result: AgentHistoryList | None) -> None:
+		"""One request to the agent's own model judges a run that took steps (judge=False: none). Its tokens and cost, also
+		a failed one's, are added to result.usage and result.cost_usd. A failure is logged and leaves result.judgement
+		None: the judge never fails a run."""
+		self._judge_cost = None
+		if not (self.judge and result is not None and result.steps and self._agent is not None):
+			return
+		task, context = (redact(t, self.sensitive_data) for t in (self.task, self.judge_context))
+		final, self._final_page = self._final_page, None
+		judgement, messages = await judge_run(self._agent, task, result, context, self.sensitive_data, final)
+		if not messages:
+			return
+		usage, cost = usage_and_cost(messages, self._model_ref)
+		for key, n in usage.items():
+			result.usage[key] = result.usage.get(key, 0) + n
+		result.cost_usd = None if result.cost_usd is None or cost is None else result.cost_usd + cost
+		result.judgement, self._judge_cost = judgement, cost
+		if judgement is None:
+			return
+		verdict = 'success' if judgement.success else f'failure: {judgement.failure_reason or judgement.description}'
+		logger.info(f'Judge: {verdict}' + ''.join(f'\n  gotcha: {g}' for g in judgement.gotchas))
 
 	def _failed(self, error: str, started: float) -> AgentHistoryList:
 		"""The result of a run that failed before the agent loop (preflight, browser start): status 'error', no steps."""
@@ -684,6 +745,8 @@ class Agent:
 			'web_search': self.web_search,
 			'use_vision': self.use_vision,
 			'highlight_actions': self.highlight_actions,
+			'judge': self.judge,
+			'judge_context': self.judge_context is not None,
 			'max_context_chars_set': self.max_context_chars is not None,
 			'captcha_solver': browser.captcha_solver if browser.use_cloud else None,
 			'headless': browser.headless,
@@ -759,6 +822,7 @@ class Agent:
 				MAX_URLS,
 				RunStats,
 				download_ext,
+				judged,
 				scrub,
 				top,
 			)
@@ -826,9 +890,12 @@ class Agent:
 				'feedback_count': self._reports.sent,
 			}
 			secrets = self.sensitive_data
-			tasks = list(dict.fromkeys([*self._tasks, self.task]))  # a follow-up's result can quote the first task
+			# a follow-up's result can quote the first task; the judgement can quote judge_context
+			tasks: list[str] = list(dict.fromkeys([*self._tasks, self.task, *filter(None, [self.judge_context])]))
 			run_error = result.error if result else None
 			final = result.text if result else None
+			judgement = result.judgement.model_dump() if result and result.judgement else None
+			judge_cost = self._judge_cost
 			known = rec.known
 			function_tools = known - {'finish', 'finish_from_repl'}
 			total_ms = int(duration * 1000)
@@ -879,6 +946,7 @@ class Agent:
 					urls_visited=[u for u in urls if u],
 					error_messages=[e for e in dict.fromkeys(errors) if e][:MAX_ERRORS],
 					final_result=scrub(final, forms, MAX_RESULT, tasks, stats.typed) or None,
+					judgement=judged(judgement, judge_cost, lambda text: scrub(text, forms, MAX_ERROR, tasks, stats.typed)),
 				)
 				return event.properties
 
