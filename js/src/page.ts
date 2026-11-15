@@ -37,6 +37,50 @@ function controlState(node: Protocol.Accessibility.AXNode) {
   return state;
 }
 
+/** key -> [windowsVirtualKeyCode, code, text], as browser-harness press_key sends them. */
+const NAMED_KEYS: Record<string, [number, string, string]> = {
+  Enter: [13, 'Enter', '\r'],
+  Tab: [9, 'Tab', '\t'],
+  Backspace: [8, 'Backspace', ''],
+  Escape: [27, 'Escape', ''],
+  Delete: [46, 'Delete', ''],
+  ' ': [32, 'Space', ' '],
+  ArrowLeft: [37, 'ArrowLeft', ''],
+  ArrowUp: [38, 'ArrowUp', ''],
+  ArrowRight: [39, 'ArrowRight', ''],
+  ArrowDown: [40, 'ArrowDown', ''],
+  Home: [36, 'Home', ''],
+  End: [35, 'End', ''],
+  PageUp: [33, 'PageUp', ''],
+  PageDown: [34, 'PageDown', ''],
+};
+const PUNCTUATION_KEYS: Record<string, [string, number]> = {
+  '`': ['Backquote', 192],
+  '-': ['Minus', 189],
+  '=': ['Equal', 187],
+  '[': ['BracketLeft', 219],
+  ']': ['BracketRight', 221],
+  '\\': ['Backslash', 220],
+  ';': ['Semicolon', 186],
+  "'": ['Quote', 222],
+  ',': ['Comma', 188],
+  '.': ['Period', 190],
+  '/': ['Slash', 191],
+};
+const SHIFTED: Record<string, string> = Object.fromEntries(
+  [...'~!@#$%^&*()_+{}|:"<>?'].map((c, i) => [c, "`1234567890-=[]\\;',./"[i]!]),
+);
+/** [code, virtual key, needs Shift] for one printable ASCII character on a US layout; undefined otherwise. */
+function printableKey(char: string): [string, number, boolean] | undefined {
+  const base = SHIFTED[char] ?? char;
+  const shift = char in SHIFTED || (char !== char.toLowerCase() && char === char.toUpperCase());
+  if (/^[a-z]$/i.test(base))
+    return [`Key${base.toUpperCase()}`, base.toUpperCase().charCodeAt(0), shift];
+  if (/^[0-9]$/.test(base)) return [`Digit${base}`, base.charCodeAt(0), shift];
+  const punctuation = PUNCTUATION_KEYS[base];
+  return punctuation && [punctuation[0], punctuation[1], shift];
+}
+
 /** A tab with explicit CDP, page evaluation and observation. No selector/action layer. */
 export class Page {
   private constructor(
@@ -171,6 +215,40 @@ export class Page {
       y,
       button: 'left',
       clickCount: 1,
+    });
+  }
+  /** Inserts text into the focused element (Python type_text). */
+  async typeText(text: string) {
+    await this.cdp('Input.insertText', { text: String(text) });
+  }
+  /** One key press with US-layout key, code and key code (Python press_key). Modifiers: 1 Alt, 2 Ctrl, 4 Meta, 8 Shift. */
+  async pressKey(key: string, modifiers = 0) {
+    let [vk, code, text] = NAMED_KEYS[key] ?? [0, key, ''];
+    if (!NAMED_KEYS[key] && [...key].length === 1) {
+      text = key;
+      const resolved = printableKey(key);
+      [code, vk] = resolved ? [resolved[0], resolved[1]] : ['', 0];
+      if (resolved?.[2] && !(modifiers & 7)) modifiers |= 8;
+    }
+    const base = { key, code, modifiers, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk };
+    const printable = [...key].length === 1 && !!text && !(modifiers & 7);
+    await this.cdp('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      ...base,
+      ...(!printable && text ? { text } : {}),
+    });
+    if (printable) await this.cdp('Input.dispatchKeyEvent', { type: 'char', text, ...base });
+    await this.cdp('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  }
+  /** Mouse-wheel scroll at viewport x,y; positive dy scrolls down (Python scroll). */
+  async scroll(x: number, y: number, dy = 600, dx = 0) {
+    if (![x, y, dx, dy].every(Number.isFinite)) throw new Error('Scroll values must be finite.');
+    await this.cdp('Input.dispatchMouseEvent', {
+      type: 'mouseWheel',
+      x,
+      y,
+      deltaX: dx,
+      deltaY: dy,
     });
   }
   async screenshot(options: { quality?: number } = {}) {

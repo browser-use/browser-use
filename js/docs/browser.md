@@ -2,19 +2,21 @@
 
 The `javascript` tool is a persistent Node REPL. Top-level variables, functions and `await` survive between cells. Code can use Node libraries and workspace files. Pi supplies optional `read`, `write`, `edit` and `bash` tools with `researchTools: true`.
 
-| Primitive                                       | Purpose                                                    |
-| ----------------------------------------------- | ---------------------------------------------------------- |
-| `page.goto(url)`, `page.info()`                 | Navigate; read URL and title                               |
-| `page.snapshot()`                               | AX nodes with backend IDs, roles, names, values and states |
-| `page.evaluate(fn, argument)`                   | Run page code; return JSON                                 |
-| `page.waitFor(fn, argument, {timeoutMs})`       | Wait for an observed condition                             |
-| `page.clickAt(x, y)`                            | Real mouse input in viewport coordinates                   |
-| `page.screenshot()`                             | Capture a native image for the model                       |
-| `page.cdp(method, params)`                      | Any typed tab CDP command                                  |
-| `tabs.open(url)`, `tabs.list()`, `tabs.get(id)` | Open, list and attach tabs                                 |
-| `page.close()`                                  | Explicitly close that tab                                  |
-| `browser.send(method, params, sessionId?)`      | Root or scoped CDP commands                                |
-| `browser.waitFor(event, options)`               | Subscribe before triggering an event                       |
+| Primitive                                               | Purpose                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------- |
+| `page.goto(url)`, `page.info()`                         | Navigate; read URL and title                                  |
+| `page.snapshot()`                                       | AX nodes with backend IDs, roles, names, values and states    |
+| `page.evaluate(fn, argument)`                           | Run page code; return JSON                                    |
+| `page.waitFor(fn, argument, {timeoutMs})`               | Wait for an observed condition                                |
+| `page.clickAt(x, y)`                                    | Real mouse input in viewport coordinates                      |
+| `page.typeText(text)`, `page.pressKey(key, modifiers?)` | Insert text into the focused element; one US-layout key press |
+| `page.scroll(x, y, dy?, dx?)`                           | Mouse wheel at a point; positive `dy` (default 600) is down   |
+| `page.screenshot()`                                     | Capture a native image for the model                          |
+| `page.cdp(method, params)`                              | Any typed tab CDP command                                     |
+| `tabs.open(url)`, `tabs.list()`, `tabs.get(id)`         | Open, list and attach tabs                                    |
+| `page.close()`                                          | Explicitly close that tab                                     |
+| `browser.send(method, params, sessionId?)`              | Root or scoped CDP commands                                   |
+| `browser.waitFor(event, options)`                       | Subscribe before triggering an event                          |
 
 `snapshot()` and `screenshot()` also refer to the current `page`. Assign `page = await tabs.open(url)` to switch it. `evaluate` cannot capture Node variables; pass a JSON argument explicitly.
 
