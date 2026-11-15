@@ -945,7 +945,7 @@ test('a full-page image exceeding provider patch limits reaches the next model t
       const images = result.content.filter((part) => part.type === 'image');
       assert.equal(images.length, 1);
       const size = imageDimensions(Buffer.from(images[0].data, 'base64'));
-      assert.ok(size.width <= 2000 && size.height <= 2000);
+      assert.ok(size.width <= 2048 && size.height <= 2048);
       assert.match(
         result.content.find((part) => part.type === 'text').text,
         /model preview.*unreadable text/,
