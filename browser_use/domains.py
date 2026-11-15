@@ -97,7 +97,7 @@ def parse_url(url: str) -> Url | None:
 
 def origin(url: Any) -> str | None:
 	"""scheme://host[:port] of an http(s) URL as the browser reads it (no default port), 'file://' for any file: URL,
-	None for the rest (about:, data:, blob:, javascript:, unparseable). Agent(approve=...) names effects by it."""
+	None for the rest (about:, data:, blob:, javascript:, unparsable). Agent(approve=...) names effects by it."""
 	text = str(url or '')
 	if text.strip(C0_AND_SPACE).split(':', 1)[0].lower() == 'file':
 		return 'file://'
