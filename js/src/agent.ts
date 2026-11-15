@@ -30,7 +30,12 @@ import { redact } from './history.js';
 import { SEARCH_PROMPT, SYSTEM_PROMPT, downloadsPrompt } from './prompt.js';
 import { launchesBrowser } from './browser.js';
 import { AX_PROMPT } from './ax.js';
-import { positiveInteger } from './protocol.js';
+import {
+  positiveInteger,
+  DEFAULT_CELL_TIMEOUT_MS,
+  DEFAULT_MAX_STEPS,
+  DEFAULT_RUN_TIMEOUT_MS,
+} from './protocol.js';
 import { bounded, type RunControl } from './control.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { existsSync } from 'node:fs';
@@ -152,8 +157,8 @@ export async function runAgent(
     eventsPath?: string;
   },
 ): Promise<RunResult<unknown>> {
-  const maxSteps = positiveInteger('maxSteps', options.maxSteps ?? 40);
-  const timeoutMs = positiveInteger('timeoutMs', options.timeoutMs ?? 300_000);
+  const maxSteps = positiveInteger('maxSteps', options.maxSteps ?? DEFAULT_MAX_STEPS);
+  const timeoutMs = positiveInteger('timeoutMs', options.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS);
   const maxContextChars = positiveInteger(
     'maxContextChars',
     options.maxContextChars ?? model.contextWindow * 4,
@@ -207,7 +212,7 @@ export async function runAgent(
   const javascript: AgentTool<typeof codeParameters> = {
     name: 'javascript',
     label: 'Browser JavaScript',
-    description: `Execute JavaScript in a persistent Node REPL with raw CDP. Cell deadline: ${config.cellTimeoutMs ?? 30_000} ms. Checkpoint small batches before the deadline. Use screenshot() for native images.`,
+    description: `Execute JavaScript in a persistent Node REPL with raw CDP. Cell deadline: ${config.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS} ms. Checkpoint small batches before the deadline. Use screenshot() for native images.`,
     parameters: codeParameters,
     executionMode: 'sequential',
     replay: 'never',
@@ -223,7 +228,7 @@ export async function runAgent(
       try {
         result = await runtime.execute(
           params.code,
-          config.cellTimeoutMs ?? 30_000,
+          config.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS,
           signal,
           Math.max(left, 1000),
         );
@@ -389,7 +394,7 @@ export async function runAgent(
       try {
         output = await runtime.readResult(
           params.expression,
-          config.cellTimeoutMs ?? 30_000,
+          config.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS,
           signal,
         );
       } catch (error) {
@@ -490,7 +495,7 @@ export async function runAgent(
         ...(config.researchTools
           ? researchTools(
               workspace,
-              config.shellTimeoutMs ?? config.cellTimeoutMs ?? 30_000,
+              config.shellTimeoutMs ?? config.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS,
               config.shellEnv,
               // Like common coding agents: two minutes unless the command asks for longer.
               config.shellTimeoutMs ? Math.min(config.shellTimeoutMs, 120_000) : undefined,

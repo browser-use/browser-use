@@ -21,7 +21,11 @@ import {
   type SessionHistory,
 } from './history.js';
 import { EventStream, formatEvent, type SessionEvent, type SessionEventData } from './events.js';
-import { positiveInteger } from './protocol.js';
+import {
+  positiveInteger,
+  DEFAULT_CELL_TIMEOUT_MS,
+  DEFAULT_OPERATION_TIMEOUT_MS,
+} from './protocol.js';
 import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
 
 export type {
@@ -161,9 +165,9 @@ export class BrowserUse {
     }
     const operationTimeoutMs = positiveInteger(
       'operationTimeoutMs',
-      options.operationTimeoutMs ?? 15_000,
+      options.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
     );
-    positiveInteger('cellTimeoutMs', options.cellTimeoutMs ?? 30_000);
+    positiveInteger('cellTimeoutMs', options.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS);
     const maxOutputChars = positiveInteger('maxOutputChars', options.maxOutputChars ?? 12_000);
     const executable = await workerExecutable(); // Fail before launching or provisioning a browser.
     const workspace = options.workspace
@@ -563,7 +567,7 @@ export class BrowserUse {
           : options.signal;
       const cell = this.runtime.execute(
         code,
-        options.timeoutMs ?? this.config.cellTimeoutMs ?? 30_000,
+        options.timeoutMs ?? this.config.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS,
         signal,
       );
       if (duringPause) this.manualCell = cell;

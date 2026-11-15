@@ -46,7 +46,9 @@ export interface BrowserUseOptions extends DomainOptions {
   focusTab?: boolean;
   tools?: AgentState['tools'];
   instructions?: string;
+  /** One CDP command. Default 20000 ms (Python browser-use). */
   operationTimeoutMs?: number;
+  /** One JavaScript cell. Default 120000 ms (Python browser-use). */
   cellTimeoutMs?: number;
   /** Connection setup until the model's first stream event. Default 300000 ms. A timeout starts a new step. */
   modelTimeoutMs?: number;
@@ -96,8 +98,10 @@ export interface ContextSettings {
   compactAtTokens?: number;
 }
 export interface RunOptions {
+  /** Model turns. Default 100 (Python browser-use run(max_steps=100)). */
   maxSteps?: number;
   context?: ContextSettings;
+  /** Whole run. Default 1700000 ms (Python browser-use run(timeout=1700)). */
   timeoutMs?: number;
   /** Soft threshold: checked between model turns. May exceed by one response. */
   maxCostUsd?: number;

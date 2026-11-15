@@ -33,7 +33,7 @@ The default output is a string. Schema validation checks shape; `validateResult(
 | `beforeToolCall`, `afterToolCall`, `validateResult`      | Blocking hooks and validation                       |
 | `log`, `redact`, `recording`, `highlightActions`         | Output and recording                                |
 | `mode`, `webSearch`                                      | `'ultrafast'` adds the `bu` helpers; host search    |
-| `operationTimeoutMs`, `cellTimeoutMs`                    | CDP / JS deadlines; 15s / 30s                       |
+| `operationTimeoutMs`, `cellTimeoutMs`                    | CDP / JS deadlines; 20s / 120s                      |
 | `modelTimeoutMs`, `compactionTimeoutMs`, `hookTimeoutMs` | Model / summary / hook deadlines; 300s / 120s / 30s |
 | `modelStreamTimeoutMs`                                   | Whole model stream once events flow; 930s           |
 | `allowedDomains`, `prohibitedDomains`, `sensitiveData`   | Navigation rules and named credentials              |
@@ -43,7 +43,7 @@ The default output is a string. Schema validation checks shape; `validateResult(
 | Per run                                             | Default                             |
 | --------------------------------------------------- | ----------------------------------- |
 | `schema`                                            | `Type.String()`                     |
-| `maxSteps`, `timeoutMs`                             | 40 turns, 300,000 ms                |
+| `maxSteps`, `timeoutMs`                             | 100 turns, 1,700,000 ms             |
 | `maxCostUsd`                                        | No cost cap; soft boundary when set |
 | `compaction`, `maxContextChars`                     | Enabled, 240,000 characters         |
 | `signal`, `onEvent`, `observe`, `observerTimeoutMs` | Cancellation and observations       |
@@ -83,7 +83,7 @@ console.log(result.status);
 console.log(result.status === 'completed' ? result.output : (result.partial?.value ?? result.text));
 ```
 
-The last allowed turn is reserved for delivery when `maxSteps >= 2`. Near the time or cost limit, the next turn becomes delivery-only too. No extra model call runs after a limit. Time includes model execution; cleanup can take longer. Cost remains a soft cap checked between turns and can overshoot by one response.
+The last allowed turn is reserved for delivery when `maxSteps >= 2`. Near the time limit (90% of it, or 30 s before the end on a short run) or the cost limit, the next turn becomes delivery-only too. No extra model call runs after a limit. Time includes model execution; cleanup can take longer. Cost remains a soft cap checked between turns and can overshoot by one response.
 
 The agent is instructed to publish useful work as it goes:
 

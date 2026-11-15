@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { CDP } from './cdp.js';
 import { execFile, fork, type ChildProcess } from 'node:child_process';
 import type { BrowserAction, CellResult, WorkerConfig, WorkerResponse } from './protocol.js';
-import { positiveInteger } from './protocol.js';
+import { positiveInteger, DEFAULT_CELL_TIMEOUT_MS } from './protocol.js';
 
 /** Bun hosts use the same V8 worker as Node hosts, including its cancellation boundary. */
 export async function workerExecutable(): Promise<string> {
@@ -212,7 +212,7 @@ export class BrowserRuntime {
     });
   }
 
-  async readResult(expression: string, timeoutMs = 30_000, signal?: AbortSignal): Promise<unknown> {
+  async readResult(expression: string, timeoutMs = DEFAULT_CELL_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> {
     const result = await this.executeCell(expression, timeoutMs, signal, true);
     if (result.valueJson === undefined) throw new Error('Worker returned no result value.');
     return JSON.parse(result.valueJson);
@@ -221,7 +221,7 @@ export class BrowserRuntime {
   /** capMs bounds the whole cell, ultrafast's page-state grace included (the time left before delivery). */
   execute(
     code: string,
-    timeoutMs = 30_000,
+    timeoutMs = DEFAULT_CELL_TIMEOUT_MS,
     signal?: AbortSignal,
     capMs?: number,
   ): Promise<CellResult> {

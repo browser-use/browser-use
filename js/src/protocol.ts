@@ -24,6 +24,11 @@ export interface CellResult {
   /** Full output is written to the workspace when the model-facing output is truncated. */
   outputFile?: string;
 }
+/** Python browser-use 1.0.5 defaults: run(max_steps=100, timeout=1700), 120 s cells, 20 s CDP calls. */
+export const DEFAULT_MAX_STEPS = 100;
+export const DEFAULT_RUN_TIMEOUT_MS = 1_700_000;
+export const DEFAULT_CELL_TIMEOUT_MS = 120_000;
+export const DEFAULT_OPERATION_TIMEOUT_MS = 20_000;
 export interface WorkerConfig extends importPolicy {
   mode?: 'default' | 'ultrafast';
   webSearch?: { url: string; token: string };
