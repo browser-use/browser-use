@@ -42,9 +42,9 @@ def stops(calls):
 	return [path for method, path, body in calls if method == 'PATCH' and body == {'action': 'stop'}]
 
 
-def test_default_browser_is_cloud_with_us_proxy_and_no_live_view():
+def test_default_browser_is_cloud_with_us_proxy_and_printed_live_view():
 	b = Browser()
-	assert (b.use_cloud, b.local, b.proxy, b.live_view, b.keep_alive) == (True, False, 'us', False, False)
+	assert (b.use_cloud, b.local, b.proxy, b.live_view, b.keep_alive) == (True, False, 'us', None, False)
 	assert Browser(local=True).use_cloud is False and Browser(use_cloud=False).local is True
 	assert Browser(cdp_url='http://x:9222').use_cloud is False
 
@@ -515,15 +515,19 @@ async def test_missing_key_raises_and_never_falls_back_to_local(cloud, monkeypat
 	assert cloud == []
 
 
-async def test_live_view_opt_in_prints_url(cloud, monkeypatch, capsys):
+@pytest.mark.parametrize(
+	'options, prints, opens', [({}, True, False), ({'live_view': True}, True, True), ({'live_view': False}, False, False)]
+)
+async def test_live_view_prints_by_default_and_opens_only_when_requested(cloud, monkeypatch, capsys, options, prints, opens):
 	import webbrowser
 
 	opened = []
 	monkeypatch.setattr(webbrowser, 'open', lambda url, new=0: opened.append(url))
-	browser = Browser(live_view=True)
+	browser = Browser(**options)
 	await browser.start()
 	await browser.stop()
-	assert opened == ['https://live.example.test/x'] and 'live.example.test' in capsys.readouterr().out
+	assert opened == (['https://live.example.test/x'] if opens else [])
+	assert ('https://live.example.test/x' in capsys.readouterr().err) is prints
 
 
 async def test_cancelled_start_still_stops_the_cloud_browser(cloud, monkeypatch):

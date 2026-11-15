@@ -21,7 +21,7 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 | Python | >= 3.11 | >= 3.11 |
 | Tasks with localhost / private IPs | worked | a cloud browser cannot reach them: one warning, use `Browser('chromium')` |
 | Cloud proxy | the API's default, `us` | `us` (`cloud_proxy_country_code=None` turns it off) |
-| Cloud live view | | off (`live_view=True` prints and opens it) |
+| Cloud live view | | prints the link to stderr; `live_view=True` also opens it, `live_view=False` hides it |
 
 ## Agent(...) arguments
 

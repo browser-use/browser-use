@@ -184,7 +184,10 @@ def test_ctrl_c_during_device_login_cancels_without_a_traceback(store, auth_serv
 def test_ctrl_c_at_the_api_key_prompt_cancels_without_a_traceback(store, monkeypatch, capsys):
 	"""Ctrl-C at `login --api-key-stdin`'s hidden key prompt, or during its key check, printed a KeyboardInterrupt
 	traceback: only the approval wait was covered."""
-	from browser_use import cli
+	from browser_use import auth, cli
+
+	events = []
+	monkeypatch.setattr(auth, 'record_auth_event', lambda stage, **fields: events.append(stage))
 
 	for var in ('BH_CLIENT', 'BH_CLIENT_VERSION', 'BH_DEVICE_NAME'):
 		monkeypatch.delenv(var, raising=False)  # restored after the test; the command sets them
@@ -200,6 +203,7 @@ def test_ctrl_c_at_the_api_key_prompt_cancels_without_a_traceback(store, monkeyp
 	assert code == 130
 	assert capsys.readouterr().err.strip() == 'Login cancelled.'
 	assert not store.exists()
+	assert events == ['login_started', 'login_cancelled']
 
 
 def test_login_help_names_browser_use(store):
@@ -218,6 +222,90 @@ def test_missing_key_names_the_one_command(store):
 	result = _cli(stdin='start_remote_daemon("browser-use-tests-login")\n')
 	assert result.returncode == 1
 	assert 'Run `browser-use login`' in result.stderr and 'Traceback' not in result.stderr
+
+
+@pytest.mark.parametrize('automatic', [False, True])
+def test_login_records_success_after_the_key_is_stored(store, monkeypatch, auth_server, automatic):
+	from browser_use import auth, cli
+
+	server = auth_server(auto_approve=True)
+	events = []
+	monkeypatch.setattr(auth, 'record_auth_event', lambda stage, **fields: events.append((stage, store.exists(), fields)))
+	assert cli._run_login_command(['--no-open'], automatic=automatic) == 0
+	assert [(stage, exists) for stage, exists, fields in events] == [('login_started', False), ('login_succeeded', True)]
+	assert all(fields == {'method': 'browser', 'automatic': automatic} for stage, exists, fields in events)
+	assert len(server.tokens) == 1
+
+
+def test_interactive_missing_key_opens_login_and_reuses_the_saved_key(store, monkeypatch, auth_server, capsys):
+	from browser_harness import auth as harness_auth
+
+	from browser_use import auth
+	from browser_use.llm import ChatBrowserUse
+
+	server = auth_server(auto_approve=True)
+	opened, events = [], []
+	monkeypatch.setattr(auth, '_can_open_login', lambda: True)
+	monkeypatch.setattr(auth, '_login_attempted', False)
+	monkeypatch.setattr(auth, '_reported_key_sources', set())
+	monkeypatch.setattr(auth, 'record_auth_event', lambda stage, **fields: events.append(stage))
+	monkeypatch.setattr(harness_auth.webbrowser, 'open', lambda url: opened.append(url) or True)
+	assert ChatBrowserUse().pydantic_model().client.api_key == FAKE_KEY
+	assert ChatBrowserUse().pydantic_model().client.api_key == FAKE_KEY
+	assert len(opened) == len(server.starts) == 1
+	assert events == ['missing_key', 'login_started', 'login_succeeded', 'key_available']
+	output = capsys.readouterr()
+	assert output.out == '' and opened[0] in output.err and FAKE_KEY not in output.err
+
+
+@pytest.mark.parametrize(
+	'terminal, ci, setting, display, allowed',
+	[
+		(True, '', '', True, True),
+		(False, '', '', True, False),
+		(True, '1', '', True, False),
+		(True, '', 'false', True, False),
+		(True, '', '', False, False),
+	],
+)
+def test_automatic_login_requires_an_interactive_desktop(monkeypatch, terminal, ci, setting, display, allowed):
+	from browser_use import auth
+
+	monkeypatch.setattr(auth.sys, 'platform', 'linux')
+	monkeypatch.setattr(auth.sys.stdin, 'isatty', lambda: terminal)
+	for name in ('CI', 'BROWSER_USE_AUTO_LOGIN', 'DISPLAY', 'WAYLAND_DISPLAY'):
+		monkeypatch.delenv(name, raising=False)
+	if ci:
+		monkeypatch.setenv('CI', ci)
+	if setting:
+		monkeypatch.setenv('BROWSER_USE_AUTO_LOGIN', setting)
+	if display:
+		monkeypatch.setenv('DISPLAY', ':1')
+	assert auth._can_open_login() is allowed
+
+
+def test_failed_automatic_login_does_not_reopen_on_each_key_request(store, monkeypatch):
+	from browser_use import auth, cli
+	from browser_use.exceptions import MissingAPIKeyError
+
+	starts = []
+	monkeypatch.setattr(auth, '_can_open_login', lambda: True)
+	monkeypatch.setattr(auth, '_login_attempted', False)
+	monkeypatch.setattr(cli, '_run_login_command', lambda *args, **kwargs: starts.append(True) or 1)
+	for _ in range(2):
+		with pytest.raises(MissingAPIKeyError):
+			auth.browser_use_api_key(auto_login=True)
+	assert starts == [True] and not store.exists()
+
+
+def test_failed_login_records_failure_without_claiming_a_stored_key(store, monkeypatch):
+	from browser_use import auth, cli
+
+	events = []
+	monkeypatch.setenv('BROWSER_USE_CLOUD_API_URL', 'http://127.0.0.1:9')
+	monkeypatch.setattr(auth, 'record_auth_event', lambda stage, **fields: events.append(stage))
+	assert cli._run_login_command(['--no-open']) == 1
+	assert events == ['login_started', 'login_failed'] and not store.exists()
 
 
 def test_a_stored_key_goes_to_the_server_whatever_its_scopes_and_a_scope_403_asks_for_a_new_login(store, monkeypatch):
