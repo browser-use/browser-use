@@ -573,7 +573,18 @@ class Browser:
 		block_ip_addresses: bool = False,
 		**kwargs,
 	):
-		"""Configure a Cloud browser, a local browser, or an attached Chrome session."""
+		"""kind: 'cloud' (default), 'chromium' (a fresh local browser; local=True is the same) or 'chrome' (the Chrome
+		you have open; with profile='Work', a new Chrome on a temporary copy of that profile).
+		headless (launched browsers; default: only without a display), executable_path (default: Chrome, Chromium or
+		Edge, whichever is installed), user_data_dir ('chromium': a dedicated profile dir kept between runs instead of a
+		temp one). keep_alive: Agent.run() leaves the browser running (stop it with `await browser.stop()`).
+		cloud_profile_id: a cloud profile id or name (logins persist in it). cloud_proxy_country_code=None turns the
+		proxy off. cloud_timeout: minutes (1-240, default 60). live_view: print and open the interactive live view URL
+		(anyone with that link can drive the browser). captcha_solver=False: the cloud browser's automatic captcha solver
+		is off from the start. The cloud_* options, live_view and captcha_solver=False raise on a local browser.
+		allowed_domains / prohibited_domains (0.x patterns: 'example.com', '*.example.com', 'https://example.com') and
+		block_ip_addresses limit where the browser navigates, in every mode (browser_use/domains.py; MIGRATING.md "Domain
+		restrictions" says what is and is not blocked)."""
 		if kwargs:
 			name = next(iter(kwargs))
 			if name in REMOVED:
@@ -954,10 +965,12 @@ class Browser:
 		if self.use_cloud:
 			record_auth_event('cloud_browser_started')
 		if self.live_view is not False and self.live_url:
-			print(f'Live view: {self.live_url}', file=sys.stderr)
-			record_auth_event('live_view_printed')
+			with contextlib.suppress(OSError, ValueError):
+				print(f'Live view: {self.live_url}', file=sys.stderr)
+				record_auth_event('live_view_printed')
 			if self.live_view:
-				webbrowser.open(self.live_url, new=2)
+				with contextlib.suppress(Exception):
+					webbrowser.open(self.live_url, new=2)
 		# BU_OWN_BROWSER: not the user's Chrome, so the agent's tab may be the visible one (repl/worker.py)
 		env = {'BU_NAME': self.name, 'BU_OWN_BROWSER': '1', **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
 		if self.use_cloud and not self.captcha_solver:

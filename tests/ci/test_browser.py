@@ -530,6 +530,20 @@ async def test_live_view_prints_by_default_and_opens_only_when_requested(cloud, 
 	assert ('https://live.example.test/x' in capsys.readouterr().err) is prints
 
 
+@pytest.mark.parametrize('error', [BrokenPipeError, ValueError])
+async def test_unwritable_live_view_output_does_not_fail_browser_start(cloud, monkeypatch, error):
+	class BrokenOutput:
+		def write(self, value):
+			raise error('closed')
+
+	browser = Browser()
+	with monkeypatch.context() as patch:
+		patch.setattr(sys, 'stderr', BrokenOutput())
+		env = await browser.start()
+	await browser.stop()
+	assert env['BU_NAME'] and stops(cloud) == ['/browsers/b1']
+
+
 async def test_cancelled_start_still_stops_the_cloud_browser(cloud, monkeypatch):
 	"""Roast C1: cancelling start() during the POST left the created browser untracked (billed, never stopped)."""
 	import asyncio

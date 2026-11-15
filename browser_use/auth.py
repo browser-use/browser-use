@@ -13,6 +13,7 @@ KEYS_URL = 'https://cloud.browser-use.com/settings?tab=api-keys'
 _login_lock = threading.Lock()
 _login_attempted = False
 _reported_key_sources: set[str] = set()
+_key_sources_lock = threading.Lock()
 
 
 def record_auth_event(stage: str, *, method: str = '', automatic: bool = False) -> None:
@@ -37,14 +38,24 @@ def _can_open_login() -> bool:
 		and 'ipykernel' not in sys.modules
 		and os.getenv('BROWSER_USE_AUTO_LOGIN', 'true').strip().lower() not in ('0', 'false', 'no', 'off')
 		and not (os.getenv('CI') or os.getenv('GITHUB_ACTIONS'))
-		and bool(sys.platform in ('darwin', 'win32') or os.getenv('DISPLAY') or os.getenv('WAYLAND_DISPLAY'))
+		and bool(
+			sys.platform in ('darwin', 'win32')
+			or (
+				os.getenv('XDG_CURRENT_DESKTOP')
+				and os.getenv('XDG_SESSION_TYPE') in ('x11', 'wayland')
+				and (os.getenv('DISPLAY') or os.getenv('WAYLAND_DISPLAY'))
+			)
+		)
 	)
 
 
 def _available_key(key: str, source: str, what: str) -> str:
 	key = clean_api_key(key, source, what)
-	if source not in _reported_key_sources:
-		_reported_key_sources.add(source)
+	with _key_sources_lock:
+		report = source not in _reported_key_sources
+		if report:
+			_reported_key_sources.add(source)
+	if report:
 		record_auth_event('key_available', method='env' if source == 'BROWSER_USE_API_KEY' else 'stored')
 	return key
 

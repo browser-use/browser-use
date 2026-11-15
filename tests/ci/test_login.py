@@ -281,7 +281,35 @@ def test_automatic_login_requires_an_interactive_desktop(monkeypatch, terminal, 
 		monkeypatch.setenv('BROWSER_USE_AUTO_LOGIN', setting)
 	if display:
 		monkeypatch.setenv('DISPLAY', ':1')
+		monkeypatch.setenv('XDG_CURRENT_DESKTOP', 'GNOME')
+		monkeypatch.setenv('XDG_SESSION_TYPE', 'x11')
 	assert auth._can_open_login() is allowed
+
+
+def test_virtual_display_alone_does_not_start_login(monkeypatch):
+	from browser_use import auth
+
+	monkeypatch.setattr(auth.sys, 'platform', 'linux')
+	monkeypatch.setattr(auth.sys.stdin, 'isatty', lambda: True)
+	for name in ('CI', 'GITHUB_ACTIONS', 'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'BROWSER_USE_AUTO_LOGIN'):
+		monkeypatch.delenv(name, raising=False)
+	monkeypatch.setenv('DISPLAY', ':99')
+	assert not auth._can_open_login()
+
+
+def test_web_search_uses_the_same_login_flow_for_a_custom_model(store, monkeypatch, auth_server):
+	from conftest import script
+
+	from browser_use import Agent, Browser, auth
+
+	auth_server(auto_approve=True)
+	monkeypatch.setattr(auth, '_can_open_login', lambda: True)
+	monkeypatch.setattr(auth, '_login_attempted', False)
+	monkeypatch.setattr('browser_harness.auth.webbrowser.open', lambda url: True)
+	agent = Agent('Search the web', script()[0], browser=Browser('chromium'), web_search=True)
+	agent._build()
+	assert agent._search is not None
+	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY
 
 
 def test_failed_automatic_login_does_not_reopen_on_each_key_request(store, monkeypatch):
