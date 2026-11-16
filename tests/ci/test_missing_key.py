@@ -120,7 +120,7 @@ async def test_the_default_model_without_a_key_is_counted_with_its_gate(events, 
 	with pytest.raises(MissingAPIKeyError) as raised:
 		await Agent('Zq9 task', browser=Browser('chromium'), workspace=tmp_path).run()
 	assert (raised.value.key_gate, raised.value.key_reason) == ('default_model', 'missing')
-	(run,) = [e for e in events if e['event'] == 'agent_event']
+	(run,) = (e for e in events if e['event'] == 'agent_event')
 	assert (run['status'], run['error_type'], run['error_phase']) == ('error', 'MissingAPIKeyError', 'build')
 	assert (run['key_gate'], run['key_reason'], run['key_source'], run['model'], run['gateway']) == (
 		'default_model',
@@ -149,7 +149,7 @@ async def test_the_default_model_without_a_key_is_counted_with_its_gate(events, 
 async def test_an_own_model_on_the_default_cloud_browser_sends_its_gate_on_the_agent_event(events, tmp_path):
 	with pytest.raises(MissingAPIKeyError):
 		await Agent('t', script()[0], workspace=tmp_path).run()
-	(run,) = [e for e in events if e['event'] == 'agent_event']
+	(run,) = (e for e in events if e['event'] == 'agent_event')
 	assert (run['error_phase'], run['key_gate'], run['key_reason']) == ('browser_start', 'cloud_browser', 'missing')
 	assert run['error_messages'] == [
 		'Browser() (a Browser Use Cloud browser) needs a Browser Use API key. Sign in once: `browser-use login` (over SSH '
@@ -230,7 +230,7 @@ async def test_over_ssh_a_run_signs_in_with_a_device_code_and_goes_on(events, tm
 		'stored',
 	)
 	assert (keyed['gate_count'], keyed['seconds_since_first_gate'] is not None) == (1, True)
-	(run,) = [e for e in events if e['event'] == 'agent_event']
+	(run,) = (e for e in events if e['event'] == 'agent_event')
 	assert (run['status'], run['key_source'], run['key_gate']) == ('completed', 'login_device', None)
 	no_key_material(events)
 
@@ -538,7 +538,7 @@ async def test_mcp_browser_login_reports_a_failed_login_as_an_error(events, monk
 	mcp = cli_mcp.CLIMCPServer()
 	handler = mcp.server._request_handlers['tools/call'].handler
 	await handler(None, types.CallToolRequestParams(name='browser_login', arguments={}))  # pyright: ignore[reportArgumentType]
-	(call,) = [e for e in events if e['event'] == 'mcp_server_event']
+	(call,) = (e for e in events if e['event'] == 'mcp_server_event')
 	assert (call['tool_name'], call['ok'], call['login_state']) == ('browser_login', False, 'failed')
 	# its own error type, not invalid_arguments, and no message: the auth server's error_description is free text
 	assert (call['error_type'], call['error_message']) == ('login_failed', None)
