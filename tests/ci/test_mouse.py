@@ -54,12 +54,14 @@ def test_hidden_tab_gets_no_path_but_still_a_trusted_click():
 
 def test_slow_cdp_link_does_not_pace_the_path():
 	"""A cloud browser ~80 ms away: moves waited on one by one cost ~0.7 s per click, so they go out without waiting."""
-	cdp = FakeCdp(delay=0.1)
+	cdp = FakeCdp(delay=0.3)
 	started = time.monotonic()
 	Mouse(cdp).move_to(50, 60)
 	moves = cdp.mouse()
 	assert len(moves) >= 10 and ('mouseMoved', 50, 60) in moves
-	assert time.monotonic() - started < 0.5
+	# waiting on each reply would take >= len(moves) * 0.3 s (>= 3 s); pipelined is the path time plus one reply.
+	# Half the serial floor leaves room for slow CI sleeps (macOS runners overshoot 10 ms sleeps a lot).
+	assert time.monotonic() - started < len(moves) * 0.3 / 2
 
 
 TRACK = """<title>Track</title><input aria-label="Email"><button>Sign in</button>
