@@ -53,8 +53,8 @@ Versions are independent. JS reaches 1.0.0 only when matched evals show parity w
 
 ## Pulling later Pi commits
 
-`js/` currently holds Pi `parity/wave-3` (fda3a6c): Pi `main` 4cbc951 plus the parity stack browser-use/browser-use-pi#37
--> #39 -> #40 (41 commits). The import is deterministic (same input gives the same SHAs), so later Pi commits come in by
+`js/` currently holds Pi `parity/py-1.0.6` (a8fdf9c): Pi `main` 4cbc951 plus the parity stack browser-use/browser-use-pi#37
+-> #39 -> #40 -> #41 (42 commits). The import is deterministic (same input gives the same SHAs), so later Pi commits come in by
 re-running the filter and merging (use the Pi branch name in place of `main`):
 
 ```bash
