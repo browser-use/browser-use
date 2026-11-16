@@ -3,7 +3,7 @@
 Read-write: the workspace (the worker's state dir, its private temp dir and downloads are inside it). Read-only: the
 Python installation and the packages it imports, system libraries, /etc (certificates, DNS), /proc and /sys. Everything
 else, your home dir included (~/.ssh, ~/.config/browser-harness/auth.json, the .env next to your script, other repos),
-cannot be opened. Other processes' environments cannot be read (/proc/<pid>/environ, ps -E).
+cannot be opened. Other processes' environments cannot be read (/proc/<pid>/environ, ps -E; macOS: see below).
 
 Linux: Landlock (5.13+, the best ABI the kernel has), applied by the worker to itself before it runs anything
 (restrict), with no_new_privs; cell subprocesses inherit it. A Landlock domain cannot ptrace, and so cannot read
@@ -14,12 +14,14 @@ sandbox itself. Windows: not available (check raises).
 Not covered: the network (any host; use Browser(allowed_domains=...) for the browser and a container for egress), and
 the browser itself: a local browser (Browser('chromium'), 'chrome', cdp_url) runs outside the sandbox and model CDP can
 make it open local files (file:// URLs, DOM.setFileInputFiles). Linux cannot filter Unix sockets by path: the worker
-can still connect to sockets your user can (another browser-harness daemon, /var/run/docker.sock).
+can still connect to sockets your user can (another browser-harness daemon, /var/run/docker.sock). macOS: Seatbelt does
+not mediate sysctl(KERN_PROCARGS2), so other processes' start-up environment stays readable.
 """
 
 from __future__ import annotations
 
 import ctypes
+import importlib.machinery
 import json
 import os
 import site
@@ -105,13 +107,17 @@ def check() -> None:
 
 
 def check_workspace(workspace: str | os.PathLike) -> None:
-	"""The workspace is read-write in the sandbox: refuse one that holds the home dir (or is the filesystem root)."""
+	"""The workspace is read-write in the sandbox: refuse one that holds the home dir (or is the filesystem root), or
+	the Python code the worker runs (policy raises)."""
+	from browser_use.repl.session import worker_env
+
 	ws, home = _real(workspace), _real('~')
 	if ws == '/' or ws == home or home.startswith(ws.rstrip('/') + '/'):
 		raise ValueError(
 			f'Agent(sandbox=True, workspace={str(workspace)!r}): the workspace is readable and writable in the sandbox, '
 			'so it must not contain your home dir. Use a dedicated dir.'
 		)
+	policy(Path(workspace), worker_env())
 
 
 def _real(path: str | os.PathLike) -> str:
@@ -141,6 +147,17 @@ def _pth_dirs() -> list[str]:
 	return dirs
 
 
+def _importable(d: str) -> list[str]:
+	"""What import can load from sys.path dir d: packages, modules, extension modules and their metadata, not the
+	.env, .git or data next to them."""
+	suffixes = (*importlib.machinery.all_suffixes(), '.dist-info', '.egg-info')
+	try:
+		names = os.listdir(d)
+	except OSError:
+		return []
+	return [os.path.join(d, n) for n in names if n.endswith(suffixes) or os.path.isfile(os.path.join(d, n, '__init__.py'))]
+
+
 def _inside(path: str, roots: list[str]) -> bool:
 	return any(path == r or path.startswith(r.rstrip('/') + '/') for r in roots)
 
@@ -161,13 +178,9 @@ def policy(workspace: Path, env: dict[str, str], sockets: list[str] | None = Non
 	python += [env[k] for k in CA_ENV if env.get(k)]
 	read = [_real(p) for p in [*(MAC_READ if darwin else LINUX_READ), *python]]
 	listed: list[str] = ['/'] if darwin else []  # dyld reads the root dir's entries at exec (SIGABRT without)
-	for d in _pth_dirs():  # an editable checkout's root holds its .env: only list it, read just the package
-		d = _real(d)
-		ours = [str(Path(m.__file__).resolve().parent) for m in (browser_use, browser_harness) if m.__file__]
-		if any(os.path.dirname(p) == d for p in ours):
-			listed.append(d)
-		else:
-			read.append(d)
+	for d in map(_real, _pth_dirs()):  # an editable checkout's root holds its .env: list it, read what imports from it
+		listed.append(d)
+		read += _importable(d)
 	for m in (browser_use, browser_harness):
 		if m.__file__:
 			read.append(str(Path(m.__file__).resolve().parent))
@@ -176,6 +189,12 @@ def policy(workspace: Path, env: dict[str, str], sockets: list[str] | None = Non
 	read = [p for p in dict.fromkeys(read) if os.path.exists(p)]
 	read = [p for p in read if not _inside(p, [r for r in read if r != p])]  # drop paths inside another
 	write = [_real(workspace)]
+	if held := [p for p in [*read, *listed] if _inside(p, write)]:  # workspace='.' in a project with its .venv
+		raise ValueError(
+			f'Agent(sandbox=True, workspace={str(workspace)!r}): the workspace holds {held[0]}, which the worker loads '
+			'Python from: writable in the sandbox, a cell could plant code there that runs before the next worker '
+			'confines itself. Use a dedicated dir.'
+		)
 	devices = [p for p in (MAC_DEVICES if darwin else LINUX_DEVICES) if os.path.exists(p)]
 	return Policy(
 		write=tuple([*write, *devices]),
@@ -303,7 +322,9 @@ def profile(p: Policy) -> str:
 		'(allow file-read-metadata)',
 		f'(allow file-read* {read})',
 		f'(allow file-read* file-write* {write})',
-		'(allow file-read* file-write* file-ioctl (literal "/dev/ptmx") (regex #"^/dev/ttys[0-9]+$"))',
+		# openpty(): only ptys the sandbox opened (as Codex): /dev/ttys* also holds your other terminals' keystrokes
+		'(allow file-read* file-write* file-ioctl (literal "/dev/ptmx"))',
+		'(allow file-read* file-write* file-ioctl (require-all (regex #"^/dev/ttys[0-9]+$") (extension "com.apple.sandbox.pty")))',
 		'(allow system-socket)',
 		f'(allow network-outbound (remote ip "*:*") {sockets})',
 		'(allow network-inbound (local ip "*:*"))',

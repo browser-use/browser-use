@@ -12,6 +12,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -66,7 +67,7 @@ from browser_use.ax import AX_PROMPT
 from browser_use.llm import model_ref, skip_responses_transform
 from browser_use.logging_config import printable
 from browser_use.repl import Repl, check_mode, redact
-from browser_use.repl.session import SECRET_PLACEHOLDER, redact_forms, secret_forms
+from browser_use.repl.session import SECRET_PLACEHOLDER, open_own, redact_forms, secret_forms
 from browser_use.search import parse_usd
 from browser_use.telemetry.recorder import CURRENT, RunRecorder, now
 from browser_use.telemetry.stats import RunStats
@@ -992,9 +993,9 @@ async def _compact(s: Session, messages: list[ModelMessage], request_context: Mo
 		raise ValueError('the summary is empty')
 	path = s.repl.workspace / '.browser-use' / 'context' / f'{uuid.uuid4()}.json'
 	path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-	path.touch(mode=0o600, exist_ok=False)
 	archive = {'version': 1, 'summary': response.text, 'covered_messages': cut, 'messages': plain}
-	path.write_text(json.dumps(redact(archive, s.repl.secrets), ensure_ascii=False), encoding='utf-8')
+	with open(open_own(s.repl.workspace, path, os.O_WRONLY | os.O_CREAT | os.O_EXCL), 'w', encoding='utf-8') as f:  # noqa: ASYNC230
+		f.write(json.dumps(redact(archive, s.repl.secrets), ensure_ascii=False))
 	users = [p.content for m in messages[:cut] if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, UserPromptPart)]
 	text = CHECKPOINT.format(path=json.dumps(str(path)), summary=json.dumps(response.text), users=json.dumps(users, default=str))
 	checkpoint = ModelRequest(parts=[UserPromptPart(text)])

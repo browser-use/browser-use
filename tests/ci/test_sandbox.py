@@ -216,3 +216,178 @@ def test_policy_never_grants_home_or_an_editable_checkouts_root(tmp_path):
 	assert str(Path(browser_use.__file__).resolve().parent) in p.read or any(
 		str(Path(browser_use.__file__).resolve()).startswith(r + '/') for r in p.read
 	)
+
+
+@needs_sandbox
+@pytest.mark.skipif(sys.platform == 'win32', reason='no ptys')
+async def test_sandboxed_worker_cannot_open_your_other_terminals(tmp_path):
+	"""macOS: the profile allowed every /dev/ttys*, so a cell could open another terminal of yours and read what you
+	type there (a sudo password). Now only ptys the sandbox itself opened (Linux: no ptys at all)."""
+	parent, child = os.openpty()  # stands in for another Terminal tab
+	repl = Repl(tmp_path, sandbox=True)
+	try:
+		code = (
+			f'try: open({os.ttyname(child)!r}, "rb", buffering=0); print("other: ok")\n'
+			'except PermissionError: print("other: denied")\n'
+		)
+		if sys.platform == 'darwin':  # openpty() in a cell still works there
+			code += 'm, s = os.openpty(); os.write(m, b"hi\\n"); print("own:", os.read(s, 3) == b"hi\\n")'
+		r = await repl.call('exec', code, 60)
+		assert r['error'] is None, r
+		assert r['output'].splitlines() == ['other: denied', *(['own: True'] if sys.platform == 'darwin' else [])], r
+	finally:
+		await repl.close()
+		os.close(parent)
+		os.close(child)
+
+
+@needs_sandbox
+async def test_a_module_a_cell_writes_never_runs_before_the_next_worker_confines_itself(tmp_path, outside):
+	"""A relative or empty PYTHONPATH entry (PYTHONPATH=":/x" from export PYTHONPATH=$PYTHONPATH:/x) put the worker's
+	cwd, the workspace, on sys.path: a cell wrote idna.py there, and the next worker imported it before Landlock."""
+	ws = tmp_path / 'ws'
+	ws.mkdir()
+	marker = outside / 'project' / 'pwned'
+	repl = Repl(ws, env={'PYTHONPATH': os.pathsep + str(tmp_path / 'nonexistent')}, sandbox=True)
+	try:
+		module = 'open(%r, "w").close()' % str(marker)
+		plant = f"open('idna.py', 'w').write({module!r}); os._exit(1)"
+		r = await repl.call('exec', plant, 30)
+		assert r['error_type'] == 'WorkerExited', r
+		r = await repl.call('exec', "print('ok')", 30)
+		assert r['output'] == 'ok\n', r
+		assert not marker.exists()
+	finally:
+		await repl.close()
+
+
+@needs_sandbox
+async def test_a_workspace_that_holds_the_workers_python_is_refused(tmp_path, monkeypatch):
+	"""Agent(workspace='.') in a project with its .venv (or PYTHONPATH) made the packages writable in the sandbox: a cell
+	wrote a module there, and the next worker imported it before confining itself. Refused at Agent() and at start."""
+	ws = tmp_path / 'ws'
+	(ws / 'lib').mkdir(parents=True)
+	model, _ = script()
+	monkeypatch.setenv('PYTHONPATH', str(ws / 'lib'))
+	with pytest.raises(ValueError, match='loads Python from'):
+		Agent('t', model, browser=Browser('chromium'), workspace=ws, sandbox=True)
+	monkeypatch.delenv('PYTHONPATH')
+	Agent('t', model, browser=Browser('chromium'), workspace=ws, sandbox=True)  # the same dir without it is fine
+	repl = Repl(ws, env={'PYTHONPATH': str(ws / 'lib')}, sandbox=True)
+	try:
+		with pytest.raises(ValueError, match='loads Python from'):
+			await repl.start()
+		assert repl.proc is None or repl.proc.poll() is not None
+	finally:
+		await repl.close()
+
+
+@needs_sandbox
+@pytest.mark.parametrize('link', ['worker.log', 'state dir'])
+async def test_the_parent_never_follows_a_link_the_sandboxed_worker_planted(tmp_path, outside, link):
+	"""The parent runs unconfined and opens files in the workspace: a cell swapped its own output file for a link to the
+	ssh key and hung, and the timed-out cell's output (read by the parent) was the key; it swapped worker.log (or the
+	whole .browser-use dir) for a link, and the next worker's output (opened by the parent) went to that file."""
+	ws = tmp_path / 'ws'
+	ws.mkdir()
+	key = outside / '.ssh' / 'id_ed25519'
+	target = outside / 'project'
+	(target / 'worker.log').write_text('mine')
+	repl = Repl(ws, sandbox=True)
+	try:
+		r = await repl.call(
+			'exec',
+			"import glob, time\nout = sorted(glob.glob('.browser-use/cells/*.txt'))[-1]\n"
+			f'os.unlink(out); os.symlink({str(key)!r}, out); time.sleep(30)',
+			3,
+		)
+		assert r['error_type'] == 'CellTimeout' and 'PRIVATE KEY' not in r['output'], r
+		swap = (
+			f"os.unlink('.browser-use/worker.log'); os.symlink({str(target / 'worker.log')!r}, '.browser-use/worker.log')"
+			if link == 'worker.log'
+			else f"os.rename('.browser-use', 'old'); os.symlink({str(target)!r}, '.browser-use')"
+		)
+		r = await repl.call('exec', f'{swap}; os._exit(1)', 30)
+		assert r['error_type'] == 'WorkerExited', r
+		with pytest.raises(OSError):  # fails closed: no worker starts with its output going there
+			await repl.call('exec', "print('restarted')", 30)
+		assert (target / 'worker.log').read_text() == 'mine'
+	finally:
+		await repl.close()
+
+
+@needs_sandbox
+@pytest.mark.parametrize('swap', [True, False])
+async def test_cloud_downloads_never_land_outside_the_workspace(tmp_path, outside, monkeypatch, swap):
+	"""The parent copies a cloud browser's downloads into workspace/downloads after the run: a cell swapped that dir for
+	a link to ~/.ssh, and the page's download (named authorized_keys) was written there by the unconfined parent."""
+	import threading
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	from browser_harness import admin
+
+	from browser_use.browser import browser as browser_mod
+
+	class Key(BaseHTTPRequestHandler):
+		def do_GET(self):
+			self.send_response(200)
+			self.send_header('Content-Length', '4')
+			self.end_headers()
+			self.wfile.write(b'evil')
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Key)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+
+	def fake_cloud(path, method='GET', body=None):
+		if method == 'POST' and path == '/browsers':
+			return {'id': 'b1', 'cdpUrl': 'https://cdp.example.test', 'liveUrl': 'https://live.example.test/x'}
+		if 'downloads' in path:
+			url = f'http://127.0.0.1:{server.server_port}/k'
+			return {'files': [{'path': '/dl/authorized_keys', 'url': url, 'size': 4}], 'hasMore': False}
+		return {}
+
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
+	monkeypatch.setattr(browser_mod, '_cloud', fake_cloud)
+	monkeypatch.setattr(browser_mod, '_ws_url', lambda url: 'ws://fake.test/devtools/browser/x')
+	monkeypatch.setattr(admin, 'ensure_daemon', lambda *a, **k: None)
+	monkeypatch.setattr(admin, 'restart_daemon', lambda name=None, **k: None)
+	ssh = outside / '.ssh'
+	model, seen = script(
+		(
+			'python',
+			{'code': f"import shutil; shutil.rmtree('downloads'); os.symlink({str(ssh)!r}, 'downloads')" if swap else '1'},
+		),
+		('finish', {'success': True, 'result': 'ok'}),
+	)
+	try:
+		result = await Agent('t', model, browser=Browser(), workspace=tmp_path / 'ws', sandbox=True, judge=False).run()
+	finally:
+		server.shutdown()
+		browser_mod._LIVE.clear()
+	assert result.status == 'completed' and 'Error' not in str(seen[1][-1]), (result.error, seen)
+	assert not (ssh / 'authorized_keys').exists()
+	assert (tmp_path / 'ws' / 'downloads' / 'authorized_keys').exists() is not swap  # and without the link, it lands
+
+
+def test_policy_reads_only_the_code_of_another_editable_install(tmp_path, monkeypatch):
+	"""Only browser_use's and browser_harness's editable checkouts were narrowed to their package: a flat-layout editable
+	install of your own project (hatchling's .pth names the project root) made that root, .env included, readable."""
+	import site
+
+	project = tmp_path / 'myproject'
+	(project / 'mypkg').mkdir(parents=True)
+	(project / 'mypkg' / '__init__.py').write_text('')
+	(project / 'tool.py').write_text('')
+	(project / '.env').write_text(f'OPENAI_API_KEY={MARKER}')
+	sitedir = tmp_path / 'site-packages'
+	sitedir.mkdir()
+	(sitedir / '_myproject.pth').write_text(f'{project}\n')
+	monkeypatch.setattr(site, 'getsitepackages', lambda: [str(sitedir)])
+	p = sandbox.policy(tmp_path / 'ws', {})
+	real = Path(os.path.realpath(project))
+	assert str(real) in p.list and str(real) not in p.read
+	assert {str(real / 'mypkg'), str(real / 'tool.py')} <= set(p.read)
+	assert not any(str(real / '.env').startswith(r) for r in p.read)

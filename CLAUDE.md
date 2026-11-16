@@ -27,7 +27,8 @@ Agent(task, llm, browser).run()                  browser_use/agent/service.py   
 - Secrets (`sensitive_data`) are redacted from specific channels (listed in "Trust model" in MIGRATING.md), not sandboxed.
 - `Agent(sandbox=True)` (`browser_use/repl/sandbox.py`): the worker Landlocks itself (Linux) or starts under
   `sandbox-exec` (macOS), confined to the workspace plus read-only Python and system paths; MIGRATING.md "Sandbox"
-  lists the gaps.
+  lists the gaps. The parent is not confined: it opens workspace files the worker can write with `session.open_own`
+  (no links), and cloud downloads with `_download(nofollow=True)`.
 - `browser-use` CLI and `--cli-mcp` (`browser_use/cli.py`, `browser_use/mcp/`) pipe Python to browser-harness.
 - `browser_use/skills/` ships the `browser-use` agent skill and its installer.
 

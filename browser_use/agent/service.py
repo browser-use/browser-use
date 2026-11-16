@@ -242,8 +242,9 @@ class Agent:
 	bot_block_or_captcha_detected, gotchas), its tokens and cost counted in result.usage and result.cost_usd; False turns
 	it off. judge_context: your criteria or the expected answer, which the judge puts first (0.x ground_truth).
 	sandbox: the REPL worker can read and write only the workspace, plus read the Python installation and system
-	files; your home dir and other processes' environments are unreadable (Linux: Landlock, macOS: Seatbelt; raises
-	on Windows or a kernel without Landlock). Network hosts are not filtered (MIGRATING.md "Sandbox")."""
+	files; your home dir and other processes' environments are unreadable (Linux: Landlock, macOS: Seatbelt, where
+	their start-up environment stays readable; raises on Windows or a kernel without Landlock). Network hosts are not
+	filtered (MIGRATING.md "Sandbox")."""
 
 	def __init__(
 		self,
@@ -517,6 +518,7 @@ class Agent:
 				for sub in ('.browser-use', 'downloads'):  # an unwritable workspace fails here, before a browser is billed
 					(self.workspace / sub).mkdir(exist_ok=True)
 			self.browser._downloads_dir = self.workspace / 'downloads'  # a keep_alive browser's later stop() copies there
+			self.browser._downloads_nofollow = self.sandbox
 			phase, t = 'browser_start', now()
 			try:
 				env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again

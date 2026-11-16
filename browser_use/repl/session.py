@@ -211,12 +211,34 @@ def clip(text: str, path: Path | str) -> str:
 	return text if len(text) <= MAX_OUTPUT_CHARS else f'{text[:MAX_OUTPUT_CHARS]}\n[Truncated. Full captured output: {path}]'
 
 
-def _head(path: Path) -> str:
+def open_own(workspace: Path, path: Path, flags: int = os.O_RDONLY) -> int:
+	"""Open path, a file in the workspace, from this unconfined process without following a link below the workspace:
+	with Agent(sandbox=True) a cell can swap a file or a dir (.browser-use) for a link to ~/.ssh or ~/.bashrc.d, or
+	hard-link a file, and this process would read or write there for it. Returns the fd."""
+	nofollow = getattr(os, 'O_NOFOLLOW', 0)
+	if os.open not in os.supports_dir_fd:  # Windows: no sandbox there
+		return os.open(path, flags | getattr(os, 'O_BINARY', 0), 0o600)
+	*dirs, name = path.relative_to(workspace).parts
+	fd = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY)
+	try:
+		for d in dirs:
+			fd, parent = os.open(d, os.O_RDONLY | os.O_DIRECTORY | nofollow, dir_fd=fd), fd
+			os.close(parent)
+		out = os.open(name, flags | nofollow, 0o600, dir_fd=fd)
+	finally:
+		os.close(fd)
+	if os.fstat(out).st_nlink > 1:
+		os.close(out)
+		raise PermissionError(f'{path} has another link')
+	return out
+
+
+def _head(workspace: Path, path: Path) -> str:
 	"""The start of a cell's output file, enough for clip(): a cell may have printed gigabytes before it hung."""
 	try:
-		with open(path, encoding='utf-8', errors='replace') as f:
+		with open(open_own(workspace, path), encoding='utf-8', errors='replace') as f:
 			return f.read(MAX_OUTPUT_CHARS + 1)
-	except FileNotFoundError:
+	except OSError:  # gone, or a link (open_own)
 		return ''
 
 
@@ -394,11 +416,11 @@ class Repl:
 			env['BU_MODE'] = 'ultrafast'
 		if self.highlight_actions:
 			env['BU_HIGHLIGHT_ACTIONS'] = '1'
-		argv = [sys.executable, '-P', '-m', 'browser_use.repl.worker']
-		if self.sandbox:
-			argv = self._sandboxed(env) + argv
-		log = open(self.state / 'worker.log', 'ab')  # noqa: ASYNC230 - handed to the child process
+		log = open(open_own(self.workspace, self.state / 'worker.log', os.O_WRONLY | os.O_APPEND | os.O_CREAT), 'ab')  # noqa: ASYNC230
 		try:
+			argv = [sys.executable, '-P', '-m', 'browser_use.repl.worker']
+			if self.sandbox:
+				argv = self._sandboxed(env) + argv
 			self.proc = subprocess.Popen(  # noqa: ASYNC220 - asyncio forks synchronously too; see self.proc
 				# -P: the workspace is not sys.path[0]: a json.py there must not shadow the stdlib (worker.py appends it)
 				argv,
@@ -455,6 +477,10 @@ class Repl:
 
 		from browser_use.repl import sandbox
 
+		# a relative or empty PYTHONPATH entry is the worker's cwd, the workspace: a module a cell wrote there would run
+		# in the next worker before it confines itself
+		if paths := [p for p in env.pop('PYTHONPATH', '').split(os.pathsep) if os.path.isabs(p)]:
+			env['PYTHONPATH'] = os.pathsep.join(paths)
 		tmp = self.state / 'tmp'
 		(tmp / 'browser-harness').mkdir(parents=True, exist_ok=True)
 		env.update(TMPDIR=str(tmp), TMP=str(tmp), TEMP=str(tmp))  # a private temp dir: /tmp holds other runs' files
@@ -586,7 +612,7 @@ class Repl:
 				out = self.state / 'cells' / f'{n:04d}.txt'
 				why = f'Cell timed out after {timeout:g}s' if isinstance(e, TimeoutError) else 'REPL worker exited'
 				return {
-					'output': clip(_head(out), out),
+					'output': clip(_head(self.workspace, out), out),
 					'images': [],
 					'output_file': str(out),
 					'value': None,
