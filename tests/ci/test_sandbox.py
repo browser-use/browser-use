@@ -193,16 +193,16 @@ async def test_a_worker_that_reports_no_sandbox_is_refused(tmp_path, monkeypatch
 		await repl.close()
 
 
-def test_seatbelt_profile_denies_by_default_and_names_only_the_policy_paths(tmp_path):
+def test_seatbelt_profile_denies_by_default_and_names_only_the_policy_paths():
 	"""The macOS profile is generated per run: deny by default, contents readable only under the policy's paths,
-	process info only for the sandbox itself."""
-	p = sandbox.Policy(write=(str(tmp_path), '/dev/null'), read=('/usr',), list=('/repo',), sockets=('/run/bu.sock',))
+	process info only for the sandbox itself. (A string test: it runs on every OS.)"""
+	p = sandbox.Policy(write=('/private/tmp/ws', '/dev/null'), read=('/usr',), list=('/repo',), sockets=('/run/bu.sock',))
 	text = sandbox.profile(p)
 	assert '(deny default)' in text and '(allow process-info* (target same-sandbox))' in text
-	assert f'(allow file-read* file-write* (subpath "{tmp_path}"))' in text
+	assert '(allow file-read* file-write* (subpath "/private/tmp/ws"))' in text
 	assert '(allow file-read* (subpath "/usr"))' in text and '(allow file-read-data (literal "/repo"))' in text
 	assert '(remote unix-socket (path-literal "/run/bu.sock"))' in text
-	assert str(Path.home()) not in text or str(tmp_path).startswith(str(Path.home()))
+	assert sandbox.profile(sandbox.Policy(write=('/a"b',), read=())).count('(subpath "/a\\"b")') == 1  # quotes escaped
 
 
 def test_policy_never_grants_home_or_an_editable_checkouts_root(tmp_path):
