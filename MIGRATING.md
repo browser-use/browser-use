@@ -45,6 +45,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | everything else 0.x took | removed: [Removed in 1.0](#removed-in-10) |
 | new: `judge`, `judge_context` | `judge=True` (the default): after each run that took a step, one request to the agent's own model, at low effort, judges the trace (120k characters of text, secrets redacted) against the task; with vision on (`use_vision=False` sends text only) it also sends the last 4 distinct images of the run, the final page included, as they are (not redacted). A model that rejects images is asked once more with the text alone. `result.judgement` holds `success`, `failure_reason`, `description`, `prompt_injection_detected`, `bot_block_or_captcha_detected` and `gotchas` (short, general lessons about the sites for the next agent, also on a success: what the agent had to retry or work around); its tokens and cost are added to `result.usage` and `result.cost_usd`. A judge that fails logs a warning and leaves `result.judgement` `None`. `judge_context` is your criteria or expected answer, which the judge puts first. With usage stats on, `agent_event` carries the judgement, each text scrubbed as error messages are. `judge=False` sends no judge request |
 | new: `reasoning`, `mode`, `workspace`, `web_search`, `max_context_chars`, `highlight_actions` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway a bu-* alias's own effort, a listed OpenAI model 'medium'; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'` (the default on `bu-fast` and `bu-ultrafast`; `mode='default'` opts out); `workspace` holds the agent's files (default: a new temp dir `browser-use-*`, kept after the run: it holds page text, screenshots and cell output, so delete it when done, or pass your own `workspace=`); `web_search=True` gives the agent `search()` (Browser Use web search on the gateway host, `POST /api/v4/search`, with the gateway model's key or the Browser Use key; billed per search; each charge the response reports (`browser_use.charge_usd`) is added to `result.cost_usd`, a response without one adds nothing, and an unknown model cost stays `None`) off by default; `True` raises without a Browser Use key or with `allowed_domains`. Off, the system prompt is unchanged; `max_context_chars`: past 75% of this many characters of conversation the agent compacts its history into a summary checkpoint (default 4 per token of the model's context window, as Browser Use Pi, or 240k when pydantic-ai does not know the window; unused where the provider compacts server-side: OpenAI Responses, the gateway); `highlight_actions=False` turns off the orange corner brackets around what the agent clicks or types into (on by default) |
+| new: `sandbox` | `sandbox=True` confines the REPL worker (and every process its cells start) to the workspace: it reads and writes only `workspace`, reads the Python installation, the packages it imports and system files, and cannot open the rest of your home dir or read other processes' environments. Linux: Landlock; macOS: `sandbox-exec`. Windows, or a Linux kernel without Landlock, raises `ValueError` before any browser starts (never unsandboxed). Off by default. It does not filter network hosts and does not confine a local browser: see [Sandbox](#sandbox-agentsandboxtrue) |
 
 ## Agent methods
 
@@ -165,7 +166,7 @@ Each raises the one error above (the tuning knobs marked "ignored" warn instead;
 | Agent internals: `set_task()`, `wait_until_resumed()`, `get_next_action()`, `get_model_output()`, `set_tool_calling_method()`, `create_history_gif()`, `get_trace_object()`, `authenticate_cloud_sync()`, `save_file_system_state()`, `log_completion()`, `logger`, `current_llm_model`, `is_using_fallback_llm`, `browser_context` | removed (`AttributeError`) | `add_new_task(task)`; cancel the task; `logging.getLogger('browser_use')`; `agent.llm`; `agent.browser` |
 | `browser_profile` | removed | pass options to `Browser(...)` |
 | `page_extraction_llm`, `extraction_schema` | removed | the agent extracts with Python |
-| `file_system_path`, `available_file_paths`, the `upload_file` action | removed, no file allowlist | `workspace=`: put the files in it and name them in the task; the agent calls `upload_file(selector, path)`, also on cloud browsers. The agent can read and upload any file your user can read (see [Trust model](#trust-model-for-secrets)); run untrusted tasks in a container or VM |
+| `file_system_path`, `available_file_paths`, the `upload_file` action | removed, no file allowlist | `workspace=`: put the files in it and name them in the task; the agent calls `upload_file(selector, path)`, also on cloud browsers. The agent can read and upload any file your user can read (see [Trust model](#trust-model-for-secrets)); with `Agent(sandbox=True)` only files in the workspace. Run untrusted tasks in a container or VM |
 | `initial_actions`, `directly_open_url` | removed | say it in the task |
 | `llm_timeout`, `step_timeout` | removed | `agent.run(timeout=seconds)` bounds the agent loop (model requests and cells; browser start and stop are not counted) |
 | `fallback_llm` | removed | none |
@@ -386,7 +387,8 @@ Nothing else is redacted. This is not a sandbox:
   the agent and the browser-harness daemon (`ps -E -p <pid>` on macOS, `/proc/<pid>/environ` on Linux). Every
   provider and Browser Use key set there (`OPENAI_API_KEY`, `BROWSER_USE_API_KEY`, ...) is readable that way.
 
-Run untrusted tasks in a container or VM.
+`Agent(sandbox=True)` closes the last two on Linux; on macOS it closes the files and `ps -E`, not
+`sysctl(KERN_PROCARGS2)`: see [Sandbox](#sandbox-agentsandboxtrue). Run untrusted tasks in a container or VM.
 
 `Browser('chrome')` and `Browser('chrome', profile=...)` drive your real logins: model-written CDP can read their
 cookies and (attached) your open tabs. `Browser('chromium')` and the cloud browser start with no cookies. Model code
@@ -398,3 +400,38 @@ Other users on the same machine can attach too: `Browser('chromium')` and `Brows
 a 127.0.0.1 debugging port with no authentication, so any local account can attach to that browser, read its cookies
 and drive it for as long as it runs (with `keep_alive=True`, after the run too). On a shared machine, use a container, a
 VM or Browser Use Cloud.
+
+## Sandbox (`Agent(sandbox=True)`)
+
+```python
+agent = Agent(task, llm, browser=Browser(), workspace='run1', sandbox=True)
+```
+
+The REPL worker confines itself before it runs any cell; every process a cell starts inherits it. The parent checks
+that the worker reports the sandbox and refuses one that does not.
+
+| | Linux (Landlock, kernel 5.13+) | macOS (`sandbox-exec`, Seatbelt profile written per run) |
+|---|---|---|
+| read and write | the workspace (the worker's `.browser-use` state, its private temp dir `.browser-use/tmp` (`TMPDIR`), `downloads`), `/dev/null` and the other basic devices | same |
+| read only | the Python installation and venv, site-packages, the `browser_use` and `browser_harness` packages (of an editable checkout only the package dir: its root holds `.env`), `PYTHONPATH`, `/usr`, `/lib*`, `/bin`, `/sbin`, `/etc`, `/proc`, `/sys`, your CA bundle (`SSL_CERT_FILE`, ...) | the Python installation and packages as on Linux, `/usr`, `/bin`, `/sbin`, `/System`, `/private/etc`, `/opt/homebrew`; file metadata (`stat`) everywhere |
+| denied | everything else: your home dir (`~/.ssh`, `~/.config/browser-harness/auth.json`, the `.env` next to your script, other repos), `/tmp`, other workspaces | same |
+| other processes | `/proc/<pid>/environ`, `/proc/<pid>/mem` and `ptrace` of processes outside the sandbox fail (Landlock); signals to them fail (ABI 6+) | `ps` does not start, `process-info` and signals only inside the sandbox |
+| Unix sockets | not filtered: Landlock cannot (Linux 6.12). The worker can connect to any socket your user can, e.g. another browser-harness daemon, or `/var/run/docker.sock` if your user is in the `docker` group (root on the host) | only the run's browser-harness daemon socket and DNS |
+
+What it does not cover:
+
+- The network: any host is reachable from cells (`http_get`, `requests`, sockets). Use `Browser(allowed_domains=...)`
+  for the browser and a container or egress proxy for the worker's own traffic.
+- The browser: a local browser (`Browser('chromium')`, `'chrome'`, `cdp_url`) runs outside the sandbox, and model CDP
+  can make it open local files (a `file://` URL, `DOM.setFileInputFiles`). `upload_file()` and `cdp('DOM.setFileInputFiles')`
+  refuse a file the worker cannot read, but model code can still reach the daemon socket directly. `Agent` logs a
+  warning for this. The cloud browser (`Browser()`) runs on another machine and reads none of your files.
+- macOS: Seatbelt does not mediate `sysctl(KERN_PROCARGS2)`, so model code can still read the start-up environment
+  of your other processes through it: what the shell that started Python exported, and the keys the browser-harness
+  daemon and a local browser inherit from the agent process. Linux has no such gap.
+- The cell's own process: model code still sees the `sensitive_data` values (see [Trust model](#trust-model-for-secrets)).
+
+Cells work as before inside the workspace, with these differences: files outside it (an absolute path to your
+Downloads, `~/...`) raise `PermissionError`, so put task files in the workspace; `pip install` into the venv fails
+(read-only); `multiprocessing` / `ProcessPoolExecutor` fail on Linux (they need `/dev/shm`, which other programs,
+Chrome included, share): use threads; `sudo` and other setuid programs do not run.

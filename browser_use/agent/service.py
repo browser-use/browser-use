@@ -47,6 +47,8 @@ from browser_use.llm import (
 	resolve_model,
 )
 from browser_use.repl import Repl, check_mode, redact
+from browser_use.repl.sandbox import check as sandbox_check
+from browser_use.repl.sandbox import check_workspace
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets, secret_forms
 from browser_use.search import WebSearch, search_url
 from browser_use.telemetry.feedback import RunReports
@@ -238,7 +240,10 @@ class Agent:
 	the agent's screenshots. False turns them off. judge: after each run one more request to the same llm judges it
 	against the task: result.judgement (success, failure_reason, description, prompt_injection_detected,
 	bot_block_or_captcha_detected, gotchas), its tokens and cost counted in result.usage and result.cost_usd; False turns
-	it off. judge_context: your criteria or the expected answer, which the judge puts first (0.x ground_truth)."""
+	it off. judge_context: your criteria or the expected answer, which the judge puts first (0.x ground_truth).
+	sandbox: the REPL worker can read and write only the workspace, plus read the Python installation and system
+	files; your home dir and other processes' environments are unreadable (Linux: Landlock, macOS: Seatbelt; raises
+	on Windows or a kernel without Landlock). Network hosts are not filtered (MIGRATING.md "Sandbox")."""
 
 	def __init__(
 		self,
@@ -260,6 +265,7 @@ class Agent:
 		highlight_actions: bool = True,
 		judge: bool = True,
 		judge_context: str | None = None,
+		sandbox: bool = False,
 		**kwargs: Any,
 	):
 		# 0.x use_judge and ground_truth: the same options under their old names
@@ -280,6 +286,12 @@ class Agent:
 			raise TypeError(f'highlight_actions must be True or False, not {highlight_actions!r}')
 		if not isinstance(judge, bool):
 			raise TypeError(f'judge must be True or False, not {judge!r}')
+		if not isinstance(sandbox, bool):
+			raise TypeError(f'sandbox must be True or False, not {sandbox!r}')
+		if sandbox:
+			sandbox_check()  # this OS cannot confine the worker: raise now, never run it unconfined
+			if workspace is not None:
+				check_workspace(workspace)
 		if judge_context is not None and not isinstance(judge_context, str):
 			raise TypeError(f'judge_context must be a str or None, not {type(judge_context).__name__}')
 		if max_context_chars is not None and (type(max_context_chars) is not int or max_context_chars < 1):
@@ -324,6 +336,12 @@ class Agent:
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
 		self.web_search, self.max_context_chars, self.highlight_actions = web_search, max_context_chars, highlight_actions
 		self.judge, self.judge_context = judge, judge_context or None
+		self.sandbox = sandbox
+		if sandbox and not browser.use_cloud:
+			logger.warning(
+				'Agent(sandbox=True) confines the REPL worker, not this local browser: model-written CDP can still make the '
+				'browser open local files (file:// URLs, DOM.setFileInputFiles). The cloud browser (Browser()) reads none.'
+			)
 		self._judge_cost: float | None = None  # the last run's judge cost (telemetry)
 		self._final_page: BinaryContent | None = None  # the last run's final page, for the judge
 		self._search: WebSearch | None = None  # set by _build when search() is on
@@ -527,6 +545,7 @@ class Agent:
 					downloads=self._list_downloads if self.browser.use_cloud or self._launched() else None,
 					highlight_actions=self.highlight_actions,
 					feedback=self._reports,
+					sandbox=self.sandbox,
 				)
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}

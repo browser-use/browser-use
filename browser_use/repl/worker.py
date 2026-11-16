@@ -1132,8 +1132,28 @@ def _redact_between_cells(secrets: list) -> None:
 	atexit.register(drain)
 
 
+def _sandbox() -> bool:
+	"""Agent(sandbox=True): restrict this process before any other thread starts or any cell runs (repl/sandbox.py).
+	Fails closed: a worker that cannot restrict itself exits, and the parent refuses a worker that reports no sandbox."""
+	raw = os.environ.pop('BU_SANDBOX', None)
+	if not raw:
+		return False
+	from browser_use.repl import sandbox
+
+	policy = sandbox.Policy.from_json(raw)
+	if sys.platform == 'darwin':  # sandbox-exec applied the profile before this interpreter started
+		if not sandbox.is_sandboxed():
+			raise SystemExit('BU_SANDBOX is set but this worker runs without a Seatbelt profile')
+	else:
+		sandbox.restrict(policy)
+	sandbox.self_test(policy)
+	os.environ['BU_SANDBOXED'] = '1'  # upload_file's error names the workspace
+	return True
+
+
 def main() -> None:
 	global _OWN_JOB
+	sandboxed = _sandbox()  # first: before the parent watchdog thread and before any cell
 	if sys.platform == 'win32':  # processes a cell starts join this job, so they die with the worker however it dies
 		from browser_use.repl.session import _job_for  # (the parent's job can miss them: a venv python.exe launcher
 
@@ -1167,7 +1187,7 @@ def main() -> None:
 		wfile.write(json.dumps(msg).encode() + b'\n')
 		wfile.flush()
 
-	send({'type': 'ready'})
+	send({'type': 'ready', 'sandbox': sandboxed})
 	for line in rfile:
 		msg = json.loads(line)
 		images.clear()
