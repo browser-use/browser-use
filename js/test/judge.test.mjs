@@ -144,6 +144,27 @@ test('judgeRun: a model that rejects images is asked again with text; a bad answ
   assert.match(bad.error, /did not fit the schema/);
 });
 
+test('judgeRun: a cancelled run ends the judge request at once, not at the 180 s deadline', async () => {
+  const { model } = faux();
+  const { createAssistantMessageEventStream } = await import('@earendil-works/pi-ai');
+  const hung = () => createAssistantMessageEventStream(); // never answers
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 50);
+  const started = Date.now();
+  const run = { task: 't', status: 'completed', text: 'x' };
+  const out = await judgeRun({
+    model,
+    streamFn: hung,
+    run,
+    messages: [],
+    redact: [],
+    signal: controller.signal,
+  });
+  assert.ok(Date.now() - started < 5000);
+  assert.equal(out.judgement, undefined);
+  assert.match(out.error, /cancelled/);
+});
+
 test('a run is judged by default (result.judgement, usage added); judge: false sends no judge request', async (t) => {
   const workspace = await mkdtemp(join(tmpdir(), 'bu-judge-'));
   t.after(() => rm(workspace, { recursive: true, force: true }));

@@ -631,12 +631,20 @@ export class BrowserUse {
   private async judge(task: string, result: RunResult<unknown>, signal: AbortSignal) {
     if (this.config.judge === false || !result.steps || result.status === 'cancelled') return;
     if (signal.aborted) return;
-    const final = this.model.input.includes('image')
-      ? await this.runtime
-          .execute('await screenshot()', 10_000, signal)
-          .then((cell) => cell.images.at(-1))
-          .catch(() => undefined)
-      : undefined;
+    // Only on a worker the run already started: never a new browser connection for the judge. The cell bounds itself
+    // (7 s) inside its 10 s deadline: a deadline hit kills the worker and loses the agent's JavaScript state, which
+    // Python's thread-and-socket timeout never did.
+    const final =
+      this.model.input.includes('image') && this.runtime.started
+        ? await this.runtime
+            .execute(
+              'await Promise.race([screenshot().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 7000))])',
+              10_000,
+              signal,
+            )
+            .then((cell) => cell.images.at(-1))
+            .catch(() => undefined)
+        : undefined;
     const judged = await judgeRun({
       model: this.model,
       streamFn: this.config.streamFn,
@@ -652,6 +660,7 @@ export class BrowserUse {
       ...(final ? { final } : {}),
       ...(this.config.judgeContext ? { judgeContext: this.config.judgeContext } : {}),
       redact: this.config.redact ?? [],
+      signal,
     });
     for (const usage of judged.usage) {
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)

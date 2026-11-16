@@ -180,6 +180,8 @@ export async function judgeRun(options: {
   judgeContext?: string;
   redact: string[];
   timeoutMs?: number;
+  /** The run's signal: a cancel during the judge ends its request instead of waiting up to 180 s. */
+  signal?: AbortSignal;
 }): Promise<{ judgement?: Judgement; usage: Usage[]; error?: string }> {
   const text = redact(
     judgePrompt(options.run, options.messages, options.judgeContext),
@@ -212,7 +214,11 @@ export async function judgeRun(options: {
           ],
         }),
         // keepEffort: the gateway sends 'low' even for a bu-* alias (Python sets openai_reasoning_effort low).
-        { reasoning: 'low', keepEffort: true } as Parameters<StreamFn>[2],
+        {
+          reasoning: 'low',
+          keepEffort: true,
+          ...(options.signal ? { signal: options.signal } : {}),
+        } as Parameters<StreamFn>[2],
       )
     ).result();
     usage.push(message.usage);

@@ -92,6 +92,11 @@ export class BrowserRuntime {
     return this.config.endpoint;
   }
 
+  /** A worker is up: a cell now runs without starting a worker or waiting for a pending browser. */
+  get started() {
+    return !!this.worker;
+  }
+
   /** Attach the browser a pending runtime was created without; once only. */
   connect(endpoint: string, targetId?: string) {
     if (this.closed) throw new Error('BrowserUse is closed.');
