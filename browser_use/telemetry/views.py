@@ -2,9 +2,10 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
-SCHEMA_VERSION = 6  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays;
+SCHEMA_VERSION = 7  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays;
 # 4: urls_visited, error_messages, final_result; 5: judge, judge_context, judgement; 6: key_source, key_gate, key_reason,
-# is_colab, is_ssh, has_display; library_auth key_gate, key_reason, outcome, entry, gate_count, seconds_since_first_gate
+# is_colab, is_ssh, has_display; library_auth key_gate, key_reason, outcome, entry, gate_count, seconds_since_first_gate;
+# 7: anti-bot blocks
 
 
 @dataclass
@@ -221,6 +222,12 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 		None  # a run that ended with MissingAPIKeyError: default_model | gateway_model | web_search | cloud_browser
 	)
 	key_reason: str | None = None  # and why: missing | corrupt_store | unwritable_store | bad_chars
+	# --- schema 7 --- anti-bot (repl/antibot.py): the vendor enum, outcomes and hostnames, never paths or page text
+	blocks: list[dict[str, Any]] = field(default_factory=list)  # {vendor, host, outcome, challenge, count, status (highest)}, 20
+	blocked_label: str = 'clean'  # blocked | got_through (judged a success) | judge_only (judge saw one, no rule) | clean
+	antibot_passed: dict[str, int] = field(default_factory=dict)  # vendor -> challenged visits that got through
+	antibot_seen: dict[str, int] = field(default_factory=dict)  # vendor -> visits whose headers showed it (presence)
+	antibot_detector: int = 0  # antibot.DETECTOR_VERSION: a rule change is not a change in block rate
 
 	name: str = 'agent_event'
 
