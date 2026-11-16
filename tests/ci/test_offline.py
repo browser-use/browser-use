@@ -11,7 +11,7 @@ from conftest import script
 
 import browser_use
 from browser_use import Agent, Browser, ChatBrowserUse, ChatOpenAI
-from browser_use.llm import GATEWAY_URL
+from browser_use.llm import DEFAULT_MODEL, GATEWAY_URL
 from browser_use.telemetry import feedback
 from browser_use.telemetry.service import telemetry
 
@@ -153,7 +153,7 @@ def test_offline_skips_the_pypi_update_check(monkeypatch):
 	[
 		(lambda m: Agent('t', m), 'Browser() (a Browser Use Cloud browser, the default)'),
 		(lambda m: Browser(cloud_profile_id='work'), 'Browser() (a Browser Use Cloud browser, the default)'),
-		(lambda m: Agent('t', browser=Browser('chromium')), 'the model bu-fast (served by Browser Use at'),
+		(lambda m: Agent('t', browser=Browser('chromium')), f'the model {DEFAULT_MODEL} (served by Browser Use at'),
 		(lambda m: Agent('t', 'bu-smart', browser=Browser('chromium')), 'the model bu-smart'),
 		(lambda m: Agent('t', ChatOpenAI('gpt-6-luna', base_url=GATEWAY_URL), browser=Browser('chromium')), 'gpt-6-luna'),
 		(lambda m: Agent('t', m, browser=Browser('chromium'), web_search=True), 'Agent(web_search=True)'),

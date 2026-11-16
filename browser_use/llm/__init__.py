@@ -509,7 +509,7 @@ def gateway_alias(llm: Any) -> str | None:
 
 
 def browser_use_model_url(llm: Any) -> str | None:
-	"""The URL of a model Browser Use serves (a host on browser-use.com): the default bu-fast, any gateway form, or any
+	"""The URL of a model Browser Use serves (a host on browser-use.com): the default model, any gateway form, or any
 	other model pointed there; None for every other endpoint (ChatBrowserUse(base_url=<your own host>) included)."""
 	try:
 		url = llm.url if isinstance(llm, ChatOpenAI) else getattr(gateway_llm(llm) or llm, 'base_url', None)
