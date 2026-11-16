@@ -155,6 +155,10 @@ export interface RunMetrics {
   steps: number;
   durationMs: number;
   usage: Usage;
+  /** usage.cost.total in USD (Python cost_usd): judge and compaction included; on the gateway, what it charged. */
+  costUsd?: number;
+  /** Absolute paths of files the browser saved in workspace/downloads during this run (Python result.downloads). */
+  downloads?: string[];
   workspace: string;
   /** Approximate token costs from the configured model catalog, not an invoice. */
   model: string;

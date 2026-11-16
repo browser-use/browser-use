@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, open, type FileHandle } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readdir, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
@@ -423,6 +423,14 @@ export class BrowserUse {
           await record({ type: 'warning', message: `Recording unavailable: ${String(error)}` });
         }
       }
+      const downloadsDir = join(this.workspace, 'downloads');
+      const listDownloads = async () =>
+        new Set(
+          (await readdir(downloadsDir, { withFileTypes: true }).catch(() => []))
+            .filter((entry) => entry.isFile() && !entry.name.endsWith('.crdownload'))
+            .map((entry) => join(downloadsDir, entry.name)),
+        );
+      const downloadsBefore = await listDownloads();
       const result = await runAgent(
         this.runtime,
         this.model,
@@ -491,8 +499,14 @@ export class BrowserUse {
         }
       }
       recorder = undefined;
+      // Python result.downloads: files the browser saved in workspace/downloads during this run.
+      const downloads = [...(await listDownloads())]
+        .filter((path) => !downloadsBefore.has(path))
+        .sort();
       const delivered: RunResult<unknown> = {
         ...result,
+        costUsd: result.usage.cost.total,
+        downloads,
         ...(recordingPath ? { recordingPath } : {}),
         runId: this.runId,
         ...(journaled ? { eventsPath } : {}),

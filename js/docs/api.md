@@ -78,6 +78,25 @@ Custom `tools` use upstream Pi’s `AgentTool` interface. Hooks are application 
 
 Every result includes status, text, steps, duration, usage, model and workspace. Successful results additionally contain `output`. Saved history, event and recording paths are returned when available. Inspect `warnings` for auxiliary failures.
 
+### Mapping to Python `AgentHistoryList` (1.0.5)
+
+| Python          | Pi                             | Note                                                                                     |
+| --------------- | ------------------------------ | ---------------------------------------------------------------------------------------- |
+| `status`        | `status`                       | Pi adds `cancelled`, `cost_limit`, `context_limit`, `incomplete`                         |
+| `text`          | `text`                         |                                                                                          |
+| `output`        | `output`                       | on `completed` only                                                                      |
+| `steps`         | `steps`                        | model requests of the run                                                                |
+| `duration_s`    | `durationMs`                   | milliseconds                                                                             |
+| `usage`         | `usage`                        | `cacheRead`/`cacheWrite` for `cache_read`/`cache_write`; no `requests` count             |
+| `cost_usd`      | `costUsd`                      | `usage.cost.total`, judge and compaction included; a number, never `None`                |
+| `partial`       | `partial`                      | `{ path?, value }`                                                                       |
+| `error`         | `error`                        |                                                                                          |
+| `success`       | `success`                      | the agent's own verdict from `finish({ success })`, when it gave one                     |
+| `judgement`     | `judgement`                    | `failureReason`, `promptInjectionDetected`, `botBlockOrCaptchaDetected` in camelCase     |
+| `downloads`     | `downloads`                    | absolute paths saved in `workspace/downloads` this run; remote browser files stay remote |
+| `messages`      | `agent.history`, `historyPath` | the saved conversation                                                                   |
+| `output_schema` | the `schema` passed to `run()` |                                                                                          |
+
 Stop statuses: `max_steps`, `timeout`, `cancelled`, `cost_limit`, `context_limit`, `incomplete`, `error`. Automatic compaction summarizes older context; saved observations remain in the workspace. A failed summary preserves the original context and can stop at the limit. Recovery never replays browser actions. See [browser primitives](./browser.md) for worker reset behavior.
 
 ## Keep results when a limit is reached
