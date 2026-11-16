@@ -506,13 +506,14 @@ def gateway_alias(llm: Any) -> str | None:
 	return llm.model if isinstance(llm, ChatBrowserUse) else None
 
 
-def browser_use_gateway_url(llm: Any) -> str | None:
-	"""The URL of any gateway form when it is Browser Use's own host; None for any other model, and for
-	ChatBrowserUse(base_url=...) on another host (your own endpoint)."""
-	if isinstance(llm, ChatOpenAI) and llm.is_gateway:
-		return GATEWAY_URL
-	llm = gateway_llm(llm) or llm
-	return llm.base_url if isinstance(llm, ChatBrowserUse) and is_browser_use_host(llm.base_url) else None
+def browser_use_model_url(llm: Any) -> str | None:
+	"""The URL of a model Browser Use serves (a host on browser-use.com): the default bu-fast, any gateway form, or any
+	other model pointed there; None for every other endpoint (ChatBrowserUse(base_url=<your own host>) included)."""
+	try:
+		url = llm.url if isinstance(llm, ChatOpenAI) else getattr(gateway_llm(llm) or llm, 'base_url', None)
+	except Exception:  # a Pydantic AI model whose client cannot be built here: its own error comes at run()
+		return None
+	return str(url) if url and is_browser_use_host(str(url)) else None
 
 
 def as_chat_model(llm: Any) -> Any:

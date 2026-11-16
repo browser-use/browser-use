@@ -228,13 +228,17 @@ def _loopback(host: str) -> bool:
 		return False
 
 
-def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], namespace: dict[str, Any] | None) -> dict:
-	"""browser-harness's start_remote_daemon with one-line errors, then route this process to the new daemon."""
+def _check_online(helper: str) -> None:
 	if CONFIG.BROWSER_USE_OFFLINE:
 		raise CloudBrowserError(
-			'BROWSER_USE_OFFLINE=1: start_remote_daemon() would start a Browser Use Cloud browser. Drive a local browser, '
-			'or unset BROWSER_USE_OFFLINE.'
+			f'BROWSER_USE_OFFLINE=1: {helper}() would contact Browser Use Cloud. Drive a local browser, or unset '
+			'BROWSER_USE_OFFLINE.'
 		)
+
+
+def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], namespace: dict[str, Any] | None) -> dict:
+	"""browser-harness's start_remote_daemon with one-line errors, then route this process to the new daemon."""
+	_check_online('start_remote_daemon')
 	os.environ.setdefault('BH_TAB_MARKER', '0')  # the daemon spawned below inherits it
 	_check_socket_path(name)
 	if admin.daemon_alive(name):
@@ -295,6 +299,15 @@ def forget(name: str) -> None:
 	_marker(name).unlink(missing_ok=True)
 
 
+def _online_only(helper: str, fn: Any) -> Any:
+	def call(*args: Any, **kwargs: Any) -> Any:
+		_check_online(helper)
+		return fn(*args, **kwargs)
+
+	call.__doc__ = fn.__doc__
+	return call
+
+
 def install(namespace: dict[str, Any]) -> None:
 	"""Put the guarded ensure_daemon / start_remote_daemon / stop_remote_daemon / upload_file into an exec namespace."""
 	os.environ.setdefault('BH_OPEN_LIVE_URL', '0')  # the live URL grants control: not printed, opened or returned
@@ -303,6 +316,9 @@ def install(namespace: dict[str, Any]) -> None:
 		return start(name, profileName, create_kwargs, namespace)
 
 	start_remote_daemon.__doc__ = admin.start_remote_daemon.__doc__
+	for helper in ('list_cloud_profiles', 'sync_local_profile'):  # the CLI's namespace has them (sync uploads cookies)
+		if callable(fn := namespace.get(helper)):
+			namespace[helper] = _online_only(helper, fn)
 	namespace['ensure_daemon'] = ensure_daemon
 	namespace['upload_file'] = uploader(helpers.cdp, lambda: was_cloud(admin.NAME))
 	namespace['start_remote_daemon'] = start_remote_daemon

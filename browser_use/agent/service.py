@@ -41,7 +41,7 @@ from browser_use.llm import (
 	GATEWAY_URL,
 	ChatBrowserUse,
 	as_chat_model,
-	browser_use_gateway_url,
+	browser_use_model_url,
 	gateway_alias,
 	gateway_llm,
 	provider_preflight,
@@ -312,9 +312,10 @@ class Agent:
 			)
 		self.task, self.llm, self.browser, self.tools = task, as_chat_model(llm), browser, tools
 		self._tasks = [task]  # every task this agent ran (follow-ups too): telemetry never sends their text
-		if url := browser_use_gateway_url(self.llm):  # the default model too: a run would call it, not fail
+		if url := browser_use_model_url(self.llm):  # the default model too: a run would call it, not fail
+			name = gateway_alias(self.llm) or getattr(self.llm, 'model_name', None) or getattr(self.llm, 'model', '')
 			check_online(
-				f'the model {gateway_alias(self.llm)} (the Browser Use gateway at {url})',
+				f'the model {name} (served by Browser Use at {url})',
 				'Pass your own: llm=ChatOpenAI(...), ChatAnthropic(...), ChatGoogle(...) or a Pydantic AI model',
 			)
 		if web_search:

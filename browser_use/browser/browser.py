@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Literal
 
 from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting
 from browser_use.browser import local as _local
-from browser_use.config import check_online, load_env
+from browser_use.config import check_online, is_browser_use_host, load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import BrowserConfigError, removed
 from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
@@ -593,10 +593,12 @@ class Browser:
 				f'Browser({name}=...) is not a browser-use 1.0 option; MIGRATING.md lists the options and what replaced 0.x ones.'
 			)
 		self.kind = _kind(kind, local, use_cloud, cdp_url)
-		if self.kind == 'cloud':  # Browser() is a cloud browser by default
+		if self.kind == 'cloud' or (cdp_url and is_browser_use_host(cdp_url)):  # Browser() is a cloud browser by default
 			check_online(
-				'Browser() (a Browser Use Cloud browser, the default)',
-				"Use a local one: Browser('chromium'), Browser('chrome') or Browser(cdp_url=...)",
+				'Browser() (a Browser Use Cloud browser, the default)'
+				if self.kind == 'cloud'
+				else 'a cdp_url on browser-use.com',
+				"Use a local one: Browser('chromium'), Browser('chrome') or Browser(cdp_url=<your own browser>)",
 			)
 		if headless is None and os.environ.get('BROWSER_USE_HEADLESS'):
 			logger.warning(

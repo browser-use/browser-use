@@ -32,6 +32,7 @@ import browser_use
 from browser_use import Browser, harness_cloud
 from browser_use.auth import browser_use_api_key, harden_login_callback, set_aside_corrupt_store
 from browser_use.browser.browser import _name_daemon_files
+from browser_use.config import CONFIG
 from browser_use.domains import DomainRules
 from browser_use.exceptions import removed
 from browser_use.harness_cloud import CloudBrowserError
@@ -246,6 +247,8 @@ def _install_chromium() -> float:
 	"""`browser-use install` for a machine with no browser at all (a fresh server or container): Playwright's Chromium, and
 	as root on Linux its system libraries. Its output never reaches stdout (the MCP channel). Returns the seconds it took;
 	raises why it could not."""
+	if CONFIG.BROWSER_USE_OFFLINE:  # a download from PyPI and Playwright's CDN the user did not ask for
+		raise RuntimeError('no Chrome or Chromium is installed, and BROWSER_USE_OFFLINE=1 does not download one')
 	uvx = shutil.which('uvx')
 	if not uvx:
 		raise RuntimeError('no Chrome or Chromium is installed, and uvx (to install Chromium) is not on PATH')
@@ -802,6 +805,9 @@ class CLIMCPServer:
 	def _sign_in(self, force: bool, wait: float = LOGIN_WAIT_SECONDS) -> str:
 		"""Start (or keep waiting on) one browser login. The key never appears in the result."""
 		from browser_harness import auth
+
+		if CONFIG.BROWSER_USE_OFFLINE:  # the client model asked, not the user: no request to Browser Use
+			return 'BROWSER_USE_OFFLINE=1: browser_login would contact Browser Use. Drive the local browser instead.'
 
 		with self._login_lock:
 			login = self._login
