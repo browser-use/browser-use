@@ -2,12 +2,83 @@
 
 import os
 import re
+import sys
+import threading
 import urllib.parse
 from pathlib import Path
 
 from browser_use.exceptions import MissingAPIKeyError
 
 KEYS_URL = 'https://cloud.browser-use.com/settings?tab=api-keys'
+_login_lock = threading.Lock()
+_login_attempted = False
+_reported_key_sources: set[str] = set()
+_key_sources_lock = threading.Lock()
+
+
+def record_auth_event(stage: str, *, method: str = '', automatic: bool = False) -> None:
+	"""Record login progress without credentials or account identifiers."""
+	try:
+		from browser_use.telemetry.service import telemetry
+		from browser_use.telemetry.stats import is_internal
+		from browser_use.telemetry.views import AuthEvent
+		from browser_use.utils import get_browser_use_version
+
+		telemetry().capture(AuthEvent(get_browser_use_version(), stage, method, automatic, is_internal()))
+	except Exception:
+		pass
+
+
+def _can_open_login() -> bool:
+	from browser_use.cli import _stdin_is_terminal
+
+	return (
+		sys.stdin is not None
+		and _stdin_is_terminal()
+		and 'ipykernel' not in sys.modules
+		and os.getenv('BROWSER_USE_AUTO_LOGIN', 'true').strip().lower() not in ('0', 'false', 'no', 'off')
+		and not (os.getenv('CI') or os.getenv('GITHUB_ACTIONS'))
+		and bool(
+			sys.platform in ('darwin', 'win32')
+			or (
+				os.getenv('XDG_CURRENT_DESKTOP')
+				and os.getenv('XDG_SESSION_TYPE') in ('x11', 'wayland')
+				and (os.getenv('DISPLAY') or os.getenv('WAYLAND_DISPLAY'))
+			)
+		)
+	)
+
+
+def _available_key(key: str, source: str, what: str) -> str:
+	key = clean_api_key(key, source, what)
+	with _key_sources_lock:
+		report = source not in _reported_key_sources
+		if report:
+			_reported_key_sources.add(source)
+	if report:
+		record_auth_event('key_available', method='env' if source == 'BROWSER_USE_API_KEY' else 'stored')
+	return key
+
+
+def _login_for_key(what: str) -> str:
+	global _login_attempted
+	with _login_lock:
+		from browser_harness.auth import stored_auth_record
+
+		if key := (stored_auth_record() or {}).get('api_key'):
+			return _available_key(str(key), 'the key browser-use login stored', what)
+		if _login_attempted:
+			raise MissingAPIKeyError(what)
+		_login_attempted = True
+		from browser_use.cli import _run_login_command
+
+		print('Browser Use needs a key. Opening sign-in; approve access to continue this run.', file=sys.stderr, flush=True)
+		code = _run_login_command([], automatic=True)
+		if code != 0:
+			raise MissingAPIKeyError(what)
+		if key := (stored_auth_record() or {}).get('api_key'):
+			return _available_key(str(key), 'the key browser-use login stored', what)
+		raise MissingAPIKeyError(what)
 
 
 def clean_api_key(key: str, source: str, what: str = 'Browser Use Cloud') -> str:
@@ -42,10 +113,10 @@ def harness_dir_setting(path: object) -> str:
 	return 'BH_HOME'
 
 
-def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
+def browser_use_api_key(what: str = 'Browser Use Cloud', *, auto_login: bool = False) -> str:
 	key = os.environ.get('BROWSER_USE_API_KEY')
 	if key and key.strip():
-		return clean_api_key(key, 'BROWSER_USE_API_KEY', what)
+		return _available_key(key, 'BROWSER_USE_API_KEY', what)
 	from browser_harness.auth import AuthError, stored_auth_record
 
 	try:
@@ -59,10 +130,13 @@ def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
 			f'to: the dir of the key `browser-use login` stores, {e.filename or ""}, cannot be created ({e.strerror or e}).',
 		) from None
 	if not record.get('api_key'):
+		record_auth_event('missing_key', automatic=auto_login)
+		if auto_login and _can_open_login():
+			return _login_for_key(what)
 		raise MissingAPIKeyError(what)
 	# Scopes are the server's to judge: a key it rejects (an older login's v3 browser-only key) gets a 403 that the
 	# cloud and gateway errors turn into "run `browser-use login` again".
-	return clean_api_key(str(record['api_key']), 'the key `browser-use login` stored', what)
+	return _available_key(str(record['api_key']), 'the key browser-use login stored', what)
 
 
 def cloud_error_text(status: int, detail: str) -> str:
