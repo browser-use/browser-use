@@ -512,27 +512,32 @@ class AxHelpers:
 		previous = self.last
 		self.last = {}
 		lines: list[str] = []
+		dialog_lines: list[str] = []
+		base_lines: list[str] = []
 		text: list[str] = []
 
-		def flush() -> None:
+		def flush(target: list[str] | None = None) -> None:
 			if text:
-				lines.append(' '.join(text))
+				(target if target is not None else base_lines).append(' '.join(text))
 				text.clear()
 
 		for frame in frames:
 			by_id = {n['nodeId']: n for n in frame['nodes']}
-			start = len(lines)
+			start_base = len(base_lines)
+			start_dialog = len(dialog_lines)
 
-			def walk(n: dict | None, inside: str) -> None:
+			def walk(n: dict | None, inside: str, in_dialog: bool = False) -> None:
 				if not n:
 					return
 				role = val(n.get('role'))
 				role = '' if role is None else str(role)
 				name = norm(val(n.get('name')))
 				kids = n.get('childIds') or []
+				is_dialog = in_dialog or role in ('dialog', 'alertdialog') or bool(prop(n, 'modal'))
+				cur_lines = dialog_lines if is_dialog else base_lines
 				if n.get('ignored'):
 					for c in kids:
-						walk(by_id.get(c), inside)
+						walk(by_id.get(c), inside, is_dialog)
 					return
 				if role == 'StaticText':
 					t = fold(name)
@@ -540,10 +545,10 @@ class AxHelpers:
 						text.append(name)
 					return
 				if role == 'heading' and name:
-					flush()
-					lines.append(f'## {name}')
+					flush(cur_lines)
+					cur_lines.append(f'## {name}')
 					for c in kids:
-						walk(by_id.get(c), fold(name))
+						walk(by_id.get(c), fold(name), is_dialog)
 					return
 				id = n.get('backendDOMNodeId')
 				# Focusable wrappers (tabindex=-1 dialogs, <main>) are only controls if they carry a name, value or editing.
@@ -553,15 +558,15 @@ class AxHelpers:
 				if not id or not (role in CONTROLS or focusable):
 					if role not in BLOCKS:
 						for c in kids:
-							walk(by_id.get(c), inside)
+							walk(by_id.get(c), inside, is_dialog)
 						return
-					flush()
+					flush(cur_lines)
 					for c in kids:
-						walk(by_id.get(c), inside)
-					return flush()
-				flush()
-				if lines and lines[-1].lower() == name.lower():
-					lines.pop()  # its label, printed as its name
+						walk(by_id.get(c), inside, is_dialog)
+					return flush(cur_lines)
+				flush(cur_lines)
+				if cur_lines and cur_lines[-1].lower() == name.lower():
+					cur_lines.pop()  # its label, printed as its name
 				value = norm(val(n.get('value')))
 				checked, expanded = prop(n, 'checked'), prop(n, 'expanded')
 				states = [
@@ -601,7 +606,7 @@ class AxHelpers:
 				)
 				self.last[id] = (shown, name)
 				more = f' | … {len(options) - 5} more' if len(options) > 5 else ''
-				lines.append(
+				cur_lines.append(
 					('*' if previous and id not in previous else '')
 					+ f'[{id}] {shown}'
 					+ (f' "{clip(name, 150)}"' if name else '')
@@ -614,13 +619,13 @@ class AxHelpers:
 				# Only what the line showed counts as said: a card link's text past the clipped name still prints.
 				inside = fold(f'{inside} {clip(name, 150)} {value}')
 				for c in kids:
-					walk(by_id.get(c), inside)
-				flush()
+					walk(by_id.get(c), inside, is_dialog)
+				flush(cur_lines)
 
-			walk(frame['nodes'][0] if frame['nodes'] else None, '')
-			flush()
-			if frame['url'] and len(lines) > start:
-				lines.insert(start, f'--- frame {frame["url"]} ---')
+			walk(frame['nodes'][0] if frame['nodes'] else None, '', False)
+			flush(base_lines)
+			if frame['url'] and (len(base_lines) > start_base or len(dialog_lines) > start_dialog):
+				base_lines.insert(start_base, f'--- frame {frame["url"]} ---')
 		# Styled uploaders hide their file input, which drops it from the AX tree; its id still works for uploads.
 		hidden = []
 		for f in files:
@@ -634,7 +639,7 @@ class AxHelpers:
 			name = next((v for v in (at('aria-label'), at('name'), at('id')) if v is not None), '')
 			self.last[f['backendNodeId']] = ('file', name)
 			hidden.append(f'[{f["backendNodeId"]}] file "{name}" (hidden)')
-		lines[:0] = hidden
+		lines = [*dialog_lines, *hidden, *base_lines] if dialog_lines else [*hidden, *base_lines]
 		pending = settled['pending']
 		header = (
 			f'[state] {info["title"]} | {info["url"]}' + (f' | loading: {pending}' if pending else '') + self._flush_dialogs()
@@ -654,15 +659,32 @@ class AxHelpers:
 			if failed
 			else '(nothing in the accessibility tree: the page is blank, or a popup, often in a cross-origin iframe, hides it; screenshot() to see it)'
 		]
-		# Over max, keep the top and the last fifth: a dialog's Done/Submit is usually its last line.
+		# Over max: if an active dialog is open, prioritize it so modal controls/buttons are never cut off.
 		if fit(lines, max) < len(lines):
-			head = fit(lines, max * 0.8)
-			tail = fit(lines[::-1], max * 0.2)
-			body = [
-				*lines[:head],
-				f'... {len(lines) - head - tail} lines cut here (bu.state(max=30000) or js(...))',
-				*lines[len(lines) - tail :],
-			]
+			if dialog_lines and fit(dialog_lines, max) == len(dialog_lines):
+				rem = max - sum(len(line) + 1 for line in dialog_lines)
+				if rem > 150:
+					head = fit(base_lines, rem * 0.8)
+					tail = fit(base_lines[::-1], rem * 0.2)
+					body = [
+						*dialog_lines,
+						*base_lines[:head],
+						f'... {len(base_lines) - head - tail} lines cut here (bu.state(max=30000) or js(...))',
+						*base_lines[len(base_lines) - tail :],
+					]
+				else:
+					body = [
+						*dialog_lines,
+						f'... {len(base_lines)} lines cut here (bu.state(max=30000) or js(...))',
+					]
+			else:
+				head = fit(lines, max * 0.8)
+				tail = fit(lines[::-1], max * 0.2)
+				body = [
+					*lines[:head],
+					f'... {len(lines) - head - tail} lines cut here (bu.state(max=30000) or js(...))',
+					*lines[len(lines) - tail :],
+				]
 		out = well_formed(f'{header}\n' + '\n'.join(body) + '\n[/state]')
 		self.log(out)
 		return Printed(out)

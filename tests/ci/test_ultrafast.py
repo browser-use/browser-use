@@ -69,6 +69,7 @@ PAGES = {
 	# the-internet.herokuapp.com/basic_auth: a 401 Basic Auth challenge fails the navigation to a blank error page.
 	'/dead': '<title>Dead</title><a href="/auth">Staging site</a>',
 	'/long': '<title>Long</title>' + ''.join(f'<button>Item number {i}</button>' for i in range(60)),
+	'/modal_long': '<title>Modal Long</title>' + ''.join(f'<button>Background {i}</button>' for i in range(50)) + '<div role="dialog" aria-label="Upload Video"><input aria-label="Video Title"><button>Publish Now</button></div>',
 }
 
 
@@ -220,6 +221,21 @@ async def test_state_marks_new_ids_and_truncates(repl, site):
 	assert cut and re.fullmatch(r'\.\.\. \d+ lines cut here \(bu\.state\(max=30000\) or js\(\.\.\.\)\)', cut[0])
 	assert lines[-2].endswith('button "Item number 59"')  # the last fifth is kept
 	assert 260 <= len('\n'.join(lines[1:-1])) <= 400
+
+
+async def test_modal_dialog_is_prioritized_over_background_elements(repl, site):
+	"""Verifies that interactive elements inside an active dialog/modal are prioritized at the
+	top of the A11y state snapshot, ensuring they are preserved when state hits budget limits."""
+	out, err = await cell(repl, f"new_tab('{site}/modal_long'); bu.state(max=300)")
+	assert err is None, err
+	lines = out.strip().splitlines()
+	assert lines[0] == f'[state] Modal Long | {site}/modal_long' and lines[-1] == '[/state]'
+	# Modal dialog elements must appear at the top, immediately after the state header
+	assert any('textbox "Video Title"' in line for line in lines[:5]), f"Dialog field missing from top lines: {lines[:5]}"
+	assert any('button "Publish Now"' in line for line in lines[:5]), f"Dialog button missing from top lines: {lines[:5]}"
+	# Background elements get truncated with a notice
+	cut = [line for line in lines if 'lines cut here' in line]
+	assert cut, f"Expected background lines to be cut, got: {lines}"
 
 
 async def test_state_shadow_dom_iframe_and_hidden_file_input(repl, site):
