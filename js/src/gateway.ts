@@ -180,8 +180,10 @@ export function gatewayStream(
               model.id.startsWith('bu-') &&
               !(settings as { keepEffort?: boolean } | undefined)?.keepEffort
             ) {
-              const { reasoning: _, ...rest } = next;
-              next = { ...rest, include: ['reasoning.encrypted_content'] };
+              // Drop only the effort: Python keeps openai_reasoning_summary 'auto', so reasoning summaries still come back.
+              const { reasoning, ...rest } = next;
+              const summary = (reasoning as { summary?: unknown } | undefined)?.summary ?? 'auto';
+              next = { ...rest, reasoning: { summary }, include: ['reasoning.encrypted_content'] };
             }
             return next;
           },

@@ -137,7 +137,8 @@ test('gateway requests: Browser Use key, no effort for a bu-* alias, cost is cha
   const body = JSON.parse(calls[0].body);
   assert.equal(body.model, 'bu-fast');
   assert.equal(body.store, false);
-  assert.equal(body.reasoning, undefined);
+  // No effort (the alias's own applies), but the summary stays, as Python's openai_reasoning_summary 'auto'.
+  assert.deepEqual(body.reasoning, { summary: 'auto' });
   assert.deepEqual(body.include, ['reasoning.encrypted_content']);
   assert.equal(message.usage.cost.total, 0.0123);
   // An explicit reasoning level is sent; no charge in the response costs 0, never a retail estimate.
