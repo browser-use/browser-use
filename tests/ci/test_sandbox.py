@@ -1,6 +1,7 @@
 """Agent(sandbox=True): the REPL worker is confined to its workspace (repl/sandbox.py). Real workers, real headless
 Chrome; skipped where the OS cannot sandbox (Windows, a kernel without Landlock)."""
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -391,3 +392,23 @@ def test_policy_reads_only_the_code_of_another_editable_install(tmp_path, monkey
 	assert str(real) in p.list and str(real) not in p.read
 	assert {str(real / 'mypkg'), str(real / 'tool.py')} <= set(p.read)
 	assert not any(str(real / '.env').startswith(r) for r in p.read)
+
+
+def test_the_parent_reads_no_partial_result_or_download_log_through_a_link(tmp_path, outside):
+	"""The parent read partial.json and downloads.jsonl through links a sandboxed cell could plant: a JSON file outside
+	the workspace with a 'value' key became the run's partial result, and any file the user can read fed the downloads."""
+	from types import SimpleNamespace
+
+	from browser_use.agent.loop import Session
+
+	ws = tmp_path / 'ws'
+	(ws / '.browser-use').mkdir(parents=True)
+	secret = outside / 'creds.json'
+	secret.write_text(json.dumps({'value': 'outside-secret'}))
+	(ws / '.browser-use' / 'partial.json').symlink_to(secret)
+	(ws / '.browser-use' / 'downloads.jsonl').symlink_to(secret)
+	session = Session(repl=SimpleNamespace(workspace=ws, state=ws / '.browser-use', secrets=[]))  # type: ignore[arg-type]
+	assert session.partial() is None
+	browser = Browser('chromium')
+	browser.note_downloads(ws / '.browser-use' / 'downloads.jsonl')
+	assert browser._download_records == []

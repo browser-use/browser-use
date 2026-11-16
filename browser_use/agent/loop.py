@@ -67,7 +67,7 @@ from browser_use.ax import AX_PROMPT
 from browser_use.llm import model_ref, skip_responses_transform
 from browser_use.logging_config import printable
 from browser_use.repl import Repl, check_mode, redact
-from browser_use.repl.session import SECRET_PLACEHOLDER, open_own, redact_forms, secret_forms
+from browser_use.repl.session import SECRET_PLACEHOLDER, open_own, read_own, redact_forms, secret_forms
 from browser_use.search import parse_usd
 from browser_use.telemetry.recorder import CURRENT, RunRecorder, now
 from browser_use.telemetry.stats import RunStats
@@ -160,7 +160,7 @@ class Session:
 	def partial(self) -> Any:
 		"""The last checkpoint(..., partial=True), secret values redacted. None when missing or unreadable."""
 		try:
-			value = json.loads((self.repl.state / 'partial.json').read_text(encoding='utf-8'))['value']
+			value = json.loads(read_own(self.repl.workspace, self.repl.state / 'partial.json'))['value']  # a cell may link it
 		except (OSError, ValueError, KeyError, TypeError):  # recovery data must never turn a timeout into a crash
 			return None
 		return redact(value, self.repl.secrets)

@@ -276,6 +276,13 @@ def _download(url: str, dest: Path, name: str, deadline: float, nofollow: bool =
 	return path
 
 
+def _read_log(log: Path) -> str:
+	"""A worker's workspace/.browser-use/downloads.jsonl, read without following a link a cell put there (read_own)."""
+	from browser_use.repl.session import read_own
+
+	return read_own(log.parent.parent, log)
+
+
 def download_records(lines: list[str]) -> list[dict]:
 	"""The records of downloads.jsonl lines; unreadable lines are skipped."""
 	records = []
@@ -295,7 +302,7 @@ def json_page_copies(log: Path | list[dict]) -> set[str]:
 	name is kept, not dropped with it."""
 	if isinstance(log, Path):
 		try:
-			log = download_records(log.read_text(encoding='utf-8').splitlines())
+			log = download_records(_read_log(log).splitlines())
 		except OSError:
 			return set()
 	records = log
@@ -1210,7 +1217,7 @@ class Browser:
 		"""Add what a run's REPL worker logged since the last call (log: its workspace's downloads.jsonl) and update
 		json_page_copies. Agents use a Browser one at a time, so appending keeps the session's order."""
 		try:  # complete lines only: downloads() reads it while the worker may be writing one
-			lines = log.read_text(encoding='utf-8').split('\n')[:-1]
+			lines = _read_log(log).split('\n')[:-1]
 		except OSError:  # none yet: _finish_downloads still reads what the worker of a keep_alive run logs later
 			self._download_lines.setdefault(log, 0)
 			return

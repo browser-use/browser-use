@@ -233,6 +233,12 @@ def open_own(workspace: Path, path: Path, flags: int = os.O_RDONLY) -> int:
 	return out
 
 
+def read_own(workspace: Path, path: Path) -> str:
+	"""The text of path, a file in the workspace, read as open_own opens it (no link followed, no hard link)."""
+	with open(open_own(workspace, path), encoding='utf-8') as f:
+		return f.read()
+
+
 def _head(workspace: Path, path: Path) -> str:
 	"""The start of a cell's output file, enough for clip(): a cell may have printed gigabytes before it hung."""
 	try:
