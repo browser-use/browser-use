@@ -16,7 +16,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "browser-harness==0.1.13",
+    "browser-harness==0.1.14",
     "pydantic==2.14.3",
     "pydantic-ai-slim[openai,anthropic,google]==2.66.0",
     "google-genai==2.34.0",
