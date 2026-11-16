@@ -53,8 +53,9 @@ Versions are independent. JS reaches 1.0.0 only when matched evals show parity w
 
 ## Pulling later Pi commits
 
-The import is deterministic (same input gives the same SHAs), so new commits on `browser-use-pi` (for example the
-in-flight `parity/py-1.0.5` branch once it lands on Pi `main`) come in by re-running the filter and merging:
+`js/` currently holds Pi `parity/wave-3` (fda3a6c): Pi `main` 4cbc951 plus the parity stack browser-use/browser-use-pi#37
+-> #39 -> #40 (41 commits). The import is deterministic (same input gives the same SHAs), so later Pi commits come in by
+re-running the filter and merging (use the Pi branch name in place of `main`):
 
 ```bash
 rm -rf /tmp/pi-js && git clone -q https://github.com/browser-use/browser-use-pi /tmp/pi-js
@@ -62,7 +63,8 @@ printf '%s\n' 'regex:(^|[^/\w])#(\d+)==>\1browser-use/browser-use-pi#\2' > /tmp/
 (cd /tmp/pi-js && uvx --from git-filter-repo git-filter-repo --force --to-subdirectory-filter js --replace-message /tmp/pi-msg.txt)
 git fetch /tmp/pi-js main:import/pi-js
 git merge --no-ff import/pi-js -m "Pull browser-use-pi <sha> into js/"
-cp /tmp/pi-js/.git/filter-repo/commit-map js/.history/browser-use-pi-commit-map.tsv
+M=js/.history/browser-use-pi-commit-map.tsv
+tail -n +2 /tmp/pi-js/.git/filter-repo/commit-map | grep -vFxf <(tail -n +2 "$M") >> "$M"   # append new rows only
 ```
 
 Already-imported commits keep their SHAs, so only the new ones merge. Once Pi is archived, JS work happens here.
