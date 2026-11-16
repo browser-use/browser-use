@@ -18,7 +18,7 @@ The agent writes Python in a persistent REPL with browser helpers and raw CDP (o
 ## Install and first agent
 
 ```bash
-uv pip install 'browser-use==1.0.5'   # Python >= 3.11. Always pin with ==, never >=: releases move fast
+uv pip install 'browser-use==1.0.6'   # Python >= 3.11. Always pin with ==, never >=: releases move fast
 browser-use login               # one Browser Use key: default model and cloud browser (or set BROWSER_USE_API_KEY)
 browser-use install             # only for Browser('chromium') without an installed Chrome
 ```
@@ -34,7 +34,7 @@ async def main():
 asyncio.run(main())
 ```
 
-`Agent(task).run_sync()` works outside async code (not inside a running event loop). Defaults: model `bu-fast` on
+`Agent(task).run_sync()` works outside async code (not inside a running event loop). Defaults: model `bu-4.0` on
 the Browser Use gateway, browser `Browser()` = a Browser Use Cloud browser.
 
 ## Agent
@@ -42,7 +42,7 @@ the Browser Use gateway, browser `Browser()` = a Browser Use Cloud browser.
 ```python
 Agent(
     task,                        # non-empty str
-    llm=None,                    # default ChatBrowserUse('bu-fast')
+    llm=None,                    # default ChatBrowserUse('bu-4.0')
     browser=None,                # default Browser() (cloud)
     tools=None,                  # Tools() with custom actions
     output_model_schema=None,    # pydantic model, Literal, enum...: result.structured_output
@@ -65,7 +65,7 @@ The result: `final_result()`, `structured_output`, `status` (`completed` | `max_
 ```python
 from browser_use import ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle
 
-ChatBrowserUse('bu-fast')                          # also 'bu-ultrafast', 'bu-smart'
+ChatBrowserUse('bu-4.0')                           # also 'bu-4.0-mini', 'bu-4.0-pro', 'bu-fast', 'bu-ultrafast', 'bu-smart'
 ChatOpenAI('gpt-6-luna')                           # OPENAI_API_KEY; Responses API
 ChatOpenAI('my-model', base_url='http://localhost:8000/v1', api_key='x')  # any OpenAI-compatible server
 ChatAnthropic('claude-haiku-5-5')                  # ANTHROPIC_API_KEY
