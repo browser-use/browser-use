@@ -373,34 +373,51 @@ def _read_api_key_stdin() -> str:
 	return key
 
 
-def _run_login_command(argv: list[str]) -> int:
-	"""browser-use login [--device-code | --api-key-stdin] [--no-open] [--json]: browser-harness's OAuth login, same
-	key store (~/.config/browser-harness/auth.json), so one login works everywhere. browser-use logout removes it."""
+def _run_login_command(argv: list[str], *, automatic: bool = False) -> int:
+	"""Run login with the shared key store and record its outcome."""
 	import os
 
 	from browser_harness import auth
 
-	from browser_use.auth import harden_login_callback, set_aside_corrupt_store
+	from browser_use.auth import harden_login_callback, record_auth_event, set_aside_corrupt_store
 
 	_set_harness_client_env()
 	command = ['login', *argv]
 	if any(arg in {'-h', '--help'} for arg in argv):
 		return _normalize_captured_cli_output(auth.run_auth_cli, command)
+	method = 'manual' if '--api-key-stdin' in argv else 'device' if '--device-code' in argv else 'browser'
+	record_auth_event('login_started', method=method, automatic=automatic)
 	try:  # Ctrl-C at the hidden key prompt, during the key check or while it waits for the approval: nothing stored
 		if '--api-key-stdin' in argv:
 			try:
 				sys.stdin = StringIO(_read_api_key_stdin())
 			except auth.AuthError as e:
 				print(e, file=sys.stderr)
+				record_auth_event('login_failed', method=method, automatic=automatic)
 				return 1
 		harden_login_callback()
 		if notice := set_aside_corrupt_store():
 			print(notice, file=sys.stderr)
-		code = auth.run_auth_cli(command)
+		if automatic:
+			start = auth.start_browser_auth(open_url='--no-open' not in argv)
+			print(f'Approve Browser Use access: {start.auth_url}', file=sys.stderr, flush=True)
+			auth.complete_browser_auth(start)
+			code = 0
+		else:
+			code = auth.run_auth_cli(command)
+	except auth.AuthError as e:
+		print(e, file=sys.stderr)
+		record_auth_event('login_failed', method=method, automatic=automatic)
+		return 1
 	except KeyboardInterrupt:
 		print('Login cancelled.', file=sys.stderr)
+		record_auth_event('login_cancelled', method=method, automatic=automatic)
 		return 130
-	if code == 0 and '--json' not in argv:
+	except Exception:
+		record_auth_event('login_failed', method=method, automatic=automatic)
+		raise
+	record_auth_event('login_succeeded' if code == 0 else 'login_failed', method=method, automatic=automatic)
+	if code == 0 and '--json' not in argv and not automatic:
 		print(LOGIN_DONE)
 		if os.environ.get('BROWSER_USE_API_KEY'):
 			print('Note: BROWSER_USE_API_KEY is set in this shell and takes precedence over the stored key.')
