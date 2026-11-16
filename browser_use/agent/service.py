@@ -220,14 +220,14 @@ def _unsupported(kwargs: dict[str, Any], where: str) -> TypeError:
 class Agent:
 	"""agent = Agent('task'); result = await agent.run(); result.final_result()
 
-	llm: default ChatBrowserUse('bu-fast'). browser: default Browser() = a Browser Use Cloud browser; Browser('chromium')
+	llm: default ChatBrowserUse('bu-4.0'). browser: default Browser() = a Browser Use Cloud browser; Browser('chromium')
 	for a fresh local one, Browser('chrome') for the Chrome you have open. sensitive_data={'name': 'value'} (or {'https://site': {'name': 'value'}} to type it only on that
 	domain): the model types values with type_secret('name'); values become <secret:name> in cell output, checkpoints,
 	tool results, the task and the result (MIGRATING.md "Trust model" lists exactly where). Not a sandbox: model-written
 	Python can read them; screenshots, page JS and a cloud live view or recording can reveal a typed value. mode='ultrafast'
 	adds accessibility-tree helpers; the default (None) is 'ultrafast' on bu-fast and bu-ultrafast, else 'default'
 	(mode='default' opts out). reasoning: 'low'|'medium'|'high' for OpenAI reasoning models, the gateway, Anthropic and
-	Google (default 'medium'; on the gateway the alias's own: bu-fast medium, bu-ultrafast low, bu-smart high).
+	Google (default 'medium'; on the gateway the model's own: bu-4.0 high, bu-fast medium, bu-ultrafast low, bu-smart high).
 	OpenAI-compatible chat backends (base_url servers) ignore it with a warning: pass ChatOpenAI(..., reasoning_effort=...)
 	to send reasoning_effort there. web_search: the agent gets search() (Browser Use web search, billed per search to the
 	Browser Use key). Off by default; True turns it on (raises without a Browser Use key, or with allowed_domains,
@@ -284,10 +284,8 @@ class Agent:
 			raise TypeError(f'judge_context must be a str or None, not {type(judge_context).__name__}')
 		if max_context_chars is not None and (type(max_context_chars) is not int or max_context_chars < 1):
 			raise ValueError(f'max_context_chars must be a positive int or None, not {max_context_chars!r}')
-		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) bu-fast instead
-			logger.warning(
-				'DEFAULT_LLM is set but browser-use 1.0 does not read it: this run uses bu-fast. Pass llm=... instead.'
-			)
+		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) the default instead
+			logger.warning('DEFAULT_LLM is set but browser-use 1.0 does not read it: this run uses bu-4.0. Pass llm=... instead.')
 		if reasoning not in REASONING:  # a typo would start (and bill) a browser, then 400 on the first model request
 			raise ValueError(f"reasoning must be 'low', 'medium', 'high' or None, not {reasoning!r}")
 		if browser and browser_session:
@@ -439,7 +437,7 @@ class Agent:
 				'Agent(web_search=True) cannot be combined with allowed_domains: search would reach sites the browser may not open'
 			)
 		gateway = self._gateway
-		key = (gateway.api_key if gateway else None) or browser_use_api_key('Agent(web_search=True)')
+		key = (gateway.api_key if gateway else None) or browser_use_api_key('Agent(web_search=True)', auto_login=True)
 		return WebSearch(key, search_url(gateway.base_url if gateway else GATEWAY_URL))
 
 	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
