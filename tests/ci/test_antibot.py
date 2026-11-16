@@ -12,7 +12,20 @@ from conftest import script
 
 from browser_use import Agent, Browser
 from browser_use.agent.views import AgentHistoryList
-from browser_use.repl.antibot import ANY_HIT, PROBE_BUDGET_S, QUERIES, WALLS, WEAK, Block, BlockLog, Doc, blocks, classify
+from browser_use.repl.antibot import (
+	ANY_HIT,
+	PROBE_BUDGET_S,
+	QUERIES,
+	WALLS,
+	WEAK,
+	Block,
+	BlockLog,
+	Doc,
+	Page,
+	blocks,
+	classify,
+)
+from browser_use.telemetry.stats import RunStats
 
 GROUNDTRUTH = json.loads((Path(__file__).parent / 'fixtures' / 'antibot' / 'groundtruth.json').read_text(encoding='utf-8'))
 QUERY_NAMES = {q: name for name, q in QUERIES.items()}
@@ -112,18 +125,71 @@ def test_an_api_error_is_not_a_wall():
 	)
 
 
-def test_a_cloud_browser_reports_its_own_verdicts_and_skips_the_local_rules():
-	log = BlockLog(remote=True)
-	response = {'status': 403, 'url': 'https://shop.example/', 'headers': {'x-dd-b': '1'}, 'mimeType': 'text/html'}
-	verdict = {'targetId': 'T', 'visitId': 'V1', 'outcome': 'blocked', 'challenge': 'captcha', 'vendor': 'datadome'}
+def doc_event(frame: str, loader: str, t: float, status: int, url: str, headers: dict) -> dict:
+	response = {'status': status, 'url': url, 'headers': headers, 'mimeType': 'text/html'}
+	params = {'type': 'Document', 'frameId': frame, 'loaderId': loader, 'timestamp': t, 'response': response}
+	return {'method': 'Network.responseReceived', 'params': params}
+
+
+TOP = {'method': 'Page.frameNavigated', 'params': {'frame': {'id': 'F'}}}
+AKAMAI = {'server': 'AkamaiGHost', 'content-type': 'text/html'}
+
+
+def test_each_document_of_a_cell_is_reported_not_only_the_last():
+	"""for u in urls: goto_url(u) in one cell: the Akamai 403 of the first page is reported though a page of another
+	site replaced it before the cell ended."""
+	log = BlockLog()
 	log.observe(
 		[
-			{'method': 'Page.frameNavigated', 'params': {'frame': {'id': 'T'}}},
-			{'method': 'Network.responseReceived', 'params': {'type': 'Document', 'frameId': 'T', 'response': response}},
-			{'method': 'BrowserUse.blockDetected', 'params': {**verdict, 'host': 'shop.example', 'status': 403}},
+			TOP,
+			doc_event('F', 'L1', 1000, 403, 'https://www.lowes.com/search', AKAMAI),
+			doc_event('F', 'L2', 1002, 200, 'https://example.org/', {}),
 		]
 	)
-	log.probe(lambda method, **params: pytest.fail(f'a cloud browser was probed: {method}'))
+	found = log.take()
+	assert [(r['id'], r['outcome'], r['vendor'], r['signal']) for r in found['visits']] == [
+		('L1', 'blocked', 'akamai', 'akamai_403')
+	]
+	assert found['seen'] == {'akamai': 1}
+	assert log.take() == {'visits': [], 'seen': {}}  # reported once
+
+
+def test_a_block_stays_a_block_when_the_agent_backs_off_to_the_homepage():
+	"""A blocked search, then the site's homepage loads: two visits, the block kept, no challenge 'passed'."""
+	log, stats = BlockLog(), RunStats()
+	log.observe([TOP, doc_event('F', 'L1', 1000, 403, 'https://www.lowes.com/search', AKAMAI)])
+	stats.add_cell({'stats': {'blocks': log.take()}}, 'goto_url(search)', 1.0)
+	log.observe([doc_event('F', 'L2', 1005, 200, 'https://www.lowes.com/', AKAMAI)])
+	stats.add_cell({'stats': {'blocks': log.take()}}, 'goto_url(home)', 1.0)
+	assert [r['outcome'] for r in stats.visits.values()] == ['blocked']
+	assert [str(b) for b in stats.blocks()] == ['Akamai on www.lowes.com']
+
+
+def test_a_deny_phrase_on_a_content_page_is_not_a_wall():
+	"""A promo code behind the Akamai edge and a help article behind Cloudflare that quote a deny phrase: content pages,
+	not deny pages. The same phrases on a near-empty page are one (lowes' 200 is in the ground truth)."""
+	content = {'text_nodes': 41, 'long_text': 4}
+	edge = {'server': 'AkamaiGHost', 'akamai-grn': '0.1'}
+	promo = Page('https://www.shop.com/', 'Deals', {'t_akamai_ref': 1, **content}, read=True)
+	assert classify(Doc(200, edge, 'https://www.shop.com/'), promo).outcome == 'ok'
+	help_page = Page('https://help.site.com/a', 'Why was my account blocked?', {'t_blocked': 1, **content}, read=True)
+	assert classify(Doc(200, {'server': 'cloudflare', 'cf-ray': 'x'}, 'https://help.site.com/a'), help_page).outcome == 'ok'
+	bare = Page('https://www.shop.com/', 'Login', {'t_akamai_ref': 1, 'text_nodes': 3}, read=True)
+	assert classify(Doc(200, edge, 'https://www.shop.com/'), bare).signal == 'akamai_ref_code'
+
+
+def test_a_cloud_browser_verdict_replaces_the_local_one_of_its_visit():
+	"""On a cloud browser the local rules run too (the driver reports walls only), and the driver's verdict, read from
+	more signals, replaces the local one of the same visit: its visitId is the visit's first loader id, as here."""
+	log = BlockLog()
+	response = {'status': 403, 'url': 'https://shop.example/', 'headers': {'x-dd-b': '1'}, 'mimeType': 'text/html'}
+	params = {'type': 'Document', 'frameId': 'T', 'loaderId': 'V1', 'timestamp': 1000, 'response': response}
+	log.observe([{'method': 'Page.frameNavigated', 'params': {'frame': {'id': 'T'}}}])
+	log.observe([{'method': 'Network.responseReceived', 'params': params}])
+	assert [(r['id'], r['outcome'], r['vendor']) for r in log.take()['visits']] == [('V1', 'stuck', 'datadome')]
+	verdict = {'targetId': 'T', 'visitId': 'V1', 'outcome': 'blocked', 'challenge': 'captcha', 'vendor': 'datadome'}
+	log.observe([{'method': 'BrowserUse.blockDetected', 'params': {**verdict, 'host': 'shop.example', 'status': 403}}])
+	log.observe([{'method': 'Network.responseReceived', 'params': {**params, 'timestamp': 1001}}])  # the local visit again
 	assert log.take()['visits'] == [
 		{
 			'id': 'V1',
