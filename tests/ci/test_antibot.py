@@ -12,14 +12,15 @@ from conftest import script
 
 from browser_use import Agent, Browser
 from browser_use.agent.views import AgentHistoryList
-from browser_use.repl.antibot import ANY_HIT, QUERIES, WALLS, WEAK, Block, BlockLog, Doc, blocks, classify
+from browser_use.repl.antibot import ANY_HIT, PROBE_BUDGET_S, QUERIES, WALLS, WEAK, Block, BlockLog, Doc, blocks, classify
 
 GROUNDTRUTH = json.loads((Path(__file__).parent / 'fixtures' / 'antibot' / 'groundtruth.json').read_text(encoding='utf-8'))
 QUERY_NAMES = {q: name for name, q in QUERIES.items()}
 
 
-def replay(visit: dict) -> dict:
-	"""One ground-truth visit through BlockLog: its main documents as events, then one probe of the final page."""
+def replay(visit: dict, latency: float = 0.0) -> dict:
+	"""One ground-truth visit through BlockLog: its main documents as events, then one probe of the final page, from a
+	daemon that answers each call after latency seconds (a call given less times out)."""
 	log = BlockLog()
 	events: list[dict] = [{'method': 'Page.frameNavigated', 'params': {'frame': {'id': 'F'}}}]
 	for i, d in enumerate(visit['docs']):
@@ -29,7 +30,9 @@ def replay(visit: dict) -> dict:
 	log.observe(events)
 	loader = f'L{max(len(visit["docs"]) - 1, 0)}'
 
-	def cdp(method, **params):
+	def cdp(method, _response_timeout=None, **params):
+		if _response_timeout is not None and latency > _response_timeout:
+			raise TimeoutError(f'{method} timed out after {_response_timeout}s waiting for the daemon')
 		if method == 'Page.getFrameTree':
 			frame = {'id': 'F', 'loaderId': loader, 'url': visit['final_url'], 'mimeType': 'text/html'}
 			return {'frameTree': {'frame': frame}}
@@ -86,6 +89,14 @@ def test_groundtruth_every_wall_found_no_clean_page_flagged_and_cleared_challeng
 def test_groundtruth_vendor_and_outcome(visit_id, outcome, vendor):
 	r = replay(next(v for v in GROUNDTRUTH['visits'] if v['id'] == visit_id))
 	assert (r['outcome'], r.get('vendor', '')) == (outcome, vendor)
+
+
+def test_a_daemon_slow_to_answer_still_gets_a_verdict():
+	"""On a loaded machine the daemon took over 1 s per call: each probe timed out and hermes' DataDome captcha, seen only
+	in the DOM of a 200, went unreported once the agent moved on. Calls now wait up to PROBE_CALL_S within the budget."""
+	(hermes,) = (v for v in GROUNDTRUTH['visits'] if v['id'] == 'noproxy__p1__hermes.com')
+	assert replay(hermes, latency=1.5)['vendor'] == 'datadome'
+	assert replay(hermes, latency=PROBE_BUDGET_S + 1)['outcome'] == 'ok'  # never past the budget: no verdict, no wait
 
 
 def test_an_akamai_netstorage_403_is_akamai():

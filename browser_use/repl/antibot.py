@@ -27,8 +27,8 @@ BLOCK_EVENT = 'BrowserUse.blockDetected'
 MERGE_WINDOW_S = 30.0  # a same-site document this soon after a walled one is the same visit (the challenge clearing)
 MAX_STATUSES = 8
 MAX_VISITS = 200  # documents of frames never shown to be top frames (same-process iframes) are dropped past this
-PROBE_BUDGET_S = 3.0  # one cell-end probe; a page too busy to answer in time is probed again after the next cell
-PROBE_CALL_S = 1.0
+PROBE_BUDGET_S = 5.0  # one cell-end probe; a page too busy to answer in time is probed again after the next cell
+PROBE_CALL_S = 3.0  # a loaded machine's daemon can take over 1 s to answer; a miss loses the verdict once the agent moves on
 CHALLENGE_STATUSES = (202, 401, 403, 405, 428, 429, 503)
 NAMES = {
 	'akamai': 'Akamai',
@@ -635,8 +635,15 @@ class BlockLog:
 		if self.remote:
 			return
 		deadline = time.monotonic() + PROBE_BUDGET_S
+
+		def call(method: str, **params) -> dict:
+			left = deadline - time.monotonic()
+			if left <= 0:
+				raise TimeoutError
+			return cdp(method, **params, _response_timeout=min(PROBE_CALL_S, left))
+
 		try:
-			root = (cdp('Page.getFrameTree', _response_timeout=PROBE_CALL_S).get('frameTree') or {}).get('frame') or {}
+			root = (call('Page.getFrameTree').get('frameTree') or {}).get('frame') or {}
 			frame, loader, url = str(root.get('id') or ''), str(root.get('loaderId') or ''), str(root.get('url') or '')
 			if not frame or not url.startswith(('http:', 'https:')):
 				return
@@ -650,21 +657,16 @@ class BlockLog:
 					return
 				doc = visit.doc
 			# with no targetId the daemon answers for the browser target: a page's main frame id is its target id
-			info = cdp('Target.getTargetInfo', targetId=frame, _response_timeout=PROBE_CALL_S).get('targetInfo') or {}
+			info = call('Target.getTargetInfo', targetId=frame).get('targetInfo') or {}
 			page = Page(url, str(info.get('title') or ''))
 			with self.lock:
 				suspect = self._suspect(visit, page.title)
-			matched = suspect and _count(cdp, ANY_HIT)
+			matched = suspect and _count(call, ANY_HIT)
 			if suspect and (matched or doc.status >= 400 or vendor_title(page.title.lower())):
 				page.read = True
 				page.hits = {} if matched else dict.fromkeys(set(QUERIES) - set(WEAK), 0)
 
-				def lookup(name: str) -> int:
-					if time.monotonic() > deadline:
-						raise TimeoutError
-					return _count(cdp, QUERIES[name])
-
-				page.lookup = lookup
+				page.lookup = lambda name: _count(call, QUERIES[name])
 			verdict = classify(doc, page)  # outside the lock: its queries are CDP calls; a page too busy raises
 			with self.lock:
 				if visit.loader == loader:  # no new document meanwhile
@@ -709,13 +711,13 @@ def _html(mime: str) -> bool:
 	return not mime or 'html' in mime.lower()
 
 
-def _count(cdp: Callable[..., dict], query: str) -> int:
-	r = cdp('DOM.performSearch', query=query, includeUserAgentShadowDOM=False, _response_timeout=PROBE_CALL_S)
+def _count(call: Callable[..., dict], query: str) -> int:
+	r = call('DOM.performSearch', query=query, includeUserAgentShadowDOM=False)
 	try:
 		return int(r.get('resultCount') or 0)
 	finally:
 		if r.get('searchId'):
-			cdp('DOM.discardSearchResults', searchId=r['searchId'], _response_timeout=PROBE_CALL_S)
+			call('DOM.discardSearchResults', searchId=r['searchId'])
 
 
 @dataclass
