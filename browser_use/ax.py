@@ -199,7 +199,16 @@ VISIBLE_JS = r"""() => {
 POINT_JS = r"""function(editableCover) {
   const e = this.nodeType === Node.ELEMENT_NODE ? this : this.parentElement;
   if (!e || !e.isConnected) throw Error('Target detached');
-  if (e.matches(':disabled') || e.closest('[inert]')) throw Error('Target disabled');
+  const isAriaDisabled = e.getAttribute('aria-disabled') === 'true' || !!e.closest('[aria-disabled="true"]');
+  const isClassDisabled = e.classList.contains('disabled') || !!e.closest('.disabled');
+  const isNativeDisabled = e.matches(':disabled') || !!e.closest('[inert]') || !!e.closest('fieldset[disabled]');
+  const isActionElement = !editableCover || e.matches('button, a, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"]');
+
+  if (isNativeDisabled || (isActionElement && (isAriaDisabled || isClassDisabled))) {
+    const label = (e.getAttribute('aria-label') || e.innerText || e.value || e.title || '').trim().replace(/\s+/g, ' ').slice(0, 50);
+    const reason = isAriaDisabled ? 'aria-disabled="true"' : isClassDisabled ? 'class="disabled"' : 'disabled attribute';
+    throw Error(`Target element ${label ? '"' + label + '" ' : ''}is disabled (${reason}). Action aborted to prevent retry loop. Re-evaluate required form inputs, selections, or pending network state before clicking.`);
+  }
   if (e.matches('input[type=file]')) throw Error("File input: clicking opens the OS file chooser; upload with DOM.setFileInputFiles instead");
   if (!e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true})) throw Error('Target hidden');
   const r = e.getBoundingClientRect(), x = r.x + r.width/2, y = r.y + r.height/2;
@@ -570,8 +579,8 @@ class AxHelpers:
 						'' if checked is None else 'unchecked' if checked == 'false' else 'checked',
 						'' if expanded is None else 'expanded' if expanded else 'collapsed',
 						'selected' if prop(n, 'selected') else '',
-						# Chrome flags aria-disabled too, but only native disabled stops input: those are never focusable.
-						'disabled' if prop(n, 'disabled') and not prop(n, 'focusable') else '',
+						# Flag disabled if native disabled or aria-disabled on non-textbox controls (Brooklinen typable inputs remain unflagged)
+						'disabled' if prop(n, 'disabled') and (not prop(n, 'focusable') or role != 'textbox') else '',
 						'focused' if prop(n, 'focused') else '',
 					]
 					if s

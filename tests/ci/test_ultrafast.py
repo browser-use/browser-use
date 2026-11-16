@@ -30,7 +30,10 @@ PAGES = {
 	'/next': '<title>Next</title><p>Second page</p>',
 	'/locked': """<title>Locked</title><select id=a disabled><option>A<option>B</select>
 <fieldset disabled><input id=b type=date></fieldset><div inert><select id=c><option>A<option>B</select></div>
-<select id=d style="display:none"><option>A<option>B</select><span aria-disabled=true><input id=e type=time></span>""",
+<select id=d style="display:none"><option>A<option>B</select><span aria-disabled=true><input id=e type=time></span>
+<button id=f disabled>Submit Native</button>
+<button id=g aria-disabled=true>Next Aria</button>
+<button id=h class="btn disabled">Save Class</button>""",
 	'/act': """<title>Act</title>
 <form action="/next"><input aria-label="Query" name=q></form>
 <button onclick="document.getElementById('out').textContent = 'Clicked'">Go</button>
@@ -347,6 +350,26 @@ async def test_aria_disabled_field_is_typable_and_empty_state_says_why(repl, sit
 	assert err is None and f'navigated to {site}/next?q=pillowcase' in out, (out, err)
 	out, err = await cell(repl, f"goto_url('{site}/hidden'); bu.state()")
 	assert err is None and out.splitlines()[1].startswith('(nothing in the accessibility tree:'), out
+
+
+async def test_guard_against_clicks_on_disabled_and_aria_disabled_elements(repl, site):
+	"""Verifies that clicking disabled, aria-disabled, or .disabled action elements fails fast
+	with a clear actionable error for the LLM planner instead of silently doing nothing and looping."""
+	await cell(repl, f"new_tab('{site}/locked'); s = bu.state()" + IDOF)
+	byid = "byid = lambda text: next(i for i in s.splitlines() if text in i).split(']')[0][1:].lstrip('*')"
+	await cell(repl, byid)
+
+	# Click native disabled button: fails fast with semantic reason
+	out, err = await cell(repl, "bu.click(int(byid('Submit Native')))")
+	assert err and 'is disabled' in err and 'prevent retry loop' in err, err
+
+	# Click aria-disabled button: fails fast with semantic reason
+	out, err = await cell(repl, "bu.click(int(byid('Next Aria')))")
+	assert err and 'aria-disabled="true"' in err and 'prevent retry loop' in err, err
+
+	# Click class="disabled" button: fails fast with semantic reason
+	out, err = await cell(repl, "bu.click(int(byid('Save Class')))")
+	assert err and 'class="disabled"' in err and 'prevent retry loop' in err, err
 
 
 async def test_no_change_and_failures(repl, site):
