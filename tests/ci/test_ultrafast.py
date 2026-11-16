@@ -233,6 +233,19 @@ async def test_disabled_multiple_select_shows_live_selections(repl, site):
 	assert f'--- frame {site}/disabled-multiple ---' in out, out
 	assert re.search(r'option "Alpha".*\bselected\b', out), out
 	assert not re.search(r'option "Beta".*\bselected\b', out), out
+	# A missing snapshot must not prevent the remaining accessibility state from being read.
+	out, err = await cell(
+		repl,
+		'original_cdp = bu.cdp\n'
+		'def cdp_without_snapshot(method, **kwargs):\n'
+		"    if method == 'DOMSnapshot.captureSnapshot': raise RuntimeError('snapshot unavailable')\n"
+		'    return original_cdp(method, **kwargs)\n'
+		'bu.cdp = cdp_without_snapshot\n'
+		'try: bu.state()\n'
+		'finally: bu.cdp = original_cdp',
+	)
+	assert err is None, err
+	assert 'listbox "Selected items" disabled' in out and 'option "Alpha"' in out, out
 
 
 async def test_state_marks_new_ids_and_truncates(repl, site):

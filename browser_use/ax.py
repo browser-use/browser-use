@@ -517,9 +517,8 @@ class AxHelpers:
 				for document in self.cdp('DOMSnapshot.captureSnapshot', computedStyles=[])['documents']:
 					nodes = document['nodes']
 					selected_options.update(nodes['backendNodeId'][i] for i in nodes.get('optionSelected', {}).get('index', []))
-			except Exception as e:
-				if not is_context_loss(e):
-					raise
+			except Exception:
+				selected_options.clear()  # A snapshot failure must not hide the rest of the page state.
 		previous = self.last
 		self.last = {}
 		lines: list[str] = []
