@@ -147,7 +147,13 @@ export class Page {
   async goto(url: string) {
     const result = await this.cdp('Page.navigate', { url });
     if (result.errorText) throw new Error(`Navigation failed: ${result.errorText}`);
-    await this.waitFor(() => document.readyState !== 'loading');
+    // A document still parsing after the wait is returned, not thrown: Python 1.0.5's goto_url/new_tab return once
+    // the navigation commits and its wait_for_load() returns False. Throwing ended 31 BU Bench cells mid-batch
+    // ("Page condition exceeded 20000 ms" from goto/tabs.open), including loops and Promise.all over URLs.
+    await this.waitFor(() => document.readyState !== 'loading').catch((error: unknown) => {
+      if (!(error instanceof Error) || !error.message.startsWith('Page condition exceeded'))
+        throw error;
+    });
     return this.info();
   }
   async info() {

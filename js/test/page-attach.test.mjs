@@ -35,3 +35,36 @@ test('Page.attach sends both enables at once, waits at most 4 s and ignores thei
   assert(elapsed >= 3900 && elapsed < 6000, `attach took ${elapsed} ms`);
   cdp.close();
 });
+
+// BU Bench v2.1: 31 Pi cells ended on "Page condition exceeded 20000 ms" thrown by goto (often inside tabs.open loops
+// or Promise.all); Python 1.0.5's goto_url never fails on a slow load.
+test('goto returns the page info when the document is still loading after the wait', async () => {
+  const socket = new EventTarget();
+  socket.readyState = WebSocket.OPEN;
+  socket.close = () => {};
+  socket.send = (data) => {
+    const { id, method, params } = JSON.parse(data);
+    // Only info() reads location; every waited condition stays false.
+    const value = /location\.href/.test(params?.expression ?? '')
+      ? { url: 'https://slow.example/', title: '' }
+      : false;
+    const result = method === 'Runtime.evaluate' ? { result: { value } } : { frameId: 'f' };
+    queueMicrotask(() =>
+      socket.dispatchEvent(
+        Object.assign(new Event('message'), { data: JSON.stringify({ id, result }) }),
+      ),
+    );
+  };
+  const cdp = new CDP(socket, 300);
+  const page = Page.deferred(cdp, async () => ({ targetId: 't1', sessionId: 's1' }));
+  assert.deepEqual(await page.goto('https://slow.example/'), {
+    url: 'https://slow.example/',
+    title: '',
+  });
+  // waitFor itself still throws for an explicit condition.
+  await assert.rejects(
+    page.waitFor(() => false),
+    /Page condition exceeded 300 ms/,
+  );
+  cdp.close();
+});
