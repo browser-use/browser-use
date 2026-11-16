@@ -240,6 +240,18 @@ class MCPToolCallEvent(BaseTelemetryEvent):
 
 
 @dataclass
+class AuthEvent(BaseTelemetryEvent):
+	"""Track anonymous installation progress through login and Cloud browser startup."""
+
+	version: str
+	stage: str
+	method: str
+	automatic: bool
+	is_internal: bool
+	name: str = 'library_auth'
+
+
+@dataclass
 class FeedbackEvent(BaseTelemetryEvent):
 	"""One report of what went wrong with browser-use itself (telemetry/feedback.py), in the words of the agent's model,
 	the developer or an MCP client, scrubbed (stats.scrub)."""

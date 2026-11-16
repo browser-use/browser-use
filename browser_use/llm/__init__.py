@@ -1,4 +1,4 @@
-"""Models. Default: bu-fast on the Browser Use gateway (one Browser Use API key runs model and browser).
+"""Models. Default: bu-4.0 on the Browser Use gateway (one Browser Use API key runs model and browser).
 
 ChatBrowserUse  the gateway: stateless OpenAI Responses (store=false, encrypted reasoning) + server-side compaction
 ChatOpenAI      api.openai.com -> Responses API (the evaluated setup); the gateway URL -> as ChatBrowserUse;
@@ -28,8 +28,9 @@ from browser_use.utils import urlopen_keyed
 logger = logging.getLogger(__name__)
 GATEWAY_URL = 'https://api.browser-use.com/api/v4/llm/v1'
 BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
-DEFAULT_MODEL = 'bu-fast'  # gpt-6-luna, medium reasoning, default tier (the evaluated setup). bu-ultrafast: low, priority
-GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}  # other bu-* aliases run gpt-6-luna
+DEFAULT_MODEL = 'bu-4.0'  # BU 4.0; also bu-4.0-mini, bu-4.0-pro. bu-fast: gpt-6-luna, medium; bu-ultrafast: low, priority
+# Other bu-* models get the gpt-6-luna request profile.
+GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}
 LEGACY_MODEL = re.compile(r'bu-(latest|\d+-\d+)\b')  # bu-2-0, bu-1-0, bu-2-0-mini-preview, bu-latest: the 0.x gateway
 PREFLIGHT_TIMEOUT_S = 15
 GOOGLE_HOST = 'generativelanguage.googleapis.com'
@@ -159,7 +160,8 @@ def gateway_model(model: str, api_key: str, base_url: str) -> Any:
 
 
 class ChatBrowserUse(_Chat):
-	"""Browser Use gateway models ('bu-fast', 'bu-ultrafast', 'bu-smart', or a listed OpenAI model such as 'gpt-6.1-sol').
+	"""Browser Use gateway models ('bu-4.0', 'bu-4.0-mini', 'bu-4.0-pro', 'bu-fast', 'bu-ultrafast', 'bu-smart', or a listed
+	OpenAI model such as 'gpt-6.1-sol').
 	Key: BROWSER_USE_API_KEY or `browser-use login`. Without Agent(reasoning=...) a bu-* alias's own effort applies; a
 	listed OpenAI model gets 'medium', as with ChatOpenAI."""
 
@@ -185,7 +187,7 @@ class ChatBrowserUse(_Chat):
 			)
 
 	def pydantic_model(self) -> Any:
-		key = self.api_key or browser_use_api_key(f'The default model ({self.model})')
+		key = self.api_key or browser_use_api_key(f'The default model ({self.model})', auto_login=True)
 		return gateway_model(self.model, key, self.base_url)
 
 	def model_settings(self) -> dict:
@@ -202,7 +204,7 @@ class ChatBrowserUse(_Chat):
 		if code == 'legacy_model' or (status == 400 and LEGACY_MODEL.match(self.model)):
 			return f"{self.model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0."
 		if status == 400 and code in ('invalid_model', 'model_not_on_gateway'):
-			return f'{self.model} is not on the Browser Use gateway (400): {message or "use bu-fast, bu-ultrafast or bu-smart."}'
+			return f'{self.model} is not on the Browser Use gateway (400): {message or "use bu-4.0, bu-4.0-mini or bu-4.0-pro."}'
 		if status == 401:
 			return 'Browser Use API key rejected (401): check api_key=..., or BROWSER_USE_API_KEY / `browser-use login`.'
 		if status == 402:
