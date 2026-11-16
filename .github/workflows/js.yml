@@ -73,5 +73,7 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: js/package-lock.json
+      # Recording and the qa example encode video with ffmpeg; the runner image has none.
+      - run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends ffmpeg
       - run: npm ci
       - run: npm test
