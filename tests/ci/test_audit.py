@@ -149,7 +149,7 @@ async def test_parallel_tool_calls_with_a_slow_async_sink_keep_one_chain(tmp_pat
 	await run.write('run_start')
 	await asyncio.gather(*(run.write('action', step=1, n=i) for i in range(3)))
 	await run.end(None, None)
-	(tmp_path / 'a.jsonl').write_text('\n'.join(lines) + '\n')
+	(tmp_path / 'a.jsonl').write_bytes(('\n'.join(lines) + '\n').encode())  # bytes: text mode on Windows writes \r\n
 	assert [json.loads(line)['seq'] for line in lines] == [0, 1, 2, 3, 4]
 	assert verify(tmp_path / 'a.jsonl') == []
 
