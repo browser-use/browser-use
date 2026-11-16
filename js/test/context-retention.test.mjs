@@ -348,6 +348,7 @@ test('waiting saves a restartable checkpoint before notifying the host; restart 
       waitingHistory;
     const controller = new AbortController();
     const agent = await BrowserUse.create({
+      judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
       model: provider.getModel().provider + '/' + provider.getModel().id,
       models,
       workspace: path,
@@ -393,6 +394,7 @@ test('waiting saves a restartable checkpoint before notifying the host; restart 
       assert.equal(inference, 1);
       await agent.close();
       restored = await BrowserUse.create({
+        judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
         model: agent.history.model,
         models,
         workspace: path,

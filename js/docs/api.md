@@ -21,6 +21,10 @@ try {
 }
 ```
 
+## Judge
+
+After each run that took steps, one low-effort request to the run's own model judges it, as Python 1.0.5 `judge.py` does: the task, the trace (images and reasoning left out, 120,000 characters at most), the final result, up to 4 screenshots (the last distinct ones, the final page included) and `judgeContext` first when given. `result.judgement` is `{ success, failureReason, description, promptInjectionDetected, botBlockOrCaptchaDetected, gotchas }` (at most 5 gotchas, secrets redacted). Its tokens and cost are added to `result.usage`. A judge that fails leaves `judgement` unset and adds a warning; it never fails a run. `judge: false` turns it off: set it in matched cost evals, as for Python `judge=False`.
+
 ## Default model
 
 Without `model`, the SDK uses `browser-use/bu-fast` on the Browser Use gateway (`https://api.browser-use.com/api/v4/llm/v1`, OpenAI Responses), as Python 1.0.5 does. The key is `BROWSER_USE_API_KEY`, or the `Browser.cloud({ apiKey })` key: one key runs model and browser. A bare `bu-*` name (`bu-ultrafast`, `bu-smart`) means the gateway too. `create()` first sends a free `GET /models`: a missing gateway, a rejected key (401), no credits (402) or an unlisted model fails there, before a browser starts. On `bu-fast` and `bu-ultrafast`, `mode` defaults to `'ultrafast'`. Without `reasoning`, a `bu-*` alias uses its own effort (bu-fast medium, bu-ultrafast low, bu-smart high). Each gateway response costs what the gateway charged (`browser_use.charge_usd`); a response without a charge counts 0, never a retail estimate.
@@ -29,20 +33,21 @@ The default output is a string. Schema validation checks shape; `validateResult(
 
 ## Options
 
-| Creation                                                 | Purpose                                               |
-| -------------------------------------------------------- | ----------------------------------------------------- |
-| `model`, `reasoning`, `models`, `streamFn`               | Model and provider                                    |
-| `browser`, `workspace`, `historyFile`                    | Browser and persistence                               |
-| `instructions`, `tools`, `researchTools`                 | Extra instructions and Pi tools                       |
-| `beforeToolCall`, `afterToolCall`, `validateResult`      | Blocking hooks and validation                         |
-| `log`, `redact`, `recording`, `highlightActions`         | Output and recording                                  |
-| `mode`, `webSearch`                                      | `'ultrafast'` adds the `bu` helpers; host search      |
-| `operationTimeoutMs`, `cellTimeoutMs`                    | CDP / JS deadlines; 20s / 120s                        |
-| `modelTimeoutMs`, `compactionTimeoutMs`, `hookTimeoutMs` | First model event / summary / hook; 300s / 120s / 30s |
-| `modelStreamTimeoutMs`                                   | Whole model stream once events flow; 930s             |
-| `allowedDomains`, `prohibitedDomains`, `sensitiveData`   | Navigation rules and named credentials                |
-| `telemetry`                                              | Anonymous counters; default on                        |
-| `maxOutputChars`                                         | Printed cell output cap; 12,000                       |
+| Creation                                                 | Purpose                                                        |
+| -------------------------------------------------------- | -------------------------------------------------------------- |
+| `model`, `reasoning`, `models`, `streamFn`               | Model and provider                                             |
+| `browser`, `workspace`, `historyFile`                    | Browser and persistence                                        |
+| `instructions`, `tools`, `researchTools`                 | Extra instructions and Pi tools                                |
+| `beforeToolCall`, `afterToolCall`, `validateResult`      | Blocking hooks and validation                                  |
+| `log`, `redact`, `recording`, `highlightActions`         | Output and recording                                           |
+| `mode`, `webSearch`                                      | `'ultrafast'` adds the `bu` helpers; host search               |
+| `operationTimeoutMs`, `cellTimeoutMs`                    | CDP / JS deadlines; 20s / 120s                                 |
+| `modelTimeoutMs`, `compactionTimeoutMs`, `hookTimeoutMs` | First model event / summary / hook; 300s / 120s / 30s          |
+| `modelStreamTimeoutMs`                                   | Whole model stream once events flow; 930s                      |
+| `allowedDomains`, `prohibitedDomains`, `sensitiveData`   | Navigation rules and named credentials                         |
+| `telemetry`                                              | Anonymous counters; default on                                 |
+| `judge`, `judgeContext`                                  | Judge each run that took steps (default on); your own criteria |
+| `maxOutputChars`                                         | Printed cell output cap; 12,000                                |
 
 | Per run                                             | Default                             |
 | --------------------------------------------------- | ----------------------------------- |

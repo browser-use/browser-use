@@ -29,6 +29,7 @@ test('captures actual raw-CDP actions and exports playable MP4/GIF without repla
     call('finish', { result: 'Collected one record.' }),
   ]);
   const agent = await BrowserUse.create({
+    judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
     model: `${faux.getModel().provider}/${faux.getModel().id}`,
     models,
     workspace,

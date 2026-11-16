@@ -175,7 +175,11 @@ export function gatewayStream(
               string,
               unknown
             >;
-            if (options.aliasEffort && model.id.startsWith('bu-')) {
+            if (
+              options.aliasEffort &&
+              model.id.startsWith('bu-') &&
+              !(settings as { keepEffort?: boolean } | undefined)?.keepEffort
+            ) {
               const { reasoning: _, ...rest } = next;
               next = { ...rest, include: ['reasoning.encrypted_content'] };
             }

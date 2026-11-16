@@ -27,6 +27,7 @@ test(
     let agent;
     try {
       agent = await BrowserUse.create({
+        judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
         model: 'openai/gpt-5.4',
         modelTimeoutMs: 200,
         modelStreamTimeoutMs: 200,
@@ -128,6 +129,7 @@ for (const recovery of ['none', 'uncoded', 'server_error', 'failed-cell-image'])
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const agent = await BrowserUse.create({
+      judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
       model: 'openai/gpt-5.4',
       streamFn: (model, context, options) =>
         streamSimple(
@@ -215,6 +217,7 @@ test('OpenRouter Opus 5 uses completions across follow-ups without configuration
   let agent;
   try {
     agent = await BrowserUse.create({
+      judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
       model: 'openrouter/anthropic/claude-opus-5',
       reasoning: 'medium',
     });

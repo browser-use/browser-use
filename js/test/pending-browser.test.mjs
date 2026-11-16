@@ -36,6 +36,7 @@ async function pendingSession(responses, config = {}) {
   faux.setResponses(responses);
   const workspace = await mkdtemp(join(tmpdir(), 'bu-pending-test-'));
   const agent = await BrowserUse.create({
+    judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
     model: `${faux.getModel().provider}/${faux.getModel().id}`,
     models,
     browser: Browser.pending(),
@@ -121,6 +122,7 @@ test('connectBrowser needs a pending session, a valid endpoint, and runs once', 
   models.setProvider(faux.provider);
   const workspace = await mkdtemp(join(tmpdir(), 'bu-pending-test-'));
   const direct = await BrowserUse.create({
+    judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
     model: `${faux.getModel().provider}/${faux.getModel().id}`,
     models,
     browser: { cdpUrl: chrome.endpoint },

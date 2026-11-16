@@ -21,6 +21,7 @@ import {
 } from './gateway.js';
 import { BrowserRuntime, workerExecutable } from './runtime.js';
 import { runAgent, zeroUsage } from './agent.js';
+import { judgeRun } from './judge.js';
 import { Recorder } from './recording.js';
 import { RunControl } from './control.js';
 import {
@@ -469,6 +470,7 @@ export class BrowserUse {
           },
         },
       );
+      const judgeWarning = await this.judge(task, result, signal);
       this.runs++;
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
         this.totalUsage[key] += result.usage[key];
@@ -478,6 +480,7 @@ export class BrowserUse {
       const warnings: string[] = [
         ...(result.warnings ?? []),
         ...(journalFailure ? [journalFailure] : []),
+        ...(judgeWarning ? [judgeWarning] : []),
       ];
       let recordingPath: string | undefined;
       if (recorder) {
@@ -604,6 +607,48 @@ export class BrowserUse {
   cancel() {
     this.controller?.abort();
     this.control?.resume();
+  }
+
+  /**
+   * Python Agent._judge: one request to the run's own model judges a run that took steps (judge: false, none). Its
+   * usage, also a failed one's, is added to result.usage. A failure leaves result.judgement unset and returns a
+   * warning: the judge never fails a run. The final page is captured first (10 s at most) when the model sees images.
+   */
+  private async judge(task: string, result: RunResult<unknown>, signal: AbortSignal) {
+    if (this.config.judge === false || !result.steps || result.status === 'cancelled') return;
+    if (signal.aborted) return;
+    const final = this.model.input.includes('image')
+      ? await this.runtime
+          .execute('await screenshot()', 10_000, signal)
+          .then((cell) => cell.images.at(-1))
+          .catch(() => undefined)
+      : undefined;
+    const judged = await judgeRun({
+      model: this.model,
+      streamFn: this.config.streamFn,
+      run: {
+        task,
+        status: result.status,
+        text: result.text,
+        ...(result.success !== undefined ? { success: result.success } : {}),
+        ...('error' in result && result.error ? { error: result.error } : {}),
+        ...(result.status === 'completed' ? { output: result.output } : {}),
+      },
+      messages: this.messages,
+      ...(final ? { final } : {}),
+      ...(this.config.judgeContext ? { judgeContext: this.config.judgeContext } : {}),
+      redact: this.config.redact ?? [],
+    });
+    for (const usage of judged.usage) {
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
+        result.usage[key] += usage[key];
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+        result.usage.cost[key] += usage.cost[key];
+    }
+    if (judged.judgement) result.judgement = judged.judgement;
+    return judged.error
+      ? `The judge failed (${judged.error}); result.judgement is unset.`
+      : undefined;
   }
 
   /** Direct browser code. Use the same page and variables as the agent. */

@@ -31,6 +31,7 @@ async function session(responses, config = {}, fauxOptions = {}) {
   faux.setResponses(responses);
   const workspace = await mkdtemp(join(tmpdir(), 'bu-agent-test-'));
   const agent = await BrowserUse.create({
+    judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
     model: `${faux.getModel().provider}/${faux.getModel().id}`,
     models,
     browser: process.env.BROWSER_CHANNEL ? { channel: process.env.BROWSER_CHANNEL } : {},

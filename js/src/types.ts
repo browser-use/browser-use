@@ -29,6 +29,13 @@ export interface BrowserUseOptions extends DomainOptions {
    * BROWSER_USE_API_KEY (or the Browser.cloud apiKey). A bare bu-* name means the gateway too.
    */
   model?: string;
+  /**
+   * After each run that took steps, one low-effort request to the run's own model judges it (Python 1.0.5 judge.py):
+   * result.judgement, its cost added to usage. Default true; false turns it off (set it in matched cost evals).
+   */
+  judge?: boolean;
+  /** The user's own success criteria for the judge (Python judge_context). */
+  judgeContext?: string;
   browser?: BrowserOptions;
   /** Persistent output directory. Defaults to a new OS temporary directory. */
   workspace?: string;
@@ -143,6 +150,8 @@ export interface RunMetrics {
   providerRetries?: number;
   /** The agent's own verdict from finish/finish_from_js({success}), when it gave one. Not verification. */
   success?: boolean;
+  /** The judge's verdict on the run (Python result.judgement), when judge is on and it answered. */
+  judgement?: import('./judge.js').Judgement;
   steps: number;
   durationMs: number;
   usage: Usage;
