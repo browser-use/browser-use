@@ -144,7 +144,7 @@ function sumUsage(messages: AgentMessage[]): Usage {
 export async function runAgent(
   runtime: BrowserRuntime,
   model: Model<Api>,
-  config: BrowserUseOptions & { streamFn: StreamFn },
+  config: BrowserUseOptions & { model: string; streamFn: StreamFn },
   workspace: string,
   task: string,
   schema: TSchema,

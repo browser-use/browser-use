@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, open, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import { streamSimple as responsesStream } from '@earendil-works/pi-ai/api/openai-responses';
 import { randomUUID } from 'node:crypto';
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, Model, Usage } from '@earendil-works/pi-ai';
@@ -9,6 +10,15 @@ import { Type, type Static, type TSchema } from 'typebox';
 import { navigationPolicy, validateSensitiveData } from './policy.js';
 import { telemetry } from './telemetry.js';
 import { launchesBrowser, openBrowser, validCdpUrl } from './browser.js';
+import {
+  GATEWAY_PROVIDER,
+  ULTRAFAST_ALIASES,
+  gatewayModel,
+  gatewayModelName,
+  gatewayPreflight,
+  gatewayStream,
+  upstreamOf,
+} from './gateway.js';
 import { BrowserRuntime, workerExecutable } from './runtime.js';
 import { runAgent, zeroUsage } from './agent.js';
 import { Recorder } from './recording.js';
@@ -69,7 +79,7 @@ export class BrowserUse {
   private hasConversation = false;
 
   private constructor(
-    private readonly config: BrowserUseOptions & { streamFn: StreamFn },
+    private readonly config: BrowserUseOptions & { model: string; streamFn: StreamFn },
     private readonly model: Model<Api>,
     private readonly runtime: BrowserRuntime,
     private readonly browser: Awaited<ReturnType<typeof openBrowser>>,
@@ -126,23 +136,32 @@ export class BrowserUse {
       )
         throw new Error('Recording requires intervalMs >= 100 and maxFrames <= 10000.');
     }
+    const modelName = gatewayModelName(options.model);
+    options = { ...options, model: modelName };
     const restored = options.historyFile
-      ? await loadHistory(options.historyFile, options.model)
+      ? await loadHistory(options.historyFile, modelName)
       : undefined;
     positiveInteger('hookTimeoutMs', options.hookTimeoutMs ?? 30_000);
     positiveInteger('modelTimeoutMs', options.modelTimeoutMs ?? 300_000);
     positiveInteger('modelStreamTimeoutMs', options.modelStreamTimeoutMs ?? 930_000);
     positiveInteger('compactionTimeoutMs', options.compactionTimeoutMs ?? 120_000);
     positiveInteger('compactionRetryDelayMs', options.compactionRetryDelayMs ?? 1000);
-    const separator = options.model.indexOf('/');
+    const separator = modelName.indexOf('/');
     if (separator < 1) throw new Error('model must be provider/model, for example openai/gpt-5.4.');
     const models = options.models ?? builtinModels();
-    const provider = options.model.slice(0, separator);
-    const resolvedModel = models.getModel(provider, options.model.slice(separator + 1));
+    const provider = modelName.slice(0, separator);
+    const modelId = modelName.slice(separator + 1);
+    const gateway = provider === GATEWAY_PROVIDER;
+    const registered = models.getModel(provider, modelId);
+    const resolvedModel =
+      registered ??
+      (gateway
+        ? gatewayModel(modelId, builtinModels().getModel('openai', upstreamOf(modelId)))
+        : undefined);
     // Pi 0.85.1 sends configuration_update via Messages, which OpenRouter Opus 5 rejects.
     // Keep caller-supplied model collections untouched. Remove when upstream fixes routing.
     const model =
-      !options.models && options.model === 'openrouter/anthropic/claude-opus-5' && resolvedModel
+      !options.models && modelName === 'openrouter/anthropic/claude-opus-5' && resolvedModel
         ? {
             ...resolvedModel,
             api: 'openai-completions' as const,
@@ -151,8 +170,22 @@ export class BrowserUse {
         : resolvedModel;
     if (!model)
       throw new Error(
-        `Unknown model ${options.model}. Supply a Pi models collection with this model registered.`,
+        `Unknown model ${modelName}. Supply a Pi models collection with this model registered.`,
       );
+    // One Browser Use key runs model and browser (Python browser_use_api_key).
+    const gatewayKey = gateway
+      ? process.env.BROWSER_USE_API_KEY?.trim() ||
+        (options.browser?.kind === 'cloud' ? options.browser.apiKey?.trim() : undefined)
+      : undefined;
+    if (gateway && !gatewayKey && !options.streamFn)
+      throw new Error(
+        `The model ${modelName} runs on the Browser Use gateway and needs BROWSER_USE_API_KEY (or Browser.cloud({apiKey})). Or pass your own model, e.g. model: 'openai/gpt-6-luna'.`,
+      );
+    // Python mode=None: ultrafast on bu-fast and bu-ultrafast, else default.
+    options = {
+      ...options,
+      mode: options.mode ?? (gateway && ULTRAFAST_ALIASES.has(modelId) ? 'ultrafast' : 'default'),
+    };
     const names = new Set([
       'javascript',
       'finish',
@@ -170,6 +203,11 @@ export class BrowserUse {
     positiveInteger('cellTimeoutMs', options.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS);
     const maxOutputChars = positiveInteger('maxOutputChars', options.maxOutputChars ?? 12_000);
     const executable = await workerExecutable(); // Fail before launching or provisioning a browser.
+    // Python ChatBrowserUse.preflight: a missing gateway, a rejected key or an unlisted model fails before a browser.
+    if (gateway && gatewayKey && !options.streamFn) {
+      const error = await gatewayPreflight(modelId, gatewayKey, model.baseUrl);
+      if (error) throw new Error(error);
+    }
     const workspace = options.workspace
       ? resolve(options.workspace)
       : await mkdtemp(join(tmpdir(), 'browser-use-artifacts-'));
@@ -215,7 +253,20 @@ export class BrowserUse {
       },
       executable,
     );
-    const config = { ...options, streamFn: options.streamFn ?? models.streamSimple.bind(models) };
+    // A gateway model this SDK defines streams through pi-ai's Responses API directly: no Pi provider is registered.
+    const baseStream =
+      options.streamFn ??
+      (gateway && !registered
+        ? (responsesStream as unknown as StreamFn)
+        : models.streamSimple.bind(models));
+    const config = {
+      ...options,
+      model: modelName,
+      streamFn:
+        gateway && gatewayKey
+          ? gatewayStream(baseStream, gatewayKey, { aliasEffort: options.reasoning === undefined })
+          : baseStream,
+    };
     const instance = new BrowserUse(config, model, runtime, browser, workspace);
     if (restored) {
       instance.messages = restored.messages;

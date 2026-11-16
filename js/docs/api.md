@@ -21,6 +21,10 @@ try {
 }
 ```
 
+## Default model
+
+Without `model`, the SDK uses `browser-use/bu-fast` on the Browser Use gateway (`https://api.browser-use.com/api/v4/llm/v1`, OpenAI Responses), as Python 1.0.5 does. The key is `BROWSER_USE_API_KEY`, or the `Browser.cloud({ apiKey })` key: one key runs model and browser. A bare `bu-*` name (`bu-ultrafast`, `bu-smart`) means the gateway too. `create()` first sends a free `GET /models`: a missing gateway, a rejected key (401), no credits (402) or an unlisted model fails there, before a browser starts. On `bu-fast` and `bu-ultrafast`, `mode` defaults to `'ultrafast'`. Without `reasoning`, a `bu-*` alias uses its own effort (bu-fast medium, bu-ultrafast low, bu-smart high). Each gateway response costs what the gateway charged (`browser_use.charge_usd`); a response without a charge counts 0, never a retail estimate.
+
 The default output is a string. Schema validation checks shape; `validateResult(output, signal)` can reject an answer with corrective feedback. It does not make unsupported facts true.
 
 ## Options
