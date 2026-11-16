@@ -300,7 +300,8 @@ for (const compaction of [true, false]) {
         const names = getCurrentTools(request.messages).map((tool) => tool.name);
         if (requests === 1) {
           assert(names.includes('huge'));
-          return done(fauxAssistantMessage('answer'.repeat(1000)));
+          // Plain text would be the answer for a string schema; a tool call written as text gets the repair.
+          return done(fauxAssistantMessage('<tool_call>' + 'answer'.repeat(1000)));
         }
         assert.deepEqual(names, ['finish', 'finish_from_js']);
         return finish();

@@ -26,6 +26,7 @@ async function fixture(responses, options = {}) {
   faux.setResponses(responses);
   const workspace = await mkdtemp(join(tmpdir(), 'bu-session-'));
   const agent = await BrowserUse.create({
+    judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
     model: `${faux.getModel().provider}/${faux.getModel().id}`,
     models,
     workspace,
@@ -85,6 +86,7 @@ test('save/restore validates model, preserves files, redacts saved text and anno
       ['input.csv'],
     );
     restored = await BrowserUse.create({
+      judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
       model: f.agent.history.model,
       models: f.models,
       workspace: f.agent.workspace,
@@ -540,6 +542,7 @@ for (const blocked of [false, true]) {
       assert.deepEqual(saved.usage, f.agent.history.usage);
       assert.deepEqual(saved.messages, f.agent.history.messages);
       restored = await BrowserUse.create({
+        judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
         model: f.agent.history.model,
         models: f.models,
         workspace: f.agent.workspace,

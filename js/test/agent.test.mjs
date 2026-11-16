@@ -31,6 +31,7 @@ async function session(responses, config = {}, fauxOptions = {}) {
   faux.setResponses(responses);
   const workspace = await mkdtemp(join(tmpdir(), 'bu-agent-test-'));
   const agent = await BrowserUse.create({
+    judge: false, // these tests count model requests; test/judge.test.mjs covers the judge
     model: `${faux.getModel().provider}/${faux.getModel().id}`,
     models,
     browser: process.env.BROWSER_CHANNEL ? { channel: process.env.BROWSER_CHANNEL } : {},
@@ -102,19 +103,31 @@ test('invalid structured output is rejected, then the model can repair it', asyn
   }
 });
 test('a completed result blocks later browser mutations in the same model batch', async () => {
-  const s = await session([
+  const split = () =>
     fauxAssistantMessage(
       [
         fauxToolCall('finish', { result: 'done' }),
-        fauxToolCall('javascript', { code: "throw new Error('must not run')" }),
+        fauxToolCall('javascript', { code: "globalThis.ran = (globalThis.ran ?? 0) + 1; 'ran'" }),
       ],
       { stopReason: 'toolUse' },
-    ),
+    );
+  // Python check_split_delivery: the first such delivery is refused once and the later call runs; the second is
+  // taken, and the call after it is blocked.
+  const s = await session([
+    split(),
+    (context) => {
+      assert.match(
+        context.messages.find((m) => m.role === 'toolResult').content[0].text,
+        /^Not delivered: javascript came in the same response/,
+      );
+      return split();
+    },
   ]);
   try {
     const result = await s.agent.run('Finish');
     assert.equal(result.status, 'completed');
     assert.equal(result.output, 'done');
+    assert.equal((await s.agent.execute('globalThis.ran')).text, '1');
   } finally {
     await s.close();
   }
@@ -143,7 +156,9 @@ test('model failures and plain unfinished answers are distinct from completion',
     const failure = await s.agent.run('Research');
     assert.equal(failure.status, 'error');
     assert.match(failure.error, /provider unavailable/);
-    assert.equal((await s.agent.run('Research')).status, 'incomplete');
+    // A string schema takes a text reply as the answer; a structured one repairs once, then stays unfinished.
+    const schema = Type.Object({ answer: Type.String() });
+    assert.equal((await s.agent.run('Research', { schema })).status, 'incomplete');
   } finally {
     await s.close();
   }
@@ -321,17 +336,20 @@ test('runtime delivery rejects invalid and lossy values, then repairs without lo
 test('runtime completion blocks later actions in the same model batch', async () => {
   const s = await session([
     call('javascript', { code: 'let mutations = 0; const answerText = "verified"' }),
-    fauxAssistantMessage(
-      [
-        fauxToolCall('finish_from_js', { expression: 'answerText' }),
-        fauxToolCall('javascript', { code: 'mutations++' }),
-      ],
-      { stopReason: 'toolUse' },
+    // The first split delivery is refused once (Python check_split_delivery) and its later call runs.
+    ...[1, 2].map(() =>
+      fauxAssistantMessage(
+        [
+          fauxToolCall('finish_from_js', { expression: 'answerText' }),
+          fauxToolCall('javascript', { code: 'mutations++' }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
     ),
   ]);
   try {
     assert.equal((await s.agent.run('Deliver')).output, 'verified');
-    assert.equal((await s.agent.execute('mutations')).text, '0');
+    assert.equal((await s.agent.execute('mutations')).text, '1');
   } finally {
     await s.close();
   }
@@ -477,7 +495,8 @@ test('repair stops after one rejected correction', async () => {
     call('finish', { result: 'unreachable' }),
   ]);
   try {
-    const result = await s.agent.run('Deliver');
+    // Structured: for a string schema the text reply would be the answer.
+    const result = await s.agent.run('Deliver', { schema: Type.Object({ answer: Type.String() }) });
     assert.equal(result.status, 'incomplete');
     assert.equal(result.finishRepairs, 2);
     assert.equal(result.text, 'partial evidence');
@@ -927,7 +946,7 @@ test('a full-page image exceeding provider patch limits reaches the next model t
       const images = result.content.filter((part) => part.type === 'image');
       assert.equal(images.length, 1);
       const size = imageDimensions(Buffer.from(images[0].data, 'base64'));
-      assert.ok(size.width <= 2000 && size.height <= 2000);
+      assert.ok(size.width <= 2048 && size.height <= 2048);
       assert.match(
         result.content.find((part) => part.type === 'text').text,
         /model preview.*unreadable text/,
@@ -1058,7 +1077,14 @@ for (const limit of ['max_steps', 'cost_limit', 'timeout', 'cancelled']) {
       call('javascript', {
         code: `let found=[{issue:'Broken search'}]; await checkpoint('findings.json',found,{partial:true}); found.push({issue:'not published'}); ${limit === 'timeout' ? 'while(true){}' : ''}`,
       }),
-      call('finish', { result: 'must not run' }),
+      // Python 1.0.5 cuts the looping cell at the delivery time and asks once more (delivery-only turn); the
+      // run ends while that answer is still coming.
+      limit === 'timeout'
+        ? async () => {
+            await new Promise((resolve) => setTimeout(resolve, 3000).unref());
+            return call('finish', { result: 'must not run' });
+          }
+        : call('finish', { result: 'must not run' }),
     ]);
     try {
       const result = await s.agent.run('Audit', {
@@ -1077,7 +1103,7 @@ for (const limit of ['max_steps', 'cost_limit', 'timeout', 'cancelled']) {
       assert.equal(result.output, undefined);
       assert.deepEqual(result.partial?.value, [{ issue: 'Broken search' }]);
       assert.equal(result.partial.path, join(s.agent.workspace, 'findings.json'));
-      assert.equal(s.faux.state.callCount, 1);
+      assert.equal(s.faux.state.callCount, limit === 'timeout' ? 2 : 1);
       s.faux.setResponses([call('javascript', { code: '42' })]);
       const next = await s.agent.followUp('Different scope', { maxSteps: 1 });
       assert.equal(next.status, 'max_steps');
@@ -1154,7 +1180,8 @@ test('OpenAI text-ending repair turn requires a delivery tool call', async () =>
     [
       (_context, options) => {
         assert.equal(options.toolChoice, undefined);
-        return fauxAssistantMessage('The answer is 42.');
+        // A tool call written as text: plain text would be the answer for a string schema.
+        return fauxAssistantMessage('<tool_call>{"name": "finish"}</tool_call>');
       },
       (context, options) => {
         assert.match(context.messages.at(-1).content[0].text, /single delivery repair/);

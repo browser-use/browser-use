@@ -44,17 +44,50 @@ const texts = (messages) =>
     .filter((m) => m.role === 'toolResult')
     .map((m) => m.content.find((c) => c.type === 'text').text.length);
 
-test('unset settings keep the last two screenshots and every tool output whole', () => {
-  const messages = history(10);
-  const projected = context({}).project(messages);
-  assert.equal(images(projected), 2);
-  assert.deepEqual(new Set(texts(projected)), new Set([40000]));
+test('unset settings keep every screenshot until 20, then prune to the newest two in one batch', () => {
+  const ctx = context({});
+  let messages = history(20, 'x');
+  ctx.prune(messages);
+  assert.equal(images(ctx.project(messages)), 20);
+  messages = history(21, 'x');
+  ctx.prune(messages);
+  const pruned = ctx.project(messages);
+  assert.equal(images(pruned), 2);
+  assert.ok(
+    JSON.stringify(pruned).includes('[older screenshot removed]'),
+    'removed screenshots leave a note, as in Python',
+  );
+  assert.deepEqual(new Set(texts(ctx.project(messages))), new Set([1]));
 });
 
-test('keepScreenshots sets how many screenshots stay', () => {
-  const messages = history(10);
-  assert.equal(images(context({ keepScreenshots: 5 }).project(messages)), 5);
-  assert.equal(images(context({ keepScreenshots: 0 }).project(messages)), 0);
+test('between prunes the projected prefix is byte-identical (prompt cache stays warm)', () => {
+  const ctx = context({});
+  let messages = history(21, 'x');
+  ctx.prune(messages);
+  const first = ctx.project(messages);
+  for (let n = 22; n <= 39; n++) {
+    messages = history(n, 'x');
+    assert.equal(ctx.prune(messages), false, `no prune at ${n} results`);
+    const next = ctx.project(messages);
+    assert.deepEqual(next.slice(0, first.length), first);
+  }
+  // 2 kept + 19 new = 21 > 20: the next batch, as Python's count of image results
+  messages = history(40, 'x');
+  assert.equal(ctx.prune(messages), true);
+  assert.equal(images(ctx.project(messages)), 2);
+});
+
+test('keepScreenshots and pruneScreenshotsAt set the batch', () => {
+  const messages = history(10, 'x');
+  const five = context({ keepScreenshots: 5, pruneScreenshotsAt: 6 });
+  five.prune(messages);
+  assert.equal(images(five.project(messages)), 5);
+  const none = context({ keepScreenshots: 0, pruneScreenshotsAt: 0 });
+  none.prune(messages);
+  assert.equal(images(none.project(messages)), 0);
+  const eager = context({ keepScreenshots: 2, pruneScreenshotsAt: 2 });
+  eager.prune(messages);
+  assert.equal(images(eager.project(messages)), 2);
 });
 
 test('batch trimming keeps every screenshot until the mark, then cuts old ones once', () => {
@@ -102,6 +135,11 @@ test('compactAtTokens compacts below the default trigger and not above it', () =
 test('settings are validated against the model window', () => {
   assert.deepEqual(contextSettings(undefined, model), {});
   assert.throws(() => contextSettings({ keepScreenshots: 11 }, model), /keepScreenshots/);
+  assert.throws(
+    () => contextSettings({ keepScreenshots: 4, pruneScreenshotsAt: 3 }, model),
+    /pruneScreenshotsAt/,
+  );
+  assert.throws(() => contextSettings({ pruneScreenshotsAt: 91 }, model), /pruneScreenshotsAt/);
   assert.throws(() => contextSettings({ trimAtTokens: 1000 }, model), /trimAtTokens/);
   assert.throws(() => contextSettings({ compactAtTokens: 240000 }, model), /compactAtTokens/);
   assert.throws(

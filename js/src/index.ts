@@ -1,16 +1,27 @@
-import { mkdir, mkdtemp, open, type FileHandle } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readdir, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import { streamSimple as responsesStream } from '@earendil-works/pi-ai/api/openai-responses';
 import { randomUUID } from 'node:crypto';
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, Model, Usage } from '@earendil-works/pi-ai';
 import { Type, type Static, type TSchema } from 'typebox';
 import { navigationPolicy, validateSensitiveData } from './policy.js';
 import { telemetry } from './telemetry.js';
-import { openBrowser, validCdpUrl } from './browser.js';
+import { launchesBrowser, openBrowser, validCdpUrl } from './browser.js';
+import {
+  GATEWAY_PROVIDER,
+  ULTRAFAST_ALIASES,
+  gatewayModel,
+  gatewayModelName,
+  gatewayPreflight,
+  gatewayStream,
+  upstreamOf,
+} from './gateway.js';
 import { BrowserRuntime, workerExecutable } from './runtime.js';
 import { runAgent, zeroUsage } from './agent.js';
+import { judgeRun } from './judge.js';
 import { Recorder } from './recording.js';
 import { RunControl } from './control.js';
 import {
@@ -21,7 +32,11 @@ import {
   type SessionHistory,
 } from './history.js';
 import { EventStream, formatEvent, type SessionEvent, type SessionEventData } from './events.js';
-import { positiveInteger } from './protocol.js';
+import {
+  positiveInteger,
+  DEFAULT_CELL_TIMEOUT_MS,
+  DEFAULT_OPERATION_TIMEOUT_MS,
+} from './protocol.js';
 import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
 
 export type {
@@ -65,7 +80,7 @@ export class BrowserUse {
   private hasConversation = false;
 
   private constructor(
-    private readonly config: BrowserUseOptions & { streamFn: StreamFn },
+    private readonly config: BrowserUseOptions & { model: string; streamFn: StreamFn },
     private readonly model: Model<Api>,
     private readonly runtime: BrowserRuntime,
     private readonly browser: Awaited<ReturnType<typeof openBrowser>>,
@@ -122,22 +137,32 @@ export class BrowserUse {
       )
         throw new Error('Recording requires intervalMs >= 100 and maxFrames <= 10000.');
     }
+    const modelName = gatewayModelName(options.model);
+    options = { ...options, model: modelName };
     const restored = options.historyFile
-      ? await loadHistory(options.historyFile, options.model)
+      ? await loadHistory(options.historyFile, modelName)
       : undefined;
     positiveInteger('hookTimeoutMs', options.hookTimeoutMs ?? 30_000);
     positiveInteger('modelTimeoutMs', options.modelTimeoutMs ?? 300_000);
+    positiveInteger('modelStreamTimeoutMs', options.modelStreamTimeoutMs ?? 930_000);
     positiveInteger('compactionTimeoutMs', options.compactionTimeoutMs ?? 120_000);
     positiveInteger('compactionRetryDelayMs', options.compactionRetryDelayMs ?? 1000);
-    const separator = options.model.indexOf('/');
+    const separator = modelName.indexOf('/');
     if (separator < 1) throw new Error('model must be provider/model, for example openai/gpt-5.4.');
     const models = options.models ?? builtinModels();
-    const provider = options.model.slice(0, separator);
-    const resolvedModel = models.getModel(provider, options.model.slice(separator + 1));
+    const provider = modelName.slice(0, separator);
+    const modelId = modelName.slice(separator + 1);
+    const gateway = provider === GATEWAY_PROVIDER;
+    const registered = models.getModel(provider, modelId);
+    const resolvedModel =
+      registered ??
+      (gateway
+        ? gatewayModel(modelId, builtinModels().getModel('openai', upstreamOf(modelId)))
+        : undefined);
     // Pi 0.85.1 sends configuration_update via Messages, which OpenRouter Opus 5 rejects.
     // Keep caller-supplied model collections untouched. Remove when upstream fixes routing.
     const model =
-      !options.models && options.model === 'openrouter/anthropic/claude-opus-5' && resolvedModel
+      !options.models && modelName === 'openrouter/anthropic/claude-opus-5' && resolvedModel
         ? {
             ...resolvedModel,
             api: 'openai-completions' as const,
@@ -146,8 +171,22 @@ export class BrowserUse {
         : resolvedModel;
     if (!model)
       throw new Error(
-        `Unknown model ${options.model}. Supply a Pi models collection with this model registered.`,
+        `Unknown model ${modelName}. Supply a Pi models collection with this model registered.`,
       );
+    // One Browser Use key runs model and browser (Python browser_use_api_key).
+    const gatewayKey = gateway
+      ? process.env.BROWSER_USE_API_KEY?.trim() ||
+        (options.browser?.kind === 'cloud' ? options.browser.apiKey?.trim() : undefined)
+      : undefined;
+    if (gateway && !gatewayKey && !options.streamFn)
+      throw new Error(
+        `The model ${modelName} runs on the Browser Use gateway and needs BROWSER_USE_API_KEY (or Browser.cloud({apiKey})). Or pass your own model, e.g. model: 'openai/gpt-6-luna'.`,
+      );
+    // Python mode=None: ultrafast on bu-fast and bu-ultrafast, else default.
+    options = {
+      ...options,
+      mode: options.mode ?? (gateway && ULTRAFAST_ALIASES.has(modelId) ? 'ultrafast' : 'default'),
+    };
     const names = new Set([
       'javascript',
       'finish',
@@ -160,11 +199,16 @@ export class BrowserUse {
     }
     const operationTimeoutMs = positiveInteger(
       'operationTimeoutMs',
-      options.operationTimeoutMs ?? 15_000,
+      options.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
     );
-    positiveInteger('cellTimeoutMs', options.cellTimeoutMs ?? 30_000);
+    positiveInteger('cellTimeoutMs', options.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS);
     const maxOutputChars = positiveInteger('maxOutputChars', options.maxOutputChars ?? 12_000);
     const executable = await workerExecutable(); // Fail before launching or provisioning a browser.
+    // Python ChatBrowserUse.preflight: a missing gateway, a rejected key or an unlisted model fails before a browser.
+    if (gateway && gatewayKey && !options.streamFn) {
+      const error = await gatewayPreflight(modelId, gatewayKey, model.baseUrl);
+      if (error) throw new Error(error);
+    }
     const workspace = options.workspace
       ? resolve(options.workspace)
       : await mkdtemp(join(tmpdir(), 'browser-use-artifacts-'));
@@ -199,13 +243,31 @@ export class BrowserUse {
         ...(options.focusTab ? { focusTab: true } : {}),
         ...(options.browserSwitching ? { browserSwitching: true } : {}),
         ...(options.dedicatedBrowser ? { dedicatedBrowser: true } : {}),
+        ...(options.browser?.kind === 'cloud' ? { browserKind: 'cloud' as const } : {}),
+        ...(options.browser?.kind === 'cloud' && options.browser.captchaSolver === false
+          ? { captchaSolver: false as const }
+          : {}),
         workspace,
+        ...(launchesBrowser(options.browser) ? { downloadPath: join(workspace, 'downloads') } : {}),
         operationTimeoutMs,
         maxOutputChars,
       },
       executable,
     );
-    const config = { ...options, streamFn: options.streamFn ?? models.streamSimple.bind(models) };
+    // A gateway model this SDK defines streams through pi-ai's Responses API directly: no Pi provider is registered.
+    const baseStream =
+      options.streamFn ??
+      (gateway && !registered
+        ? (responsesStream as unknown as StreamFn)
+        : models.streamSimple.bind(models));
+    const config = {
+      ...options,
+      model: modelName,
+      streamFn:
+        gateway && gatewayKey
+          ? gatewayStream(baseStream, gatewayKey, { aliasEffort: options.reasoning === undefined })
+          : baseStream,
+    };
     const instance = new BrowserUse(config, model, runtime, browser, workspace);
     if (restored) {
       instance.messages = restored.messages;
@@ -361,6 +423,14 @@ export class BrowserUse {
           await record({ type: 'warning', message: `Recording unavailable: ${String(error)}` });
         }
       }
+      const downloadsDir = join(this.workspace, 'downloads');
+      const listDownloads = async () =>
+        new Set(
+          (await readdir(downloadsDir, { withFileTypes: true }).catch(() => []))
+            .filter((entry) => entry.isFile() && !entry.name.endsWith('.crdownload'))
+            .map((entry) => join(downloadsDir, entry.name)),
+        );
+      const downloadsBefore = await listDownloads();
       const result = await runAgent(
         this.runtime,
         this.model,
@@ -407,6 +477,7 @@ export class BrowserUse {
           },
         },
       );
+      const judgeWarning = await this.judge(task, result, signal);
       this.runs++;
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
         this.totalUsage[key] += result.usage[key];
@@ -416,6 +487,7 @@ export class BrowserUse {
       const warnings: string[] = [
         ...(result.warnings ?? []),
         ...(journalFailure ? [journalFailure] : []),
+        ...(judgeWarning ? [judgeWarning] : []),
       ];
       let recordingPath: string | undefined;
       if (recorder) {
@@ -426,8 +498,14 @@ export class BrowserUse {
         }
       }
       recorder = undefined;
+      // Python result.downloads: files the browser saved in workspace/downloads during this run.
+      const downloads = [...(await listDownloads())]
+        .filter((path) => !downloadsBefore.has(path))
+        .sort();
       const delivered: RunResult<unknown> = {
         ...result,
+        costUsd: result.usage.cost.total,
+        downloads,
         ...(recordingPath ? { recordingPath } : {}),
         runId: this.runId,
         ...(journaled ? { eventsPath } : {}),
@@ -544,6 +622,57 @@ export class BrowserUse {
     this.control?.resume();
   }
 
+  /**
+   * Python Agent._judge: one request to the run's own model judges a run that took steps (judge: false, none). Its
+   * usage, also a failed one's, is added to result.usage. A failure leaves result.judgement unset and returns a
+   * warning: the judge never fails a run. The final page is captured first (10 s at most) when the model sees images.
+   */
+  private async judge(task: string, result: RunResult<unknown>, signal: AbortSignal) {
+    if (this.config.judge === false || !result.steps || result.status === 'cancelled') return;
+    if (signal.aborted) return;
+    // Only on a worker the run already started: never a new browser connection for the judge. The cell bounds itself
+    // (7 s) inside its 10 s deadline: a deadline hit kills the worker and loses the agent's JavaScript state, which
+    // Python's thread-and-socket timeout never did.
+    const final =
+      this.model.input.includes('image') && this.runtime.started
+        ? await this.runtime
+            .execute(
+              'await Promise.race([screenshot().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 7000))])',
+              10_000,
+              signal,
+            )
+            .then((cell) => cell.images.at(-1))
+            .catch(() => undefined)
+        : undefined;
+    const judged = await judgeRun({
+      model: this.model,
+      streamFn: this.config.streamFn,
+      run: {
+        task,
+        status: result.status,
+        text: result.text,
+        ...(result.success !== undefined ? { success: result.success } : {}),
+        ...('error' in result && result.error ? { error: result.error } : {}),
+        ...(result.status === 'completed' ? { output: result.output } : {}),
+      },
+      messages: this.messages,
+      ...(final ? { final } : {}),
+      ...(this.config.judgeContext ? { judgeContext: this.config.judgeContext } : {}),
+      redact: this.config.redact ?? [],
+      signal,
+    });
+    for (const usage of judged.usage) {
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
+        result.usage[key] += usage[key];
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+        result.usage.cost[key] += usage.cost[key];
+    }
+    if (judged.judgement) result.judgement = judged.judgement;
+    return judged.error
+      ? `The judge failed (${judged.error}); result.judgement is unset.`
+      : undefined;
+  }
+
   /** Direct browser code. Use the same page and variables as the agent. */
   async execute(code: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}) {
     const duringPause = this.isPaused;
@@ -561,7 +690,7 @@ export class BrowserUse {
           : options.signal;
       const cell = this.runtime.execute(
         code,
-        options.timeoutMs ?? this.config.cellTimeoutMs ?? 30_000,
+        options.timeoutMs ?? this.config.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS,
         signal,
       );
       if (duringPause) this.manualCell = cell;

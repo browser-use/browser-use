@@ -12,10 +12,17 @@ const CONTROLS = new Set(
 /** Text inside these is one line; text across them is not joined. */
 const BLOCKS = new Set(['paragraph', 'listitem', 'row', 'LabelText']);
 const NATIVE_INPUTS = new Set(['Date', 'DateTime', 'InputTime']);
+/**
+ * Text as the page shows it: runs of the whitespace HTML collapses become one space. Non-breaking spaces (U+00A0,
+ * U+202F) inside the text stay, as exact-string answers need them; at the ends they go, so an '&nbsp;' spacer is no
+ * text (Python d3fc04ee5, db2f7ed71).
+ */
 const norm = (s: unknown) =>
   String(s ?? '')
-    .replace(/\s+/g, ' ')
+    .replace(/[ \t\n\r\f\uFEFF]+/g, ' ')
     .trim();
+/** For matching only, never printed: every whitespace run one space, lowercased, as visibleText folds the page. */
+const fold = (s: string) => s.replace(/[\s\uFEFF]+/g, ' ').toLowerCase();
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 const prop = (n: AX, name: string) => n.properties?.find((p) => p.name === name)?.value.value;
 const isContextLoss = (e: unknown) =>
@@ -36,10 +43,45 @@ Ultrafast: the global \`bu\` in the javascript REPL. Each model call costs ~1 s,
   Ids are Chrome backendNodeIds: they work in bu.* and in every CDP DOM command.
 - Act: await bu.click(1400); await bu.type(812, 'Zurich'); await bu.type(830, 'Oct 14', {enter: true}). type replaces the field's text. bu.type(id, 'Canada') also picks a native select option; don't click it first.
   Each action prints one line: navigated to <url> / page changed / no change. Autocomplete: type, look, then click the suggestion.
-- Raw: upload to a file line with await page.cdp('DOM.setFileInputFiles', {backendNodeId: id, files: [await artifact('cv.txt', 'text')]}); keys await page.cdp('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}) then the same with type 'keyUp'; drag with Input.dispatchMouseEvent mousePressed, mouseMoved, mouseReleased.
+- Raw: keys await page.cdp('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}) then the same with type 'keyUp'; drag with Input.dispatchMouseEvent mousePressed, mouseMoved, mouseReleased.
 - If a helper fails once, do it raw. Read data with page.evaluate(() => ...), but confirm an outcome with bu.state() (visible text only), not innerText. Never add blind sleeps (setTimeout): actions and bu.state() wait for the page; for a specific condition use await page.waitFor(() => ...).
 - alert/confirm/prompt/beforeunload dialogs are accepted automatically; their text is printed as [dialog ...].
 `;
+
+/**
+ * Printed under the state that first shows a file line, so other pages' prompts carry none of it.
+ * A block with its own names, so it runs again as printed. It prints how many files it set, and throws when it set
+ * none: the cell stops there, before a submit that would go out without the file.
+ */
+const UPLOAD = `[upload] set a file line's files: put its id, the path of the user's existing file (never create one) and that file's MIME type into { const id = 0, path = 'cv.pdf', type = 'application/pdf'; const {object} = await page.cdp('DOM.resolveNode', {backendNodeId: id}); const r = await page.cdp('Runtime.callFunctionOn', {objectId: object.objectId, returnByValue: true, arguments: [require('fs').readFileSync(path, 'base64'), require('path').basename(path), type].map((value) => ({value})), functionDeclaration: "function(b, name, type) { if (this.type !== 'file') throw Error('not a file input'); const d = new DataTransfer(); d.items.add(new File([Uint8Array.from(atob(b), (c) => c.charCodeAt(0))], name, {type})); this.files = d.files; for (const t of ['input', 'change']) this.dispatchEvent(new Event(t, {bubbles: true})); return this.files.length }"}); if (r.exceptionDetails) throw Error('upload failed: ' + r.exceptionDetails.exception.description.split('\\n')[0]); console.log('files set: ' + r.result.value) } Good up to about 50 MB (100 MB drops the connection). A larger file, only when the browser runs on this machine: await page.cdp('DOM.setFileInputFiles', {backendNodeId: id, files: [require('path').resolve(path)]})`;
+
+/** Scroll-into-view check and the center point of a target, in top-level viewport coordinates. */
+const POINT_JS = `function(editableCover) {
+        const e = this.nodeType === Node.ELEMENT_NODE ? this : this.parentElement;
+        if (!e || !e.isConnected) throw Error('Target detached');
+        if (e.matches(':disabled') || e.closest('[inert]')) throw Error('Target disabled');
+        if (e.matches('input[type=file]')) throw Error("File input: clicking opens the OS file chooser; set its files with the [upload] line of bu.state() instead");
+        if (!e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true})) throw Error('Target hidden');
+        const r = e.getBoundingClientRect(), x = r.x + r.width/2, y = r.y + r.height/2;
+        if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) throw Error('Target outside viewport');
+        const hit = e.getRootNode().elementFromPoint(x, y);
+        const textField = (n) => n && (['INPUT','TEXTAREA'].includes(n.tagName) || n.isContentEditable);
+        const covered = !e.contains(hit) && !(hit && hit.contains(e) && getComputedStyle(hit).pointerEvents !== 'none' && hit.tagName === 'LABEL') && !(editableCover && textField(e) && textField(hit));
+        // Inside same-origin iframes, add each frame's content-box offset to get top-level viewport coordinates.
+        let px = x, py = y;
+        for (let w = e.ownerDocument.defaultView; w && w.frameElement; w = w.parent) {
+          const f = w.frameElement, fr = f.getBoundingClientRect(), cs = getComputedStyle(f);
+          px += fr.x + f.clientLeft + parseFloat(cs.paddingLeft);
+          py += fr.y + f.clientTop + parseFloat(cs.paddingTop);
+        }
+        return {x: px, y: py, covered};
+      }`;
+const CENTER_JS = `function(){const e=this.nodeType===1?this:this.parentElement;e.scrollIntoView({block:'center',inline:'center',behavior:'instant'});}`;
+/**
+ * Runs before every type branch: native selects and date inputs are set directly, so they never reach POINT_JS's
+ * checks (a45f5b10a). CSS-hidden only (no opacity check): styled widgets often keep an opacity-0 native select.
+ */
+const KIND_JS = `function(){const e=this.nodeType===1?this:this.parentElement;if(!e||!e.isConnected)throw Error('Target detached');if(e.matches(':disabled')||e.closest('[inert]'))throw Error('Target disabled');if(!e.checkVisibility({checkVisibilityCSS:true}))throw Error('Target hidden');return {tag:e.tagName,type:e.type||''};}`;
 
 /** State print and id-based actions on Chrome's accessibility tree. Raw page/CDP stays available. */
 export class AxHelpers {
@@ -51,10 +93,18 @@ export class AxHelpers {
 
   private inflight = new Map<string, Map<string, number>>();
   private lastNet = new Map<string, number>();
+  /**
+   * The net error of each session's last failed document load (a 401 Basic Auth challenge, DNS, TLS): Chrome then
+   * shows chrome-error://chromewebdata/, often with an empty accessibility tree that says nothing about why (12ba013ca).
+   */
+  private navErrors = new Map<string, string>();
   private tracked = new Set<string>();
   private dialogs: string[] = [];
   /** Role and name of every id in the last print: marks new ids and names targets in action lines. */
   private last = new Map<number, { role: string; name: string }>();
+  /** File lines the last look printed, and their document: the upload recipe is not repeated for them. */
+  private recipeFor = new Set<string>();
+  private recipeDoc: number | undefined;
   /** Set by every action; the worker prints the state after that cell. */
   acted = false;
   /** When the last action's settle began, 0 after a failed action. */
@@ -86,11 +136,17 @@ export class AxHelpers {
           const gone = (raw as { sessionId: string }).sessionId;
           this.inflight.delete(gone);
           this.lastNet.delete(gone);
+          this.navErrors.delete(gone);
           this.tracked.delete(gone);
           return;
         }
         if (!session || !method.startsWith('Network.')) return;
-        const params = raw as { requestId: string; type?: string };
+        const params = raw as { requestId: string; type?: string; errorText?: string };
+        if (params.type === 'Document') {
+          if (method === 'Network.requestWillBeSent') this.navErrors.delete(session);
+          else if (method === 'Network.loadingFailed' && params.errorText)
+            this.navErrors.set(session, String(params.errorText));
+        }
         const map = this.inflight.get(session) ?? new Map<string, number>();
         this.inflight.set(session, map);
         if (method === 'Network.requestWillBeSent') {
@@ -113,25 +169,34 @@ export class AxHelpers {
     return session;
   }
 
-  /** URL, title, document identity, a counter of DOM mutations (style aside) and form input/change events. */
+  /**
+   * URL, title, document identity, a counter of DOM mutations (style aside) and form input/change events. Same-origin
+   * iframes (any depth) count as the page (Python 9b140a06d: a click in jqueryui.com's datepicker iframe printed
+   * "no change" while the calendar moved). A frame document not seen yet (a frame navigated) is a change too.
+   * Cross-origin frames cannot be watched from here.
+   */
   private probe(page: Page) {
     return page.evaluate(() => {
       const w = window as unknown as {
-        __buObs?: MutationObserver;
+        __buObs?: boolean;
         __buLast: number;
         __buN: number;
         __buDoc: number;
       };
-      if (!w.__buObs) {
-        w.__buLast = performance.now();
-        w.__buN = 0;
-        w.__buDoc = Math.random();
+      const watch = (win: Window, counted: boolean) => {
+        const doc = win.document as Document & { __buWatched?: boolean };
+        if (doc.__buWatched) return;
+        doc.__buWatched = true;
+        if (counted) {
+          w.__buLast = performance.now();
+          w.__buN++;
+        }
         // The action highlight's own overlay is not the page reacting. A style change counts only as the first
         // on its element in 200 ms: a menu shown via style.display is a change, an animation loop goes quiet.
         const own = (n: Node) =>
           (n as Element).hasAttribute?.('data-browser-use-interaction-highlight');
         const styled = new WeakMap<Node, number>();
-        w.__buObs = new MutationObserver((records) => {
+        new MutationObserver((records) => {
           const now = performance.now();
           let real = false;
           for (const r of records) {
@@ -155,16 +220,37 @@ export class AxHelpers {
             w.__buLast = now;
             w.__buN++;
           }
-        });
-        w.__buObs.observe(document, {
+        }).observe(doc, {
           subtree: true,
           childList: true,
           attributes: true,
           attributeOldValue: true,
           characterData: true,
         });
-        for (const type of ['input', 'change']) addEventListener(type, () => w.__buN++, true);
+        for (const type of ['input', 'change']) win.addEventListener(type, () => w.__buN++, true);
+      };
+      const first = !w.__buObs;
+      if (first) {
+        w.__buObs = true;
+        w.__buLast = performance.now();
+        w.__buN = 0;
+        w.__buDoc = Math.random();
+        watch(window, false);
       }
+      const frames = (win: Window) => {
+        for (let i = 0; i < win.frames.length; i++) {
+          let f: Window;
+          try {
+            f = win.frames[i] as Window;
+            if (!f.document) continue;
+          } catch {
+            continue; // cross-origin
+          }
+          watch(f, !first);
+          frames(f);
+        }
+      };
+      frames(window);
       return {
         idle: performance.now() - w.__buLast,
         ready: document.readyState,
@@ -172,7 +258,6 @@ export class AxHelpers {
         title: document.title,
         n: w.__buN,
         doc: w.__buDoc,
-        files: !!document.querySelector('input[type=file]'),
       };
     });
   }
@@ -299,7 +384,7 @@ export class AxHelpers {
       this.capture(page),
       settled.probe ?? page.info(),
       this.visibleText(page).catch(() => undefined),
-      settled.probe?.files === false ? [] : this.fileInputs(page).catch(() => []),
+      this.fileInputs(page).catch(() => []),
     ]);
     const previous = this.last;
     this.last = new Map();
@@ -316,7 +401,7 @@ export class AxHelpers {
         const kids = () => n.childIds?.forEach((c) => walk(byId.get(c), inside));
         if (n.ignored) return kids();
         if (role === 'StaticText') {
-          const t = name.toLowerCase();
+          const t = fold(name);
           if (t && !inside.includes(t) && (visible === undefined || visible.includes(t)))
             text.push(name);
           return;
@@ -324,7 +409,7 @@ export class AxHelpers {
         if (role === 'heading' && name) {
           flush();
           lines.push(`## ${name}`);
-          inside = name.toLowerCase();
+          inside = fold(name);
           return kids();
         }
         const id = n.backendDOMNodeId;
@@ -349,7 +434,10 @@ export class AxHelpers {
               ? 'unchecked'
               : 'checked',
           prop(n, 'expanded') === undefined ? '' : prop(n, 'expanded') ? 'expanded' : 'collapsed',
-          ...['selected', 'disabled', 'focused'].map((p) => (prop(n, p) ? p : '')),
+          prop(n, 'selected') ? 'selected' : '',
+          // Chrome flags aria-disabled too, but only native disabled stops input: those are never focusable (333c292d2).
+          prop(n, 'disabled') && !prop(n, 'focusable') ? 'disabled' : '',
+          prop(n, 'focused') ? 'focused' : '',
         ].filter(Boolean);
         // A native <select> keeps its options in a popup child: summarize them instead of listing each.
         const popup = n.childIds
@@ -374,7 +462,7 @@ export class AxHelpers {
         );
         if (popup || NATIVE_INPUTS.has(role)) return; // their children are the browser's own widget parts
         // Only what the line showed counts as said: a card link's text past the clipped name still prints.
-        inside = `${inside} ${clip(name, 150)} ${value}`.toLowerCase();
+        inside = fold(`${inside} ${clip(name, 150)} ${value}`);
         kids();
         flush();
       };
@@ -389,7 +477,7 @@ export class AxHelpers {
         const at = (k: string) => f.attributes?.find((_, i, a) => i % 2 === 1 && a[i - 1] === k);
         const name = at('aria-label') ?? at('name') ?? at('id') ?? '';
         this.last.set(f.backendNodeId, { role: 'file', name });
-        return `[${f.backendNodeId}] file "${name}" (hidden)`;
+        return `[${f.backendNodeId}] file "${name}" (hidden)${f.chosen ? ` = ${JSON.stringify(clip(f.chosen, 100))}` : ''}`;
       });
     lines.unshift(...hidden);
     const header = `[state] ${info.title} | ${info.url}${settled.pending ? ` | loading: ${settled.pending}` : ''}${this.flushDialogs()}`;
@@ -399,7 +487,14 @@ export class AxHelpers {
       const n = from.findIndex((l) => (size += l.length + 1) > budget);
       return n < 0 ? from.length : n;
     };
-    let body = lines;
+    const failed = this.navError(page, info.url);
+    let body = lines.length
+      ? lines
+      : [
+          failed
+            ? `(the page did not load: ${failed})`
+            : '(nothing in the accessibility tree: the page is blank, or a popup, often in a cross-origin iframe, hides it; await screenshot() to see it)',
+        ];
     // Over max, keep the top and the last fifth: a dialog's Done/Submit is usually its last line.
     if (fit(lines, max) < lines.length) {
       const head = fit(lines, max * 0.8);
@@ -410,20 +505,47 @@ export class AxHelpers {
         ...lines.slice(lines.length - tail),
       ];
     }
-    const out = `${header}\n${body.join('\n')}\n[/state]`;
+    // Once per file line, not on every look, and never when the size cut left no file line to use it on.
+    // Ids repeat across documents, so a new document starts over. A page that never went quiet has no settle probe:
+    // ask it now, and take a page that cannot say as new, so the recipe prints rather than goes missing.
+    const doc = (settled.probe ?? (await this.probe(page).catch(() => undefined)))?.doc;
+    if (doc === undefined || doc !== this.recipeDoc) this.recipeFor.clear();
+    this.recipeDoc = doc;
+    const fileIds = body.flatMap((l) => l.match(/^\*?\[(\d+)\] file\b/)?.[1] ?? []);
+    const upload = fileIds.some((id) => !this.recipeFor.has(id)) ? `\n${UPLOAD}` : '';
+    this.recipeFor = new Set(fileIds);
+    const out = `${header}\n${body.join('\n')}${upload}\n[/state]`;
     this.log(out);
     return printed(out);
   }
 
+  /** Every file input, also inside open shadow roots and same-origin frames, with the names of its chosen files. */
   private async fileInputs(page: Page) {
-    const { root } = await page.cdp('DOM.getDocument', { depth: 0 });
-    const { nodeIds } = await page.cdp('DOM.querySelectorAll', {
-      nodeId: root.nodeId,
-      selector: 'input[type=file]',
+    const { result } = await page.cdp('Runtime.evaluate', {
+      expression: `(() => { const out = [], roots = [document]; for (const r of roots) for (const e of r.querySelectorAll('*')) { if (e.matches('input[type=file]')) out.push(e); if (e.shadowRoot) roots.push(e.shadowRoot); if (e.contentDocument) roots.push(e.contentDocument); } return out.length ? out : null; })()`,
+      objectGroup: 'bu-files',
     });
-    return Promise.all(
-      nodeIds.map(async (nodeId) => (await page.cdp('DOM.describeNode', { nodeId })).node),
-    );
+    if (!result.objectId) return [];
+    try {
+      const [{ result: items }, chosen] = await Promise.all([
+        page.cdp('Runtime.getProperties', { objectId: result.objectId, ownProperties: true }),
+        page.cdp('Runtime.callFunctionOn', {
+          objectId: result.objectId,
+          functionDeclaration: `function() { return this.map((e) => [...e.files].map((f) => f.name).join(', ')); }`,
+          returnByValue: true,
+        }),
+      ]);
+      return await Promise.all(
+        items
+          .filter((p) => /^\d+$/.test(p.name) && p.value?.objectId)
+          .map(async (p) => ({
+            ...(await page.cdp('DOM.describeNode', { objectId: p.value!.objectId! })).node,
+            chosen: String((chosen.result.value as string[])[Number(p.name)] ?? ''),
+          })),
+      );
+    } finally {
+      await page.cdp('Runtime.releaseObjectGroup', { objectGroup: 'bu-files' }).catch(() => {});
+    }
   }
 
   private async onNode<T>(page: Page, id: number, fn: string, argument?: unknown): Promise<T> {
@@ -449,6 +571,12 @@ export class AxHelpers {
     }
   }
 
+  /** The net error behind Chrome's error page at url; undefined for any other page or when unknown. */
+  private navError(page: Page, url: unknown) {
+    if (!String(url).startsWith('chrome-error:') || !page.sessionId) return undefined;
+    return this.navErrors.get(page.sessionId);
+  }
+
   private describe(id: number) {
     const n = this.last.get(id);
     return n ? `[${id}] ${n.role}${n.name ? ` "${clip(n.name, 60)}"` : ''}` : `[${id}]`;
@@ -457,31 +585,15 @@ export class AxHelpers {
   /** Scroll into view and return a clickable, unobstructed center point, or throw a precise reason. */
   private async point(page: Page, id: number, editableCover = false) {
     await page.cdp('DOM.scrollIntoViewIfNeeded', { backendNodeId: id }).catch(() => {});
-    const p = await this.onNode<{ x: number; y: number; covered: boolean }>(
-      page,
-      id,
-      `function(editableCover) {
-        const e = this.nodeType === Node.ELEMENT_NODE ? this : this.parentElement;
-        if (!e || !e.isConnected) throw Error('Target detached');
-        if (e.matches(':disabled') || e.closest('[inert],[aria-disabled="true"]')) throw Error('Target disabled');
-        if (e.matches('input[type=file]')) throw Error("File input: clicking opens the OS file chooser; upload with DOM.setFileInputFiles instead");
-        if (!e.checkVisibility({checkOpacity:true, checkVisibilityCSS:true})) throw Error('Target hidden');
-        const r = e.getBoundingClientRect(), x = r.x + r.width/2, y = r.y + r.height/2;
-        if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) throw Error('Target outside viewport');
-        const hit = e.getRootNode().elementFromPoint(x, y);
-        const textField = (n) => n && (['INPUT','TEXTAREA'].includes(n.tagName) || n.isContentEditable);
-        const covered = !e.contains(hit) && !(hit && hit.contains(e) && getComputedStyle(hit).pointerEvents !== 'none' && hit.tagName === 'LABEL') && !(editableCover && textField(e) && textField(hit));
-        // Inside same-origin iframes, add each frame's content-box offset to get top-level viewport coordinates.
-        let px = x, py = y;
-        for (let w = e.ownerDocument.defaultView; w && w.frameElement; w = w.parent) {
-          const f = w.frameElement, fr = f.getBoundingClientRect(), cs = getComputedStyle(f);
-          px += fr.x + f.clientLeft + parseFloat(cs.paddingLeft);
-          py += fr.y + f.clientTop + parseFloat(cs.paddingTop);
-        }
-        return {x: px, y: py, covered};
-      }`,
-      editableCover,
-    );
+    type Point = { x: number; y: number; covered: boolean };
+    let p = await this.onNode<Point>(page, id, POINT_JS, editableCover);
+    if (!p.covered) return p;
+    // A fixed header or footer over a target near the viewport edge: the target counts as visible, so
+    // scrollIntoViewIfNeeded leaves it there (demoqa.com's footer, 9b140a06d). Centered, it is usually clear.
+    try {
+      await this.onNode(page, id, CENTER_JS);
+      p = await this.onNode<Point>(page, id, POINT_JS, editableCover);
+    } catch {}
     if (!p.covered) return p;
     const hit = await page
       .cdp('DOM.getNodeForLocation', { x: Math.round(p.x), y: Math.round(p.y) })
@@ -526,6 +638,7 @@ export class AxHelpers {
     try {
       detail = await body(page);
     } catch (error) {
+      this.recipeFor.delete(String(id)); // a failed action on a file line: the state after the cell prints the recipe again
       throw new Error(
         `${op} ${this.describe(id)} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -543,7 +656,10 @@ export class AxHelpers {
   ) {
     after ??= await this.probe(this.page()).catch(() => undefined);
     if (!before || !after) return 'page changed';
-    if (after.doc !== before.doc || after.url !== before.url) return `navigated to ${after.url}`;
+    if (after.doc !== before.doc || after.url !== before.url) {
+      const failed = this.navError(this.page(), after.url);
+      return `navigated to ${after.url}${failed ? ` (${failed})` : ''}`;
+    }
     return after.n !== before.n ? 'page changed' : 'no change';
   }
 
@@ -558,11 +674,7 @@ export class AxHelpers {
   async type(id: number, text: string, options: { enter?: boolean } = {}) {
     if (typeof text !== 'string') throw new Error('type needs a string.');
     return this.act('type', id, async (page) => {
-      const kind = await this.onNode<{ tag: string; type: string }>(
-        page,
-        id,
-        `function(){const e=this.nodeType===1?this:this.parentElement;if(!e||!e.isConnected)throw Error('Target detached');return {tag:e.tagName,type:e.type||''};}`,
-      );
+      const kind = await this.onNode<{ tag: string; type: string }>(page, id, KIND_JS);
       if (kind.tag === 'SELECT') {
         const label = await this.onNode<string>(
           page,

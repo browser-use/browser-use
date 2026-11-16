@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { CDP } from './cdp.js';
 import { execFile, fork, type ChildProcess } from 'node:child_process';
 import type { BrowserAction, CellResult, WorkerConfig, WorkerResponse } from './protocol.js';
-import { positiveInteger } from './protocol.js';
+import { positiveInteger, DEFAULT_CELL_TIMEOUT_MS } from './protocol.js';
 
 /** Bun hosts use the same V8 worker as Node hosts, including its cancellation boundary. */
 export async function workerExecutable(): Promise<string> {
@@ -90,6 +90,11 @@ export class BrowserRuntime {
 
   get endpoint() {
     return this.config.endpoint;
+  }
+
+  /** A worker is up: a cell now runs without starting a worker or waiting for a pending browser. */
+  get started() {
+    return !!this.worker;
   }
 
   /** Attach the browser a pending runtime was created without; once only. */
@@ -212,14 +217,24 @@ export class BrowserRuntime {
     });
   }
 
-  async readResult(expression: string, timeoutMs = 30_000, signal?: AbortSignal): Promise<unknown> {
+  async readResult(
+    expression: string,
+    timeoutMs = DEFAULT_CELL_TIMEOUT_MS,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const result = await this.executeCell(expression, timeoutMs, signal, true);
     if (result.valueJson === undefined) throw new Error('Worker returned no result value.');
     return JSON.parse(result.valueJson);
   }
 
-  execute(code: string, timeoutMs = 30_000, signal?: AbortSignal): Promise<CellResult> {
-    return this.executeCell(code, timeoutMs, signal, false);
+  /** capMs bounds the whole cell, ultrafast's page-state grace included (the time left before delivery). */
+  execute(
+    code: string,
+    timeoutMs = DEFAULT_CELL_TIMEOUT_MS,
+    signal?: AbortSignal,
+    capMs?: number,
+  ): Promise<CellResult> {
+    return this.executeCell(code, timeoutMs, signal, false, capMs);
   }
 
   private async executeCell(
@@ -227,6 +242,7 @@ export class BrowserRuntime {
     timeoutMs: number,
     signal: AbortSignal | undefined,
     captureJson: boolean,
+    capMs?: number,
   ): Promise<CellResult> {
     positiveInteger('timeoutMs', timeoutMs);
     if (this.closed) throw new Error('BrowserUse is closed.');
@@ -251,14 +267,18 @@ export class BrowserRuntime {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const outputFile = join(directory, `${randomUUID()}.txt`);
       await writeFile(outputFile, '', { flag: 'wx', mode: 0o600 });
-      // Ultrafast prints the page state after the cell's code, so its cells may run up to 10 s past timeoutMs.
+      // Ultrafast prints the page state after the cell's code, so its cells may run up to 10 s past timeoutMs,
+      // out of the time left (Python 1.0.5 ed35726de): added on top, a short run lost its delivery turn.
       const response = this.receive(
         worker,
-        timeoutMs + (this.config.mode === 'ultrafast' ? 10_000 : 0),
+        Math.min(
+          timeoutMs + (this.config.mode === 'ultrafast' ? 10_000 : 0),
+          capMs === undefined ? Infinity : Math.max(1, Math.ceil(capMs)),
+        ),
         signal,
       );
       worker.send(
-        { type: 'execute', code, captureJson, outputFile, runId: this.runId },
+        { type: 'execute', code, captureJson, outputFile, runId: this.runId, timeoutMs },
         (error) => {
           if (error) this.pending?.(error);
         },

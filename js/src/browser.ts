@@ -15,6 +15,8 @@ export interface CloudBrowserOptions {
   profileId?: string;
   timeoutMinutes?: number;
   proxyCountryCode?: string;
+  /** Default true. false switches the browser's automatic captcha solver off (Python Browser(captcha_solver=False)). */
+  captchaSolver?: boolean;
 }
 export interface ChromeBrowserOptions {
   cdpUrl?: string;
@@ -95,6 +97,8 @@ async function discoverChrome(options: ChromeBrowserOptions) {
 async function openCloud(options: CloudBrowserOptions) {
   if (typeof options.apiKey !== 'string' || !options.apiKey.trim())
     throw new Error('Browser.cloud requires apiKey.');
+  if (options.captchaSolver !== undefined && typeof options.captchaSolver !== 'boolean')
+    throw new Error('captchaSolver must be true or false.');
   const timeout = options.timeoutMinutes ?? 30;
   if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 240)
     throw new Error('timeoutMinutes must be an integer from 1 to 240.');
@@ -195,6 +199,12 @@ export function validCdpUrl(cdpUrl: string): string {
   return cdpUrl;
 }
 
+/** Whether openBrowser launches a local Chromium for these options (no kind and no cdpUrl, or Browser.chromium). */
+export function launchesBrowser(options: BrowserOptions = {}): boolean {
+  if (options.kind !== undefined) return options.kind === 'chromium';
+  return !('cdpUrl' in options && options.cdpUrl);
+}
+
 export async function openBrowser(options: BrowserOptions = {}) {
   if (
     options.kind !== undefined &&
@@ -243,6 +253,13 @@ export async function openBrowser(options: BrowserOptions = {}) {
       '--no-first-run',
       '--no-default-browser-check',
       '--window-size=1440,900',
+      // Python 1.0.5 chrome_args(fresh=True): a profile of our own never asks for (or reads) the OS keychain, so its
+      // cookies decrypt on the next launch even without a GUI login session.
+      ...(process.platform === 'darwin'
+        ? ['--use-mock-keychain']
+        : process.platform === 'linux'
+          ? ['--password-store=basic']
+          : []),
       ...(options.headless === false ? [] : ['--headless=new']),
       'about:blank',
     ],
@@ -253,12 +270,15 @@ export async function openBrowser(options: BrowserOptions = {}) {
     launchError = error;
   });
   let closing: Promise<void> | undefined;
+  let endpoint: string | undefined;
   const close = () =>
     (closing ??= (async () => {
       if (child.exitCode === null && child.signalCode === null && child.pid) {
         const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
-        child.kill('SIGTERM');
-        const timer = setTimeout(() => child.kill('SIGKILL'), 2000);
+        // Python 1.0.5 _kill: Browser.close over CDP first, so Chrome writes cookies and storage to the profile;
+        // SIGTERM lost cookies set just before close. Else SIGTERM, SIGKILL after 5 s.
+        if (!(endpoint && (await closeOverCdp(endpoint)))) child.kill('SIGTERM');
+        const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
         await exited;
         clearTimeout(timer);
       }
@@ -278,7 +298,10 @@ export async function openBrowser(options: BrowserOptions = {}) {
         const [port, path] = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8'))
           .trim()
           .split('\n');
-        if (port && path) return { endpoint: `ws://127.0.0.1:${port}${path}`, close };
+        if (port && path) {
+          endpoint = `ws://127.0.0.1:${port}${path}`;
+          return { endpoint, close };
+        }
       } catch {}
       await delay(50);
     }
@@ -286,6 +309,30 @@ export async function openBrowser(options: BrowserOptions = {}) {
   } catch (error) {
     await close();
     throw error;
+  }
+}
+
+/** CDP Browser.close: Chrome shuts down as when its last window closes. False when it could not be sent within 3 s. */
+async function closeOverCdp(endpoint: string): Promise<boolean> {
+  let socket: WebSocket | undefined;
+  try {
+    socket = new WebSocket(endpoint);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout')), 3000);
+      socket!.onopen = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      socket!.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error('connect failed'));
+      };
+    });
+    socket.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+    return true;
+  } catch {
+    socket?.close();
+    return false;
   }
 }
 

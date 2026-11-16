@@ -3,18 +3,22 @@ import { Session, type Runtime } from 'node:inspector';
 import { createRequire } from 'node:module';
 import { createContext, constants } from 'node:vm';
 import { inspect } from 'node:util';
-import { readFile, writeFile, rename, stat } from 'node:fs/promises';
+import { readFile, readdir, writeFile, rename, stat } from 'node:fs/promises';
 import { appendFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { CDP } from './cdp.js';
 import { Page, Tabs } from './page.js';
+import { positiveInteger } from './protocol.js';
 import type { Image, WorkerConfig, WorkerRequest, WorkerResponse } from './protocol.js';
+import { CELL_INSPECT_OPTIONS } from './protocol.js';
 import { installDomainPolicy, fillSecret } from './policy.js';
 import { redact } from './history.js';
 import { actionHighlighter } from './highlight.js';
 import { imageDimensions, imageMimeType, prepareModelImages } from './images.js';
 import { AxHelpers } from './ax.js';
+import { CaptchaWatch, disableCaptchaSolver } from './captcha.js';
+import { uploadFile } from './upload.js';
 
 // IPC initialization keeps connection details out of argv and environment.
 process.on('disconnect', () => process.exit(0));
@@ -24,6 +28,69 @@ const send = (message: WorkerResponse) => process.send!(clean(message));
 process.chdir(config.workspace);
 let browser = CDP.lazy(config.endpoint, config.operationTimeoutMs, config.approveConnection);
 installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }));
+browser.nameDialogs = config.mode !== 'ultrafast';
+/** Downloads the browser announced, by guid; downloads() lists the finished ones (Python 1.0.5 cbaffd69a). */
+const downloadsSeen = new Map<string, { name: string; size?: number | undefined; done: boolean }>();
+function watchDownloads() {
+  const previous = browser.observeEvent;
+  browser.observeEvent = (method, raw, session) => {
+    previous?.(method, raw, session);
+    const event = raw as {
+      guid?: string;
+      suggestedFilename?: string;
+      state?: string;
+      receivedBytes?: number;
+      totalBytes?: number;
+    };
+    if (!event?.guid) return;
+    // Cloud browsers send both the Browser and the Page event for one download.
+    if (method === 'Browser.downloadWillBegin' || method === 'Page.downloadWillBegin') {
+      if (!downloadsSeen.has(event.guid))
+        downloadsSeen.set(event.guid, { name: event.suggestedFilename || event.guid, done: false });
+    } else if (
+      (method === 'Browser.downloadProgress' || method === 'Page.downloadProgress') &&
+      event.state === 'completed'
+    ) {
+      const entry = downloadsSeen.get(event.guid) ?? { name: event.guid, done: false };
+      downloadsSeen.set(event.guid, {
+        ...entry,
+        done: true,
+        size: event.receivedBytes || event.totalBytes,
+      });
+    }
+  };
+  // A browser this SDK launched saves downloads in workspace/downloads, set when the connection opens (never
+  // earlier: the browser stays untouched until the agent uses it). Others keep their own setting: the agent is
+  // told never to call Browser.setDownloadBehavior (Python's prompt).
+  const downloadPath = config.downloadPath;
+  const solverOff = config.captchaSolver === false;
+  if (downloadPath || solverOff)
+    browser.onConnect = async (connection) => {
+      if (downloadPath)
+        await connection
+          .send('Browser.setDownloadBehavior', {
+            behavior: 'allow',
+            downloadPath,
+            eventsEnabled: true,
+          })
+          .catch(() => {});
+      if (solverOff) await disableCaptchaSolver(connection).catch(() => {});
+    };
+}
+watchDownloads();
+/** The files the browser finished downloading so far: [{name, size}]. */
+async function downloads() {
+  const listed = new Map<string, number | undefined>();
+  for (const entry of downloadsSeen.values()) if (entry.done) listed.set(entry.name, entry.size);
+  if (config.downloadPath)
+    for (const name of await readdir(config.downloadPath).catch(() => [] as string[])) {
+      if (name.endsWith('.crdownload')) continue;
+      const info = await stat(join(config.downloadPath, name)).catch(() => undefined);
+      if (info?.isFile()) listed.set(name, info.size);
+    }
+  return [...listed].map(([name, size]) => ({ name, ...(size !== undefined ? { size } : {}) }));
+}
+let captcha = new CaptchaWatch(browser, { off: config.captchaSolver === false });
 let highlight = config.highlightActions ? actionHighlighter(browser) : undefined;
 let tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
 const chromiumEmptyPageUrls = new Set([
@@ -51,6 +118,7 @@ function deferredPage(targetId?: string) {
 const page = deferredPage(config.targetId);
 let outputFile: string | undefined;
 let runId: string | undefined;
+let cellDeadline = Infinity;
 let output = '';
 let images: Image[] = [];
 let captureResponse: CDP['observeResponse'];
@@ -193,6 +261,7 @@ Object.assign(realm, {
   page,
   ...(bu ? { bu } : {}),
   ...(webSearch ? { search } : {}),
+  downloads,
   workspace: config.workspace,
   async reconnect(endpoint?: string) {
     let targetId: string | undefined = (Reflect.get(realm, 'page') as Page)?.targetId;
@@ -208,12 +277,32 @@ Object.assign(realm, {
     browser.close();
     browser = CDP.lazy(config.endpoint, config.operationTimeoutMs, config.approveConnection);
     installDomainPolicy(browser, config, (id) => send({ type: 'owned', targetId: id }));
+    browser.nameDialogs = config.mode !== 'ultrafast';
+    watchDownloads();
+    captcha = new CaptchaWatch(browser, { off: config.captchaSolver === false });
     highlight = config.highlightActions ? actionHighlighter(browser) : undefined;
     browser.observeResponse = captureResponse;
     tabs = new Tabs(browser, (id) => send({ type: 'owned', targetId: id }));
     Object.assign(realm, { browser, tabs, page: deferredPage(targetId) });
     observe();
     return 'Connection reset. Inspect the page; no browser action was replayed. Reacquire other page/frame handles.';
+  },
+  /** Browser Use Cloud's captcha solver; waits up to 95 s (Python SOLVE_S), within the cell deadline. */
+  async solveCaptcha(options: { timeoutMs?: number } = {}) {
+    if (options.timeoutMs !== undefined) positiveInteger('timeoutMs', options.timeoutMs);
+    // Leave the cell time to return; a cell timeout would reset JavaScript state.
+    const timeoutMs = Math.min(options.timeoutMs ?? 95_000, cellDeadline - Date.now() - 3000);
+    if (timeoutMs < 1000)
+      throw new Error('Too little cell time left; call solveCaptcha() in a new cell.');
+    return captcha.solve({ timeoutMs });
+  },
+  /** Python upload_file: existing local file(s) onto a file input (backendNodeId or selector); bytes on remote browsers. */
+  uploadFile(
+    target: number | string,
+    path: string | string[],
+    targetPage: Page = Reflect.get(realm, 'page') as Page,
+  ) {
+    return uploadFile(targetPage, target, path, config.browserKind === 'cloud');
   },
   async fillSecret(
     name: string,
@@ -336,7 +425,11 @@ function observe() {
     };
 }
 observe();
-realm.console = new (await import('node:console')).Console(sink, sink);
+realm.console = new (await import('node:console')).Console({
+  stdout: sink,
+  stderr: sink,
+  inspectOptions: CELL_INSPECT_OPTIONS,
+});
 
 async function evaluate(code: string, captureJson = false): Promise<string | undefined> {
   try {
@@ -383,7 +476,10 @@ async function evaluate(code: string, captureJson = false): Promise<string | und
         ),
       );
     } else if (result.type !== 'undefined') {
-      sink.write(result.unserializableValue ?? inspect(result.value, { maxStringLength: 20_000 }));
+      sink.write(
+        result.unserializableValue ??
+          inspect(result.value, { ...CELL_INSPECT_OPTIONS, maxStringLength: 20_000 }),
+      );
     }
   } finally {
     evaluator.post('Runtime.releaseObjectGroup', { objectGroup: 'cell' });
@@ -398,6 +494,7 @@ process.on('message', async (message: WorkerRequest) => {
     return;
   }
   runId = message.runId;
+  cellDeadline = Date.now() + (message.timeoutMs ?? 30_000);
   output = '';
   pendingText = '';
   images = [];
@@ -459,7 +556,7 @@ process.on('message', async (message: WorkerRequest) => {
     await browser.send('Target.activateTarget', { targetId: focused }).catch(() => {});
   }
   const result = {
-    text: [output, ...previews.notes].filter(Boolean).join('\n') || '(no output)',
+    text: [output, captcha.note(), ...previews.notes].filter(Boolean).join('\n') || '(no output)',
     images: previews.images,
     targetId,
     ...(browser.observationTargetId ? { observationTargetId: browser.observationTargetId } : {}),

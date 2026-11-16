@@ -68,7 +68,8 @@ export function imageDimensions(bytes: Buffer): { width: number; height: number 
   return width > 0 && height > 0 ? { width, height } : undefined;
 }
 
-const maxDimension = 2000;
+/** Python repl/worker.py MAX_IMAGE_SIDE: full-page captures exceeded OpenAI's 30k-patch limit. */
+const maxDimension = 2048;
 const maxBase64Bytes = 4.5 * 1024 * 1024;
 type Resize = (bytes: Buffer, mimeType: string) => Promise<ResizedImage | null>;
 const resize: Resize = async (bytes, mimeType) => {
@@ -81,12 +82,50 @@ const resize: Resize = async (bytes, mimeType) => {
   });
 };
 
-/** Only the model preview changes. Original CDP bytes and saved artifacts stay untouched. */
-export async function prepareModelImages(captures: Image[], resizeImage: Resize = resize) {
+/** A PNG whose IHDR colour type is 3 (indexed palette). */
+export function palettePng(bytes: Buffer): boolean {
+  return (
+    bytes.length >= 26 &&
+    bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) &&
+    bytes.toString('ascii', 12, 16) === 'IHDR' &&
+    bytes[25] === 3
+  );
+}
+type ToPng = (data: string) => Promise<{ data: string; mimeType: string } | null>;
+const toPlainPng: ToPng = async (data) => {
+  const { convertToPng } = await import('@earendil-works/pi-coding-agent');
+  // convertToPng passes image/png through untouched; any other type is decoded and re-encoded as RGBA PNG.
+  return convertToPng(data, 'image/gif');
+};
+
+/** Only the model preview changes. Original CDP bytes and saved artifacts stay untouched. GIF and palette PNG
+ * previews are re-encoded as plain PNG (Python 1.0.5: xAI rejects them with a 400 for the whole request). */
+export async function prepareModelImages(
+  captures: Image[],
+  resizeImage: Resize = resize,
+  convert: ToPng = toPlainPng,
+) {
   const images: Image[] = [];
   const notes: string[] = [];
-  for (const [index, capture] of captures.entries()) {
-    const bytes = Buffer.from(capture.data, 'base64');
+  for (let [index, capture] of captures.entries()) {
+    let bytes = Buffer.from(capture.data, 'base64');
+    if (imageMimeType(bytes) === 'image/gif' || palettePng(bytes)) {
+      const plain = await convert(capture.data).catch(() => null);
+      const plainBytes = plain && Buffer.from(plain.data, 'base64');
+      if (
+        !plain ||
+        !plainBytes ||
+        imageMimeType(plainBytes) !== 'image/png' ||
+        palettePng(plainBytes)
+      ) {
+        notes.push(
+          `[Screenshot ${index + 1} omitted from model vision: it could not be converted from GIF or palette PNG. Original bytes are unchanged.]`,
+        );
+        continue;
+      }
+      capture = { type: 'image', data: plain.data, mimeType: 'image/png' };
+      bytes = plainBytes;
+    }
     const dimensions = imageDimensions(bytes);
     if (!dimensions || dimensions.width * dimensions.height > 50_000_000) {
       notes.push(

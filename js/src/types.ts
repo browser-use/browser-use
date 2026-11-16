@@ -24,8 +24,18 @@ export interface BrowserUseOptions extends DomainOptions {
   sensitiveData?: SensitiveData;
   /** Anonymous run counters. Disable with false, DO_NOT_TRACK=1 or ANONYMIZED_TELEMETRY=false. */
   telemetry?: boolean;
-  /** provider/model ID, e.g. openai/gpt-5.4. No model is silently substituted. */
-  model: string;
+  /**
+   * provider/model ID, e.g. openai/gpt-5.4. Default browser-use/bu-fast (Python 1.0.5): the Browser Use gateway with
+   * BROWSER_USE_API_KEY (or the Browser.cloud apiKey). A bare bu-* name means the gateway too.
+   */
+  model?: string;
+  /**
+   * After each run that took steps, one low-effort request to the run's own model judges it (Python 1.0.5 judge.py):
+   * result.judgement, its cost added to usage. Default true; false turns it off (set it in matched cost evals).
+   */
+  judge?: boolean;
+  /** The user's own success criteria for the judge (Python judge_context). */
+  judgeContext?: string;
   browser?: BrowserOptions;
   /** Persistent output directory. Defaults to a new OS temporary directory. */
   workspace?: string;
@@ -46,10 +56,14 @@ export interface BrowserUseOptions extends DomainOptions {
   focusTab?: boolean;
   tools?: AgentState['tools'];
   instructions?: string;
+  /** One CDP command. Default 20000 ms (Python browser-use). */
   operationTimeoutMs?: number;
+  /** One JavaScript cell. Default 120000 ms (Python browser-use). */
   cellTimeoutMs?: number;
-  /** Whole model response, including connection setup. Default 300000 ms. */
+  /** Connection setup until the model's first stream event. Default 300000 ms. A timeout starts a new step. */
   modelTimeoutMs?: number;
+  /** Whole model response while events flow. Default 930000 ms (Python browser-use). */
+  modelStreamTimeoutMs?: number;
   /** Whole compaction response. Default 120000 ms; original context survives failure. */
   compactionTimeoutMs?: number;
   /** Initial context-recovery backoff; doubles up to 30 seconds within the run deadline. */
@@ -78,18 +92,26 @@ export interface BrowserUseOptions extends DomainOptions {
   /** Show temporary orange corner brackets on the element just clicked or typed into. Default false. */
   highlightActions?: boolean;
 }
-/** Per-run context controls. Unset fields keep today's behavior. */
+/** Per-run context controls. Unset fields use the defaults below. */
 export interface ContextSettings {
-  /** Screenshots kept in tool results; older ones are removed. Default 2. */
+  /** Screenshots kept when old ones are pruned. Default 2. */
   keepScreenshots?: number;
+  /**
+   * Old screenshots are pruned in one batch once more than this many tool results carry one, so the cached
+   * prompt prefix stays unchanged between prunes. Default 20 (Python browser-use). Set it to keepScreenshots to
+   * prune on every new screenshot.
+   */
+  pruneScreenshotsAt?: number;
   /** Trim old screenshots and long tool output in one batch when the context reaches this many tokens. */
   trimAtTokens?: number;
   /** Compact when the context reaches this many tokens. Default 65% of the model window. */
   compactAtTokens?: number;
 }
 export interface RunOptions {
+  /** Model turns. Default 100 (Python browser-use run(max_steps=100)). */
   maxSteps?: number;
   context?: ContextSettings;
+  /** Whole run. Default 1700000 ms (Python browser-use run(timeout=1700)). */
   timeoutMs?: number;
   /** Soft threshold: checked between model turns. May exceed by one response. */
   maxCostUsd?: number;
@@ -126,9 +148,17 @@ export interface RunMetrics {
   finishRepairs: number;
   compactions?: number;
   providerRetries?: number;
+  /** The agent's own verdict from finish/finish_from_js({success}), when it gave one. Not verification. */
+  success?: boolean;
+  /** The judge's verdict on the run (Python result.judgement), when judge is on and it answered. */
+  judgement?: import('./judge.js').Judgement;
   steps: number;
   durationMs: number;
   usage: Usage;
+  /** usage.cost.total in USD (Python cost_usd): judge and compaction included; on the gateway, what it charged. */
+  costUsd?: number;
+  /** Absolute paths of files the browser saved in workspace/downloads during this run (Python result.downloads). */
+  downloads?: string[];
   workspace: string;
   /** Approximate token costs from the configured model catalog, not an invoice. */
   model: string;

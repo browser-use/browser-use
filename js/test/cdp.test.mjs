@@ -71,14 +71,11 @@ test('AX node IDs support trusted raw input, coordinates, unicode and stale-node
     /exceeded 30 ms/,
   );
 });
-test('failed page initialization detaches only its new session and preserves the original error', async () => {
+test('a failed domain enable does not fail the attach (Python 1.0.5 _enable_default_domains)', async () => {
   for (const failingMethod of ['Page.enable', 'Runtime.enable']) {
     const failure = new Error(`Injected ${failingMethod} timeout`);
     const send = cdp.send.bind(cdp);
     let attached;
-    const detached = cdp.waitFor('Target.detachedFromTarget', {
-      predicate: (event) => event.sessionId === attached,
-    });
     const patch = mock.method(cdp, 'send', async (method, params, sessionId) => {
       if (method === failingMethod && sessionId === attached) throw failure;
       const result = await send(method, params, sessionId);
@@ -86,11 +83,12 @@ test('failed page initialization detaches only its new session and preserves the
       return result;
     });
     try {
-      await assert.rejects(Page.attach(cdp, page.targetId), (error) => error === failure);
-      assert.equal((await detached).sessionId, attached);
-      assert.notEqual(attached, page.sessionId);
-      // The caller's existing session and browser remain usable.
+      const other = await Page.attach(cdp, page.targetId);
+      assert.equal(other.sessionId, attached);
+      assert.equal((await other.info()).url, 'data:text/html,new document');
+      // The caller's existing session remains usable.
       assert.equal((await page.info()).url, 'data:text/html,new document');
+      await cdp.send('Target.detachFromTarget', { sessionId: attached });
     } finally {
       patch.mock.restore();
     }

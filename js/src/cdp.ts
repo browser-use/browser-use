@@ -12,6 +12,23 @@ type Listener = {
   reject(error: Error): void;
 };
 
+type Dialog = { type?: string; message?: string };
+/** What a page frozen by an alert/confirm/prompt never answers (Python repl/worker.py FROZEN_BY_DIALOG), plus Input.*. */
+const FROZEN_BY_DIALOG = new Set([
+  'Runtime.evaluate',
+  'Runtime.callFunctionOn',
+  'Runtime.awaitPromise',
+  'Page.captureScreenshot',
+  'Page.navigate',
+  'Page.reload',
+]);
+/** While a dialog is open: how long a page call may take before it is blamed (Python DIALOG_PROBE_S). */
+const DIALOG_PROBE_MS = 2000;
+export const dialogOpen = (dialog: Dialog) =>
+  new Error(
+    `A JavaScript ${dialog.type || 'dialog'} is open (${JSON.stringify(String(dialog.message ?? '').slice(0, 200))}): the page is frozen until it is handled. Accept or dismiss it: await page.cdp('Page.handleJavaScriptDialog', {accept: true}) (or accept: false; promptText: '...' for a prompt).`,
+  );
+
 /** Explicit commands and one-shot events over one flattened CDP WebSocket. No proxies. */
 export class CDP {
   private nextId = 0;
@@ -20,7 +37,13 @@ export class CDP {
     targets: new Map<string, string>(),
     parents: new Map<string, string>(),
     targetId: undefined as string | undefined,
+    // JS dialogs open per page session (Page.javascriptDialogOpening), and calls waiting to hear of one.
+    dialogs: new Map<string, Dialog>(),
+    dialogWaiters: new Set<(sessionId: string, dialog: Dialog) => void>(),
   };
+  /** Default mode: a page call that a JS dialog holds fails in about 0.3 s naming the dialog, instead of waiting
+   * out the operation timeout (Python 1.0.5 f629805a4). Ultrafast accepts dialogs itself. */
+  nameDialogs = false;
   get observationTargetId() {
     let targetId = this.activity.targetId;
     const visited = new Set<string>();
@@ -56,6 +79,14 @@ export class CDP {
           else request?.resolve(message.result);
         } else {
           this.observeEvent?.(message.method, message.params, message.sessionId);
+          if (message.sessionId && message.method === 'Page.javascriptDialogOpening') {
+            this.activity.dialogs.set(message.sessionId, message.params);
+            for (const waiter of [...this.activity.dialogWaiters])
+              waiter(message.sessionId, message.params);
+          } else if (message.method === 'Page.javascriptDialogClosed' && message.sessionId)
+            this.activity.dialogs.delete(message.sessionId);
+          else if (message.method === 'Target.detachedFromTarget')
+            this.activity.dialogs.delete(message.params.sessionId);
           if (message.method === 'Target.detachedFromTarget')
             this.activity.targets.delete(message.params.sessionId);
           for (const listener of [...this.listeners]) {
@@ -86,10 +117,12 @@ export class CDP {
     connection.approveConnection = approveConnection;
     return connection;
   }
+  /** Lazy connections: runs once the socket is open, before the first command is sent on it. Failures are ignored. */
+  onConnect: ((connection: CDP) => Promise<unknown>) | undefined;
   private connected(): Promise<CDP> {
     if (this.closed) return Promise.reject(new Error('CDP connection is closed.'));
     this.delegate ??= CDP.connect(this.endpoint!, this.timeoutMs, this.approveConnection)
-      .then((connection) => {
+      .then(async (connection) => {
         if (this.closed) {
           connection.close();
           throw new Error('CDP connection is closed.');
@@ -99,6 +132,7 @@ export class CDP {
           this.observeEvent?.(method, params, session);
         connection.observeCommand = (method, params, sessionId) =>
           this.observeCommand?.(method, params, sessionId);
+        await this.onConnect?.(connection).catch(() => {});
         return connection;
       })
       .catch((error) => {
@@ -162,9 +196,55 @@ export class CDP {
     return connection;
   }
 
-  async send<M extends keyof Commands>(
+  send<M extends keyof Commands>(
     method: M,
     params: Commands[M]['paramsType'][0] = {} as Commands[M]['paramsType'][0],
+    sessionId?: string,
+  ): Promise<Commands[M]['returnType']> {
+    if (
+      !this.nameDialogs ||
+      !sessionId ||
+      !(FROZEN_BY_DIALOG.has(method) || method.startsWith('Input.'))
+    )
+      return this.sendNow(method, params, sessionId);
+    const open = this.activity.dialogs.get(sessionId);
+    const call = this.sendNow(method, params, sessionId);
+    // The held call settles once the dialog is handled, or times out; nobody is waiting for it any more.
+    void call.catch(() => {});
+    return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const done = () => {
+        clearTimeout(timer);
+        this.activity.dialogWaiters.delete(waiter);
+      };
+      const waiter = (session: string, dialog: Dialog) => {
+        if (session !== sessionId) return;
+        done();
+        reject(dialogOpen(dialog));
+      };
+      if (open)
+        timer = setTimeout(() => {
+          done();
+          reject(dialogOpen(open));
+        }, DIALOG_PROBE_MS);
+      // Screenshots never open a dialog; everything else can, and is then held until it is handled.
+      else if (method !== 'Page.captureScreenshot') this.activity.dialogWaiters.add(waiter);
+      call.then(
+        (value) => {
+          done();
+          resolve(value);
+        },
+        (error: Error) => {
+          done();
+          reject(open ? new Error(`${error.message}. ${dialogOpen(open).message}`) : error);
+        },
+      );
+    });
+  }
+
+  private async sendNow<M extends keyof Commands>(
+    method: M,
+    params: Commands[M]['paramsType'][0],
     sessionId?: string,
   ): Promise<Commands[M]['returnType']> {
     // Capture the observer at dispatch, so late responses cannot enter a later cell.
@@ -312,6 +392,7 @@ export class CDP {
     this.activity.targets.clear();
     this.activity.parents.clear();
     this.activity.targetId = undefined;
+    this.activity.dialogs.clear();
     void this.delegate?.then((connection) => connection.close()).catch(() => {});
     this.fail(new Error('CDP connection closed.'));
     this.socket?.close();

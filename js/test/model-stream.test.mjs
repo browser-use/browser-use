@@ -72,7 +72,7 @@ test('pre-abort makes no provider request; terminal responses preserve signature
   assert.equal(await bounded(model, request).result(), message);
 });
 
-test('run retries timed-out inference once without executing partial tools or resetting budgets', async () => {
+test('a timed-out inference starts a new step without executing partial tools or resetting budgets', async () => {
   const path = await mkdtemp(join(tmpdir(), 'bu-stream-'));
   try {
     for (const mode of ['recover', 'repeat', 'deadline']) {
@@ -90,6 +90,7 @@ test('run retries timed-out inference once without executing partial tools or re
         {
           model: 'faux/faux',
           modelTimeoutMs: mode === 'deadline' ? 1000 : 20,
+          modelStreamTimeoutMs: mode === 'deadline' ? 1000 : 20,
           streamFn: () => {
             calls++;
             const stream = createAssistantMessageEventStream();
@@ -113,14 +114,15 @@ test('run retries timed-out inference once without executing partial tools or re
         path,
         'Inspect',
         Type.String(),
-        { timeoutMs: mode === 'deadline' ? 30 : 2000 },
+        // repeat: steps 1 and 2 time out, step 2 starts the delivery turn, step 3 is the last (maxSteps).
+        { timeoutMs: mode === 'deadline' ? 30 : 2000, maxSteps: 3 },
       );
       assert.equal(
         result.status,
-        { recover: 'completed', repeat: 'error', deadline: 'timeout' }[mode],
+        { recover: 'completed', repeat: 'max_steps', deadline: 'timeout' }[mode],
       );
-      assert.equal(result.providerRetries, mode === 'deadline' ? 0 : 1);
-      assert.equal(calls, mode === 'deadline' ? 1 : 2);
+      assert.equal(result.providerRetries, { recover: 1, repeat: 2, deadline: 0 }[mode]);
+      assert.equal(calls, { recover: 2, repeat: 3, deadline: 1 }[mode]);
       assert.equal(tools, 0);
     }
   } finally {
