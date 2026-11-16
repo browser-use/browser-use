@@ -82,6 +82,14 @@ def site():
 	server.shutdown()
 
 
+@pytest.fixture(autouse=True)
+def harness_sink(monkeypatch):
+	"""browser-harness >= 0.1.14's set_sink() keeps module state, as the four functions it replaces did: each test's own."""
+	from browser_harness import telemetry as harness
+
+	monkeypatch.setattr(harness, '_sink', dict(getattr(harness, '_sink', {})), raising=False)
+
+
 @pytest.fixture
 def sent(monkeypatch):
 	"""The properties each agent_event would send, built as the telemetry thread builds them."""
@@ -631,8 +639,9 @@ def test_cli_event_goes_to_the_library_project_under_the_device_id(posthog, monk
 	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path / 'bh'))  # never the developer's own browser-harness config
 	for name in ('BH_TELEMETRY', 'BROWSER_HARNESS_TELEMETRY'):
 		monkeypatch.delenv(name, raising=False)
-	monkeypatch.setattr(harness, '_send_detached', harness_sends.append)
-	monkeypatch.setattr(harness, '_install_id', harness._install_id)  # restored after the test, wrapper and all
+	monkeypatch.setattr(harness.subprocess, 'Popen', lambda *a, **k: harness_sends.append(a))  # its detached sender
+	for attr in ('_send_detached', '_install_id'):  # restored after the test, wrappers and all
+		monkeypatch.setattr(harness, attr, getattr(harness, attr))
 	cli._scrub_harness_telemetry()
 	harness.capture_cli_event(action='completed', command='cli-mcp', task='print("Zq9-code")', steps=[{'helper': 'js'}])
 	(event,) = posthog.events()
@@ -729,15 +738,16 @@ def test_cli_event_is_marked_internal_like_the_agent_event(monkeypatch, internal
 
 
 @pytest.mark.parametrize('value, sends', [('n', False), ('disable', False), ('on', False), ('0', False), ('yes', True)])
-def test_cli_opt_out_values_match_the_library(monkeypatch, sent, value, sends):
+def test_cli_opt_out_values_match_the_library(monkeypatch, sent, tmp_path, value, sends):
 	"""Any value not starting with t, y or 1 turns it off. browser-harness alone sent with n, disable."""
 	from browser_harness import telemetry as harness
 
 	import browser_use.cli as cli
 
-	monkeypatch.setattr(harness, '_send_detached', harness._send_detached)
+	monkeypatch.setenv('BH_CONFIG_DIR', str(tmp_path))  # never reads the real config
+	for attr in ('_send_detached', 'is_enabled'):  # restored after the test, wrappers and all
+		monkeypatch.setattr(harness, attr, getattr(harness, attr))
 	monkeypatch.setattr(harness, '_install_id', lambda *a, **k: 'test-install')
-	monkeypatch.setattr(harness, 'is_enabled', lambda: not harness._env_disabled())  # never reads the real config
 	monkeypatch.setenv('ANONYMIZED_TELEMETRY', value)
 	cli._scrub_harness_telemetry()
 	harness.capture_cli_event(action='completed', command='version')

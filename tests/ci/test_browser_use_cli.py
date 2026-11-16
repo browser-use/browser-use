@@ -574,6 +574,24 @@ async def test_the_documented_first_example_waits_for_the_new_document(daemon, t
 	assert not failed and 'late body True' in out, out
 
 
+def test_page_info_wrapper_is_skipped_when_browser_harness_waits_itself(monkeypatch):
+	"""browser-harness >= 0.1.14 waits for <html> in page_info() (PAGE_INFO_ROOT_WAIT_S): no second wait on top."""
+	from browser_harness import helpers
+
+	from browser_use.repl import page_info
+
+	def harness_page_info():
+		return {}
+
+	monkeypatch.setattr(helpers, 'page_info', harness_page_info)
+	monkeypatch.setattr(helpers, 'PAGE_INFO_ROOT_WAIT_S', 5.0, raising=False)
+	page_info.install()
+	assert helpers.page_info is harness_page_info
+	monkeypatch.delattr(helpers, 'PAGE_INFO_ROOT_WAIT_S')  # 0.1.13: wrapped
+	page_info.install()
+	assert helpers.page_info is not harness_page_info and helpers.page_info.__wrapped__ is harness_page_info
+
+
 async def test_page_info_waiting_for_the_document_still_reports_a_dialog(daemon, monkeypatch):
 	"""cli-1: a page that alert()s as it loads opens the dialog while page_info() waits for <html>. page_info() returns
 	{dialog}, as browser-harness documents, instead of timing out on an evaluate the open dialog blocks."""

@@ -47,46 +47,25 @@ def _scrub_harness_telemetry() -> None:
 
 	from browser_use.config import CONFIG
 
-	enabled = telemetry.is_enabled
-	if not getattr(enabled, '__bu_scrubbed__', False):
+	def install_id(create: bool = True) -> str | None:
+		"""The id `browser-use telemetry status` shows: the one cli_event is sent under."""
+		from browser_use.telemetry.service import get_or_create_device_id
 
-		def is_enabled() -> bool:
-			return bool(CONFIG.ANONYMIZED_TELEMETRY) and enabled()
+		return get_or_create_device_id() if create and CONFIG.ANONYMIZED_TELEMETRY else None
 
-		is_enabled.__bu_scrubbed__ = True  # type: ignore[attr-defined]
-		telemetry.is_enabled = is_enabled
-	if not getattr(telemetry._install_id, '__bu_scrubbed__', False):
+	def status(out: dict) -> dict:
+		"""`browser-use telemetry status|enable|disable`: whether browser-use sends, ANONYMIZED_TELEMETRY read as the
+		library reads it (browser-harness alone took n or disable for on)."""
+		from browser_use.telemetry import service
 
-		def install_id(config: dict | None = None, *, create: bool = True) -> str | None:
-			"""The id `browser-use telemetry status` shows: the one cli_event is sent under."""
-			from browser_use.telemetry.service import get_or_create_device_id
+		service._harness_config_disabled = bool(out.get('disabled_by_config'))  # enable/disable just changed it
+		out['disabled_by_env'] = bool(out.get('disabled_by_env')) or not CONFIG.ANONYMIZED_TELEMETRY
+		out['enabled'] = service.telemetry().enabled
+		if not out['enabled']:
+			out['install_id'] = None
+		return out
 
-			return get_or_create_device_id() if create and CONFIG.ANONYMIZED_TELEMETRY else None
-
-		install_id.__bu_scrubbed__ = True  # type: ignore[attr-defined]
-		telemetry._install_id = install_id
-	if not getattr(telemetry.status, '__bu_scrubbed__', False):
-		harness_status = telemetry.status
-
-		def status() -> dict:
-			"""`browser-use telemetry status|enable|disable`: whether browser-use sends, ANONYMIZED_TELEMETRY read as the
-			library reads it (browser-harness alone took n or disable for on)."""
-			from browser_use.telemetry import service
-
-			out = harness_status()
-			service._harness_config_disabled = bool(out.get('disabled_by_config'))  # enable/disable just changed it
-			out['disabled_by_env'] = bool(out.get('disabled_by_env')) or not CONFIG.ANONYMIZED_TELEMETRY
-			out['enabled'] = service.telemetry().enabled
-			if not out['enabled']:
-				out['install_id'] = None
-			return out
-
-		status.__bu_scrubbed__ = True  # type: ignore[attr-defined]
-		telemetry.status = status
-	if getattr(telemetry._send_detached, '__bu_scrubbed__', False):
-		return
-
-	def scrubbed(payload: dict) -> None:
+	def send(payload: dict) -> None:
 		from browser_use.telemetry.service import Job
 		from browser_use.telemetry.service import telemetry as product_telemetry
 		from browser_use.telemetry.stats import scrub_cli_event
@@ -99,8 +78,37 @@ def _scrub_harness_telemetry() -> None:
 		product_telemetry().notice = False  # no log line on the CLI's stderr each call (it never had one)
 		product_telemetry().capture_run(Job(str(event.get('event') or 'cli_event'), lambda steps, keys: props))
 
-	scrubbed.__bu_scrubbed__ = True  # type: ignore[attr-defined]
-	telemetry._send_detached = scrubbed
+	set_sink = getattr(telemetry, 'set_sink', None)
+	if set_sink is not None:  # browser-harness >= 0.1.14: its public hook, no private functions replaced
+		set_sink(send, enabled=lambda: bool(CONFIG.ANONYMIZED_TELEMETRY), install_id=install_id, status=status)
+		return
+	# browser-harness 0.1.13: replace the four functions set_sink() hooks. Delete with the 0.1.13 pin.
+	enabled = telemetry.is_enabled
+	if not getattr(enabled, '__bu_scrubbed__', False):
+
+		def is_enabled() -> bool:
+			return bool(CONFIG.ANONYMIZED_TELEMETRY) and enabled()
+
+		is_enabled.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry.is_enabled = is_enabled
+	if not getattr(telemetry._install_id, '__bu_scrubbed__', False):
+
+		def harness_install_id(config: dict | None = None, *, create: bool = True) -> str | None:
+			return install_id(create)
+
+		harness_install_id.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry._install_id = harness_install_id
+	if not getattr(telemetry.status, '__bu_scrubbed__', False):
+		harness_status = telemetry.status
+
+		def status_() -> dict:
+			return status(harness_status())
+
+		status_.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry.status = status_
+	if not getattr(telemetry._send_detached, '__bu_scrubbed__', False):
+		send.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry._send_detached = send
 
 
 def _capture_via_harness(
@@ -807,7 +815,6 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	from browser_harness import helpers, run
 
 	from browser_use.browser.browser import _name_daemon_files
-	from browser_use.repl import worker
 	from browser_use.repl.capture import install as install_capture
 	from browser_use.repl.page_info import install as install_page_info
 
@@ -825,9 +832,13 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	run.page_info = helpers.page_info
 	install_capture()  # win-cli-5: a hidden tab's screenshot gets the Agent's activate fallback
 	run.cdp = helpers.cdp
-	# The Agent's http_get, plain HTTP from this machine: browser-harness's sends the URL and headers to the fetch-use
-	# proxy whenever BROWSER_USE_API_KEY is set (localhost and intranet URLs then fail, Authorization leaves the machine)
-	run.http_get = worker.http_get
+	if not hasattr(helpers, '_proxy_can_reach'):  # browser-harness 0.1.13; delete with that pin
+		# The Agent's http_get, plain HTTP from this machine: 0.1.13's decoded every body (UnicodeDecodeError on binary)
+		# and sent every URL and its headers to the fetch-use proxy whenever BROWSER_USE_API_KEY was set (localhost and
+		# intranet URLs then failed, Authorization left the machine). 0.1.14's returns bytes and keeps those local.
+		from browser_use.repl import worker
+
+		run.http_get = worker.http_get
 	args = sys.argv[1:]
 	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
 		from browser_use import harness_cloud
