@@ -15,7 +15,7 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
 | | 0.x | 1.0 |
 |---|---|---|
-| Model (`llm=None`) | required | `bu-4.0` (BU 4.0) on the Browser Use gateway; also `bu-4.0-mini` and `bu-4.0-pro`. `bu-fast` (`gpt-6-luna`, medium reasoning) and `bu-ultrafast` (the same model at low reasoning on the priority tier) still work |
+| Model (`llm=None`) | required | `bu-4.0` (BU 4.0, high reasoning, $1.80/$9.00 per 1M input/output tokens) on the Browser Use gateway; also `bu-4.0-mini` and `bu-4.0-pro`. `bu-fast` (`gpt-6-luna`, medium reasoning, $0.12/$0.60) and `bu-ultrafast` (the same model at low reasoning on the priority tier) still work |
 | Browser (`Browser()`) | local Chromium | Browser Use Cloud browser (`Browser('chromium')` / `local=True` for a local one) |
 | Key | per provider | one Browser Use key: `browser-use login` (stored in `~/.config/browser-harness/auth.json`, shared with the CLI, the MCP server and browser-harness) or `BROWSER_USE_API_KEY` (wins when set). A `.env` in the working directory is read on import, as in 0.x |
 | Python | >= 3.11 | >= 3.11 |

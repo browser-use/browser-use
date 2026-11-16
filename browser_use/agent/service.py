@@ -227,7 +227,7 @@ class Agent:
 	Python can read them; screenshots, page JS and a cloud live view or recording can reveal a typed value. mode='ultrafast'
 	adds accessibility-tree helpers; the default (None) is 'ultrafast' on bu-fast and bu-ultrafast, else 'default'
 	(mode='default' opts out). reasoning: 'low'|'medium'|'high' for OpenAI reasoning models, the gateway, Anthropic and
-	Google (default 'medium'; on the gateway the model's own: bu-fast medium, bu-ultrafast low, bu-smart high).
+	Google (default 'medium'; on the gateway the model's own: bu-4.0 high, bu-fast medium, bu-ultrafast low, bu-smart high).
 	OpenAI-compatible chat backends (base_url servers) ignore it with a warning: pass ChatOpenAI(..., reasoning_effort=...)
 	to send reasoning_effort there. web_search: the agent gets search() (Browser Use web search, billed per search to the
 	Browser Use key). Off by default; True turns it on (raises without a Browser Use key, or with allowed_domains,
