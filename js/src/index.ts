@@ -449,7 +449,6 @@ export class BrowserUse {
         {
           messages: this.messages,
           control,
-          runId: this.runId,
           ...(journaled ? { eventsPath } : {}),
           checkpoint: async (messages, usage) => {
             recoveryCheckpoint = true;

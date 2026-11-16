@@ -3,45 +3,41 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Type } from 'typebox';
 import {
   createModels,
   fauxProvider,
   fauxAssistantMessage,
   fauxToolCall,
 } from '@earendil-works/pi-ai';
-import { runAgent } from '../dist/agent.js';
-import { RunControl } from '../dist/control.js';
+import { BrowserUse } from '../dist/index.js';
 
-test('every model request of a run carries the run id as its provider session (prompt_cache_key)', async () => {
+// Python 1.0.5 sends no prompt_cache_key. With the run id as one (a4e738d), 123 of 199 BU Bench runs had one full
+// cache miss mid-run and then alternated between the old and the new cache; 0 of 197 runs before it.
+test('BrowserUse.run sends no provider session, so OpenAI gets no prompt_cache_key or session headers', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'bu-cache-key-'));
+  const faux = fauxProvider({ tokensPerSecond: 1e6 });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const finish = (result) =>
+    fauxAssistantMessage(fauxToolCall('finish', { result }), { stopReason: 'toolUse' });
+  faux.setResponses([finish('one'), finish('two')]);
+  const sessions = [];
+  const agent = await BrowserUse.create({
+    judge: false,
+    model: `${faux.getModel().provider}/${faux.getModel().id}`,
+    models,
+    workspace,
+    streamFn: (model, context, options) => {
+      sessions.push(options?.sessionId);
+      return models.streamSimple(model, context, options);
+    },
+  });
   try {
-    const faux = fauxProvider({ tokensPerSecond: 1e6 });
-    const models = createModels();
-    models.setProvider(faux.provider);
-    faux.setResponses([
-      fauxAssistantMessage(fauxToolCall('javascript', { code: '1' }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage(fauxToolCall('finish', { result: 'ok' }), { stopReason: 'toolUse' }),
-    ]);
-    const sessions = [];
-    const result = await runAgent(
-      { beginRun() {}, execute: async () => ({ text: 'ok', images: [] }) },
-      { ...faux.getModel(), contextWindow: 250000 },
-      {
-        streamFn: (model, context, options) => {
-          sessions.push(options.sessionId);
-          return models.streamSimple(model, context, options);
-        },
-      },
-      workspace,
-      'task',
-      Type.String(),
-      {},
-      { messages: [], control: new RunControl(() => {}), save() {}, runId: 'run-123' },
-    );
-    assert.equal(result.status, 'completed');
-    assert.deepEqual(sessions, ['run-123', 'run-123']);
+    assert.equal((await agent.run('first')).status, 'completed');
+    assert.equal((await agent.run('second')).status, 'completed');
+    assert.deepEqual(sessions, [undefined, undefined]);
   } finally {
+    await agent.close();
     await rm(workspace, { recursive: true, force: true });
   }
 });
