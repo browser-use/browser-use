@@ -81,6 +81,17 @@ function printableKey(char: string): [string, number, boolean] | undefined {
   return punctuation && [punctuation[0], punctuation[1], shift];
 }
 
+const ENABLE_WAIT_MS = 4000;
+/** Waits for a command up to ms; its result or failure is ignored either way. */
+async function bounded(command: Promise<unknown>, ms: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    command.catch(() => {}),
+    new Promise((resolve) => (timer = setTimeout(resolve, ms))),
+  ]);
+  clearTimeout(timer);
+}
+
 /** A tab with explicit CDP, page evaluation and observation. No selector/action layer. */
 export class Page {
   private constructor(
@@ -115,15 +126,14 @@ export class Page {
       flatten: true,
     });
     const page = new Page(connection, targetId, sessionId);
-    try {
-      await page.cdp('Page.enable');
-      await page.cdp('Runtime.enable');
-      return page;
-    } catch (error) {
-      // The caller never receives this page, so it cannot release the failed attachment.
-      await connection.send('Target.detachFromTarget', { sessionId }).catch(() => {});
-      throw error;
-    }
+    // Python 1.0.5 (browser-harness daemon _enable_default_domains): the enables run in parallel, each awaited at most
+    // 4 s, and a slow or failed one never fails the attach; a late one still takes effect. Waiting 20 s for each in turn
+    // and throwing failed 32 BU Bench cells with "Page.enable exceeded 20000 ms", mostly tabs.get on a background tab.
+    await Promise.all([
+      bounded(page.cdp('Page.enable'), ENABLE_WAIT_MS),
+      bounded(page.cdp('Runtime.enable'), ENABLE_WAIT_MS),
+    ]);
+    return page;
   }
   async cdp<
     M extends keyof import('devtools-protocol/types/protocol-mapping.js').ProtocolMapping.Commands,
