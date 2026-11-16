@@ -126,7 +126,7 @@ async def test_the_default_model_without_a_key_is_counted_with_its_gate(events, 
 		'default_model',
 		'missing',
 		'none',
-		'bu-fast',
+		'bu-4.0',
 		True,
 	)
 	assert run['error_messages'] and 'Zq9' not in json.dumps(events)
@@ -336,7 +336,7 @@ async def test_a_key_store_error_sends_no_path(events, tmp_path, monkeypatch):
 			await agent.run()
 	runs = [e for e in events if e['event'] == 'agent_event']
 	assert [r['error_messages'] for r in runs] == [
-		['The default model (bu-fast) needs a Browser Use API key (corrupt_store)'],
+		['The default model (bu-4.0) needs a Browser Use API key (corrupt_store)'],
 		['Browser() (a Browser Use Cloud browser) needs a Browser Use API key (corrupt_store)'],
 	]
 	assert 'acme-payroll' not in json.dumps(events)
