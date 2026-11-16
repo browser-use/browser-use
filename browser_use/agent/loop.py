@@ -994,8 +994,13 @@ async def _compact(s: Session, messages: list[ModelMessage], request_context: Mo
 	path = s.repl.workspace / '.browser-use' / 'context' / f'{uuid.uuid4()}.json'
 	path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 	archive = {'version': 1, 'summary': response.text, 'covered_messages': cut, 'messages': plain}
-	with open(open_own(s.repl.workspace, path, os.O_WRONLY | os.O_CREAT | os.O_EXCL), 'w', encoding='utf-8') as f:  # noqa: ASYNC230
-		f.write(json.dumps(redact(archive, s.repl.secrets), ensure_ascii=False))
+	data = json.dumps(redact(archive, s.repl.secrets), ensure_ascii=False).encode()
+	fd = open_own(s.repl.workspace, path, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+	try:
+		while data:
+			data = data[os.write(fd, data) :]
+	finally:
+		os.close(fd)
 	users = [p.content for m in messages[:cut] if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, UserPromptPart)]
 	text = CHECKPOINT.format(path=json.dumps(str(path)), summary=json.dumps(response.text), users=json.dumps(users, default=str))
 	checkpoint = ModelRequest(parts=[UserPromptPart(text)])
