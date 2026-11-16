@@ -343,15 +343,15 @@ def _read_api_key_stdin() -> str:
 
 	from browser_harness import auth
 
-	from browser_use.auth import KEYS_URL
+	from browser_use.exceptions import keys_url
 	from browser_use.utils import urlopen_keyed
 
 	key = auth._read_manual_api_key()  # piped stdin, or a hidden prompt on a terminal; rejects empty and short input
 	if not key.startswith('bu_'):
-		raise auth.AuthError(f'that is not a Browser Use API key (they start with bu_); create one at {KEYS_URL} and paste it')
+		raise auth.AuthError(f'that is not a Browser Use API key (they start with bu_); create one at {keys_url()} and paste it')
 	if not key.isascii() or any(c.isspace() or not c.isprintable() for c in key):  # stored, it would break every request
 		raise auth.AuthError(
-			f'the key has a space, line break, control or non-ASCII character inside it; copy it again from {KEYS_URL} and paste it whole'
+			f'the key has a space, line break, control or non-ASCII character inside it; copy it again from {keys_url()} and paste it whole'
 		)
 	request = urllib.request.Request(f'{auth.auth_base()}/api/v4/browsers?pageSize=1', headers={'X-Browser-Use-API-Key': key})
 	try:  # one read-only call, so a mistyped or revoked key is never stored and "Signed in" is true
@@ -359,7 +359,7 @@ def _read_api_key_stdin() -> str:
 	except urllib.error.HTTPError as e:
 		if e.code == 401:  # a 403 is a real key without the browser scope: it still works for the bu-* models
 			raise auth.AuthError(
-				f'Browser Use Cloud rejected that key (HTTP 401); create one at {KEYS_URL} and paste it'
+				f'Browser Use Cloud rejected that key (HTTP 401); create one at {keys_url()} and paste it'
 			) from None
 	except OSError as e:
 		reason = getattr(e, 'reason', e)  # urllib wraps the handshake's error in URLError
@@ -373,55 +373,84 @@ def _read_api_key_stdin() -> str:
 	return key
 
 
+LOGIN_FLAGS = {'--device-code', '--api-key-stdin', '--json', '--no-open'}
+
+
 def _run_login_command(argv: list[str], *, automatic: bool = False) -> int:
-	"""Run login with the shared key store and record its outcome."""
+	"""browser-use login [--device-code | --api-key-stdin] [--no-open] [--json]: browser-harness's login, same key store
+	(~/.config/browser-harness/auth.json), so one login works everywhere. browser-use logout removes it. Over SSH or with
+	no display it signs in with a device code: the browser that approves cannot reach this machine's loopback callback.
+	automatic: the login a run starts on a missing key (auth._login_for_key): its link on stderr, no "Signed in" text.
+	Records library_auth login_started, then login_succeeded, login_failed (with its outcome) or login_cancelled."""
+	import json
 	import os
 
 	from browser_harness import auth
 
-	from browser_use.auth import harden_login_callback, record_auth_event, set_aside_corrupt_store
+	from browser_use.auth import (
+		DEVICE_CODE_HINT,
+		can_open_browser,
+		harden_login_callback,
+		login_method,
+		login_outcome,
+		record_auth_event,
+		set_aside_corrupt_store,
+		sign_in,
+	)
 
 	_set_harness_client_env()
 	command = ['login', *argv]
-	if any(arg in {'-h', '--help'} for arg in argv):
-		return _normalize_captured_cli_output(auth.run_auth_cli, command)
-	method = 'manual' if '--api-key-stdin' in argv else 'device' if '--device-code' in argv else 'browser'
+	if (
+		any(arg in {'-h', '--help'} for arg in argv)
+		or set(argv) - LOGIN_FLAGS
+		or {'--device-code', '--api-key-stdin'} <= set(argv)
+	):
+		return _normalize_captured_cli_output(auth.run_auth_cli, command)  # its help, or its usage error
+	json_output, open_url = '--json' in argv, '--no-open' not in argv
+	if '--api-key-stdin' in argv:
+		method = 'manual'
+	elif '--device-code' in argv:
+		method = 'device'
+	else:  # automatic: the caller picked it (auth.auto_login_method)
+		method = 'browser' if automatic else login_method(open_url)
+	if method == 'device' and '--device-code' not in argv and not json_output:
+		print('No browser here can finish a sign-in (SSH or no display): signing in with a device code.', file=sys.stderr)
 	record_auth_event('login_started', method=method, automatic=automatic)
 	try:  # Ctrl-C at the hidden key prompt, during the key check or while it waits for the approval: nothing stored
-		if '--api-key-stdin' in argv:
-			try:
-				sys.stdin = StringIO(_read_api_key_stdin())
-			except auth.AuthError as e:
-				print(e, file=sys.stderr)
-				record_auth_event('login_failed', method=method, automatic=automatic)
-				return 1
+		key = _read_api_key_stdin() if method == 'manual' else None
 		harden_login_callback()
 		if notice := set_aside_corrupt_store():
 			print(notice, file=sys.stderr)
-		if automatic:
-			start = auth.start_browser_auth(open_url='--no-open' not in argv)
-			print(f'Approve Browser Use access: {start.auth_url}', file=sys.stderr, flush=True)
-			auth.complete_browser_auth(start)
-			code = 0
+		if key is not None:
+			auth.api_key_stdin_login(json_output=json_output, input_stream=StringIO(key))
+		elif automatic:
+			sign_in(method, open_url=open_url and method == 'browser', out=sys.stderr)
+		elif method == 'device':
+			from browser_use.auth import mark_device_login
+
+			auth.device_login(open_url=open_url and can_open_browser(), json_output=json_output)
+			mark_device_login()
 		else:
-			code = auth.run_auth_cli(command)
-	except auth.AuthError as e:
-		print(e, file=sys.stderr)
-		record_auth_event('login_failed', method=method, automatic=automatic)
-		return 1
+			auth.browser_login(open_url=open_url, json_output=json_output)
 	except KeyboardInterrupt:
 		print('Login cancelled.', file=sys.stderr)
 		record_auth_event('login_cancelled', method=method, automatic=automatic)
 		return 130
-	except Exception:
-		record_auth_event('login_failed', method=method, automatic=automatic)
+	except (auth.AuthError, auth.CloudAuthRequired) as e:
+		print(json.dumps({'status': 'error', 'reason': str(e)}) if json_output else e, file=sys.stderr)
+		if 'browser auth callback' in str(e) and not json_output:
+			print(DEVICE_CODE_HINT, file=sys.stderr)
+		record_auth_event('login_failed', method=method, automatic=automatic, outcome=login_outcome(e))
+		return 1
+	except Exception as e:
+		record_auth_event('login_failed', method=method, automatic=automatic, outcome=login_outcome(e))
 		raise
-	record_auth_event('login_succeeded' if code == 0 else 'login_failed', method=method, automatic=automatic)
-	if code == 0 and '--json' not in argv and not automatic:
+	record_auth_event('login_succeeded', method=method, automatic=automatic)
+	if not json_output and not automatic:
 		print(LOGIN_DONE)
 		if os.environ.get('BROWSER_USE_API_KEY'):
 			print('Note: BROWSER_USE_API_KEY is set in this shell and takes precedence over the stored key.')
-	return code
+	return 0
 
 
 def _run_logout_command(argv: list[str]) -> int:
@@ -1142,6 +1171,9 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	try:
 		return _run_browser_harness(code), args[0] if args else 'run'
 	except CloudAuthRequired:  # its message names `browser-harness auth login`, not on PATH for `uv tool install browser-use`
+		from browser_use.auth import record_auth_event
+
+		record_auth_event('missing_key', key_gate='cli_cloud', key_reason='missing', entry='cli')
 		print('Not signed in to Browser Use Cloud. Run `browser-use login`, then retry.', file=sys.stderr)
 		return 1, args[0] if args else 'run'
 	except CloudBrowserError as e:
@@ -1180,8 +1212,10 @@ def browser_use_tui_main() -> int | None:
 
 def main() -> int | None:
 	global _delegated_to_harness
+	from browser_use.telemetry.auth_events import set_entry
 
 	_delegated_to_harness = False
+	set_entry('cli')  # library_auth entry; --mcp / --cli-mcp name themselves mcp
 	args = sys.argv[1:]
 	start_time = time.monotonic()
 	command = _command_name(args)
