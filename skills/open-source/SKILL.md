@@ -34,7 +34,7 @@ async def main():
 asyncio.run(main())
 ```
 
-`Agent(task).run_sync()` works outside async code (not inside a running event loop). Defaults: model `bu-fast` on
+`Agent(task).run_sync()` works outside async code (not inside a running event loop). Defaults: model `bu-4.0` on
 the Browser Use gateway, browser `Browser()` = a Browser Use Cloud browser.
 
 ## Agent
@@ -42,7 +42,7 @@ the Browser Use gateway, browser `Browser()` = a Browser Use Cloud browser.
 ```python
 Agent(
     task,                        # non-empty str
-    llm=None,                    # default ChatBrowserUse('bu-fast')
+    llm=None,                    # default ChatBrowserUse('bu-4.0')
     browser=None,                # default Browser() (cloud)
     tools=None,                  # Tools() with custom actions
     output_model_schema=None,    # pydantic model, Literal, enum...: result.structured_output
@@ -65,7 +65,7 @@ The result: `final_result()`, `structured_output`, `status` (`completed` | `max_
 ```python
 from browser_use import ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle
 
-ChatBrowserUse('bu-fast')                          # also 'bu-ultrafast', 'bu-smart'
+ChatBrowserUse('bu-4.0')                           # also 'bu-4.0-mini', 'bu-4.0-pro', 'bu-fast', 'bu-ultrafast', 'bu-smart'
 ChatOpenAI('gpt-6-luna')                           # OPENAI_API_KEY; Responses API
 ChatOpenAI('my-model', base_url='http://localhost:8000/v1', api_key='x')  # any OpenAI-compatible server
 ChatAnthropic('claude-haiku-5-5')                  # ANTHROPIC_API_KEY

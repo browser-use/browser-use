@@ -129,7 +129,7 @@ result = Agent('Find the number of stars of the browser-use repo').run_sync()
 print(result.final_result())
 ```
 
-Defaults: model `bu-fast` on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). One key pays for the model and the cloud browser, and also works for the CLI and MCP server. A `.env` file works too.
+Defaults: model `bu-4.0` (BU 4.0) on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). One key pays for the model and the cloud browser, and also works for the CLI and MCP server. A `.env` file works too.
 
 Without a key, an interactive desktop run opens Browser Use login and continues after approval.
 Login creates and saves the key automatically; no copying is needed.
@@ -208,7 +208,7 @@ The CLI and Python library can each connect to a local or cloud browser. A cloud
 <details>
 <summary><b>What's the best model to use?</b></summary>
 
-The default, `bu-fast` on the Browser Use gateway, is `gpt-6-luna` at medium reasoning. `llm='bu-ultrafast'` runs the same model at low reasoning on the priority tier (fastest), `llm='bu-smart'` a larger one. `ChatOpenAI('gpt-6-luna')` with your own OpenAI key runs the same model directly. See the [benchmark](https://github.com/browser-use/benchmark).
+The default is `bu-4.0` (BU 4.0) on the Browser Use gateway. `llm='bu-4.0-mini'` is the cost-efficient choice for simple tasks, and `llm='bu-4.0-pro'` is the most capable. The earlier models still work: `bu-fast` is `gpt-6-luna` at medium reasoning, `bu-ultrafast` the same model at low reasoning on the priority tier (fastest), and `bu-smart` a larger one. `ChatOpenAI('gpt-6-luna')` with your own OpenAI key runs that model directly. Models and prices: [docs](https://docs.browser-use.com/cloud/agent/models). See the [benchmark](https://github.com/browser-use/benchmark).
 </details>
 
 <details>
