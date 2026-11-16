@@ -394,6 +394,7 @@ def test_policy_reads_only_the_code_of_another_editable_install(tmp_path, monkey
 	assert not any(str(real / '.env').startswith(r) for r in p.read)
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='no sandbox on Windows, so open_own follows links there')
 def test_the_parent_reads_no_partial_result_or_download_log_through_a_link(tmp_path, outside):
 	"""The parent read partial.json and downloads.jsonl through links a sandboxed cell could plant: a JSON file outside
 	the workspace with a 'value' key became the run's partial result, and any file the user can read fed the downloads."""
