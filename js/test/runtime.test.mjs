@@ -260,7 +260,7 @@ test('oversized JPEG, PNG and WebP captures keep original artifacts and attach b
     assert.ok(source.height >= (format === 'webp' ? 6000 : 22000), format);
     const preview = Buffer.from(result.images[index].data, 'base64');
     const size = imageDimensions(preview);
-    assert.ok(size.width <= 2000 && size.height <= 2000, format);
+    assert.ok(size.width <= 2048 && size.height <= 2048, format); // Python 1.0.5 MAX_IMAGE_SIDE
     assert.notDeepEqual(original, preview, format);
   }
   assert.equal((await agent.execute('page.targetId === imageGuardTarget')).text, 'true');

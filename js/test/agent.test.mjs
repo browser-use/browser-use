@@ -1077,7 +1077,14 @@ for (const limit of ['max_steps', 'cost_limit', 'timeout', 'cancelled']) {
       call('javascript', {
         code: `let found=[{issue:'Broken search'}]; await checkpoint('findings.json',found,{partial:true}); found.push({issue:'not published'}); ${limit === 'timeout' ? 'while(true){}' : ''}`,
       }),
-      call('finish', { result: 'must not run' }),
+      // Python 1.0.5 cuts the looping cell at the delivery time and asks once more (delivery-only turn); the
+      // run ends while that answer is still coming.
+      limit === 'timeout'
+        ? async () => {
+            await new Promise((resolve) => setTimeout(resolve, 3000).unref());
+            return call('finish', { result: 'must not run' });
+          }
+        : call('finish', { result: 'must not run' }),
     ]);
     try {
       const result = await s.agent.run('Audit', {
@@ -1096,7 +1103,7 @@ for (const limit of ['max_steps', 'cost_limit', 'timeout', 'cancelled']) {
       assert.equal(result.output, undefined);
       assert.deepEqual(result.partial?.value, [{ issue: 'Broken search' }]);
       assert.equal(result.partial.path, join(s.agent.workspace, 'findings.json'));
-      assert.equal(s.faux.state.callCount, 1);
+      assert.equal(s.faux.state.callCount, limit === 'timeout' ? 2 : 1);
       s.faux.setResponses([call('javascript', { code: '42' })]);
       const next = await s.agent.followUp('Different scope', { maxSteps: 1 });
       assert.equal(next.status, 'max_steps');
