@@ -25,7 +25,7 @@ export interface BrowserUseOptions extends DomainOptions {
   /** Anonymous run counters. Disable with false, DO_NOT_TRACK=1 or ANONYMIZED_TELEMETRY=false. */
   telemetry?: boolean;
   /**
-   * provider/model ID, e.g. openai/gpt-5.4. Default browser-use/bu-fast (Python 1.0.5): the Browser Use gateway with
+   * provider/model ID, e.g. openai/gpt-5.4. Default browser-use/bu-4.0 (Python 1.0.6): the Browser Use gateway with
    * BROWSER_USE_API_KEY (or the Browser.cloud apiKey). A bare bu-* name means the gateway too.
    */
   model?: string;
