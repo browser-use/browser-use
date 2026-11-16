@@ -175,6 +175,7 @@ def test_sandbox_fails_closed_where_the_os_cannot_confine_the_worker(monkeypatch
 	with pytest.raises(ValueError, match='not available on Windows'):
 		Agent('t', model, browser=Browser('chromium'), sandbox=True)
 	monkeypatch.setattr(sys, 'platform', 'linux')
+	monkeypatch.setattr(sandbox, '_SYS_CREATE_RULESET', 444)  # Windows CI: no os.uname
 	monkeypatch.setattr(sandbox, 'landlock_abi', lambda: 0)
 	with pytest.raises(ValueError, match='needs Landlock'):
 		Agent('t', model, browser=Browser('chromium'), sandbox=True)
