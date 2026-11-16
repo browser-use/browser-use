@@ -439,7 +439,7 @@ class Agent:
 				'Agent(web_search=True) cannot be combined with allowed_domains: search would reach sites the browser may not open'
 			)
 		gateway = self._gateway
-		key = (gateway.api_key if gateway else None) or browser_use_api_key('Agent(web_search=True)')
+		key = (gateway.api_key if gateway else None) or browser_use_api_key('Agent(web_search=True)', auto_login=True)
 		return WebSearch(key, search_url(gateway.base_url if gateway else GATEWAY_URL))
 
 	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:

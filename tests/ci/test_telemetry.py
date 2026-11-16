@@ -105,6 +105,44 @@ def sent(monkeypatch):
 	return events
 
 
+@pytest.mark.parametrize('automatic', [False, True])
+def test_missing_default_model_key_records_an_anonymous_event_before_build(sent, monkeypatch, automatic):
+	from browser_use import auth
+	from browser_use.exceptions import MissingAPIKeyError
+	from browser_use.llm import ChatBrowserUse
+
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+	monkeypatch.setattr(auth, '_can_open_login', lambda: False)
+	with pytest.raises(MissingAPIKeyError):
+		if automatic:
+			ChatBrowserUse().pydantic_model()
+		else:
+			auth.browser_use_api_key()
+	assert len(sent) == 1
+	assert sent[0]['event'] == 'library_auth' and sent[0]['stage'] == 'missing_key'
+	assert sent[0]['automatic'] is automatic and sent[0]['method'] == ''
+	assert not {'api_key', 'user_id', 'email', 'auth_url'} & sent[0].keys()
+
+
+def test_auth_events_send_nothing_when_telemetry_is_disabled(posthog, monkeypatch):
+	from browser_use.auth import record_auth_event
+
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	record_auth_event('missing_key')
+	assert not posthog.telemetry._pending and posthog.telemetry._thread is None
+
+
+def test_available_key_records_only_its_source_once_per_process(sent, monkeypatch):
+	from browser_use import auth
+
+	key = 'bu_' + 'x' * 40
+	monkeypatch.setenv('BROWSER_USE_API_KEY', key)
+	monkeypatch.setattr(auth, '_reported_key_sources', set())
+	assert auth.browser_use_api_key() == auth.browser_use_api_key() == key
+	assert len(sent) == 1 and sent[0]['stage'] == 'key_available' and sent[0]['method'] == 'env'
+	assert key not in json.dumps(sent)
+
+
 @pytest.fixture
 def posthog(monkeypatch, tmp_path):
 	"""A local PostHog: the real sender (thread, gzip, /batch/) posts here. events() waits for n agent_events. With

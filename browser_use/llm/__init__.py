@@ -185,7 +185,7 @@ class ChatBrowserUse(_Chat):
 			)
 
 	def pydantic_model(self) -> Any:
-		key = self.api_key or browser_use_api_key(f'The default model ({self.model})')
+		key = self.api_key or browser_use_api_key(f'The default model ({self.model})', auto_login=True)
 		return gateway_model(self.model, key, self.base_url)
 
 	def model_settings(self) -> dict:
