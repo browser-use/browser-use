@@ -4,11 +4,11 @@ import { createAssistantMessageEventStream, type Api, type Model } from '@earend
 /** Python browser_use/llm: the Browser Use gateway, OpenAI Responses, one Browser Use API key for model and browser. */
 export const GATEWAY_URL = 'https://api.browser-use.com/api/v4/llm/v1';
 export const GATEWAY_PROVIDER = 'browser-use';
-/** Python DEFAULT_MODEL: gpt-6-luna, medium reasoning, default tier. */
-export const DEFAULT_MODEL = `${GATEWAY_PROVIDER}/bu-fast`;
+/** Python 1.0.6 DEFAULT_MODEL: BU 4.0 (also bu-4.0-mini, bu-4.0-pro). bu-fast: gpt-6-luna, medium; bu-ultrafast: low. */
+export const DEFAULT_MODEL = `${GATEWAY_PROVIDER}/bu-4.0`;
 const BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing';
 const PREFLIGHT_TIMEOUT_MS = 15_000;
-/** Python GATEWAY_UPSTREAM: other bu-* aliases run gpt-6-luna. */
+/** Python GATEWAY_UPSTREAM: other bu-* models get the gpt-6-luna request profile. */
 const UPSTREAM: Record<string, string> = {
   'bu-smart': 'gpt-6.1-sol',
   'bu-smart-v1': 'gpt-6.1-sol',
@@ -54,7 +54,7 @@ export function explainGatewayError(
   message?: string,
 ): string | undefined {
   if (status === 400 && (code === 'invalid_model' || code === 'model_not_on_gateway'))
-    return `${model} is not on the Browser Use gateway (400): ${message || 'use bu-fast, bu-ultrafast or bu-smart.'}`;
+    return `${model} is not on the Browser Use gateway (400): ${message || 'use bu-4.0, bu-4.0-mini or bu-4.0-pro.'}`;
   if (status === 401) return 'Browser Use API key rejected (401): check BROWSER_USE_API_KEY.';
   if (status === 402)
     return `Out of Browser Use credits (402): add credits at ${BILLING_URL} and run again`;
@@ -144,7 +144,7 @@ function chargeReader(body: ReadableStream<Uint8Array>, onCharge: (usd: number) 
 
 /**
  * Gateway requests: the Browser Use key, no reasoning effort for a bu-* alias unless the caller set one (the alias
- * carries its own: bu-fast medium, bu-ultrafast low, bu-smart high) with encrypted reasoning kept across stateless
+ * carries its own: bu-4.0 high, bu-fast medium, bu-ultrafast low, bu-smart high) with encrypted reasoning kept across stateless
  * turns, and each response's cost set to the gateway's charge_usd. Other providers pass through unchanged.
  */
 export function gatewayStream(

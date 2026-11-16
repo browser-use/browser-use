@@ -36,11 +36,13 @@ function mockFetch(handler) {
 }
 const json = (status, value) =>
   new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
-const MODELS = json(200, { data: [{ id: 'bu-fast' }, { id: 'bu-ultrafast' }, { id: 'bu-smart' }] });
+const MODELS = json(200, {
+  data: [{ id: 'bu-4.0' }, { id: 'bu-fast' }, { id: 'bu-ultrafast' }, { id: 'bu-smart' }],
+});
 
-test('no model means browser-use/bu-fast; a bare bu-* name is the gateway (Python DEFAULT_MODEL)', () => {
-  assert.equal(DEFAULT_MODEL, 'browser-use/bu-fast');
-  assert.equal(gatewayModelName(undefined), 'browser-use/bu-fast');
+test('no model means browser-use/bu-4.0; a bare bu-* name is the gateway (Python 1.0.6 DEFAULT_MODEL)', () => {
+  assert.equal(DEFAULT_MODEL, 'browser-use/bu-4.0');
+  assert.equal(gatewayModelName(undefined), 'browser-use/bu-4.0');
   assert.equal(gatewayModelName('bu-ultrafast'), 'browser-use/bu-ultrafast');
   assert.equal(gatewayModelName('openai/gpt-5.4'), 'openai/gpt-5.4');
   const model = gatewayModel('bu-fast', builtinModels().getModel('openai', 'gpt-6-luna'));
@@ -57,7 +59,7 @@ test('preflight GET /models: listed passes; unlisted, 401, 402 and unreachable n
   assert.equal(calls[0].headers.get('authorization'), 'Bearer bu_key');
   assert.match(
     await gatewayPreflight('bu-nope', 'bu_key'),
-    /^bu-nope is not on the Browser Use gateway\. Listed: bu-fast, bu-smart, bu-ultrafast\.$/,
+    /^bu-nope is not on the Browser Use gateway\. Listed: bu-4.0, bu-fast, bu-smart, bu-ultrafast\.$/,
   );
   mockFetch(() => json(401, { error: { code: 'unauthorized' } }));
   assert.match(await gatewayPreflight('bu-fast', 'bad'), /API key rejected \(401\)/);
@@ -149,7 +151,7 @@ test('gateway requests: Browser Use key, no effort for a bu-* alias, cost is cha
   assert.equal(second.usage.cost.total, 0);
 });
 
-test('create: no key fails before a browser; a failed preflight fails before a browser; bu-fast runs ultrafast', async (t) => {
+test('create: no key fails before a browser; a failed preflight fails before a browser; bu-fast runs ultrafast, the bu-4.0 default does not (Python 1.0.6)', async (t) => {
   delete process.env.BROWSER_USE_API_KEY;
   await assert.rejects(BrowserUse.create({}), /needs BROWSER_USE_API_KEY/);
   process.env.BROWSER_USE_API_KEY = 'bu_key';
@@ -161,14 +163,17 @@ test('create: no key fails before a browser; a failed preflight fails before a b
   const workspace = await mkdtemp(join(tmpdir(), 'bu-gateway-'));
   t.after(() => rm(workspace, { recursive: true, force: true }));
   mockFetch(() => MODELS.clone());
-  const agent = await BrowserUse.create({ browser: { cdpUrl: 'http://127.0.0.1:9' }, workspace });
+  const agent = await BrowserUse.create({
+    model: 'bu-fast',
+    browser: { cdpUrl: 'http://127.0.0.1:9' },
+    workspace,
+  });
   try {
     assert.equal((await agent.execute('console.log(typeof bu)')).text.trim(), 'object');
   } finally {
     await agent.close();
   }
   const plain = await BrowserUse.create({
-    model: 'browser-use/bu-smart',
     browser: { cdpUrl: 'http://127.0.0.1:9' },
     workspace,
   });

@@ -17,6 +17,11 @@ export interface CloudBrowserOptions {
   proxyCountryCode?: string;
   /** Default true. false switches the browser's automatic captcha solver off (Python Browser(captcha_solver=False)). */
   captchaSolver?: boolean;
+  /**
+   * Python 1.0.6 live_view: unset prints the interactive live view link to stderr, true also opens it, false hides it.
+   * Anyone with that link can drive the browser.
+   */
+  liveView?: boolean;
 }
 export interface ChromeBrowserOptions {
   cdpUrl?: string;
@@ -94,11 +99,38 @@ async function discoverChrome(options: ChromeBrowserOptions) {
   );
 }
 
+/** Python 1.0.6 Browser.start: print the live view link (stderr); open it only when asked. Never fails the browser. */
+export function showLiveView(
+  url: string,
+  open: boolean,
+  write = (line: string) => process.stderr.write(line),
+) {
+  try {
+    write(`Live view: ${url}\n`);
+  } catch {}
+  if (!open) return;
+  try {
+    const command =
+      process.platform === 'darwin'
+        ? 'open'
+        : process.platform === 'win32'
+          ? 'explorer'
+          : 'xdg-open';
+    void import('node:child_process').then(({ spawn }) =>
+      spawn(command, [url], { stdio: 'ignore', detached: true })
+        .on('error', () => {})
+        .unref(),
+    );
+  } catch {}
+}
+
 async function openCloud(options: CloudBrowserOptions) {
   if (typeof options.apiKey !== 'string' || !options.apiKey.trim())
     throw new Error('Browser.cloud requires apiKey.');
   if (options.captchaSolver !== undefined && typeof options.captchaSolver !== 'boolean')
     throw new Error('captchaSolver must be true or false.');
+  if (options.liveView !== undefined && typeof options.liveView !== 'boolean')
+    throw new Error('liveView must be true or false.');
   const timeout = options.timeoutMinutes ?? 30;
   if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 240)
     throw new Error('timeoutMinutes must be an integer from 1 to 240.');
@@ -140,6 +172,8 @@ async function openCloud(options: CloudBrowserOptions) {
       !['ws:', 'wss:', 'http:', 'https:'].includes(new URL(data.cdpUrl).protocol)
     )
       throw new Error('Cloud response missing valid cdpUrl.');
+    if (options.liveView !== false && typeof data.liveUrl === 'string' && data.liveUrl)
+      showLiveView(data.liveUrl, options.liveView === true);
     return { endpoint: data.cdpUrl, close };
   } catch (error) {
     try {
