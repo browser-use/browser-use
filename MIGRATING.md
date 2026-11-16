@@ -334,14 +334,14 @@ browser even after its daemon was killed (again on a stopped one: a no-op), and 
 
 `Browser('chrome', profile='Work', logins_for=['github.com', '*.atlassian.net'])` gives the agent the logins the task
 needs and no others. Patterns are hosts as in `allowed_domains`: `'github.com'` (and `www.github.com`) or
-`'*.atlassian.net'` (the domain and every subdomain); a scheme, path or port raises `ValueError`, and so does
+`'*.atlassian.net'` (the domain and every subdomain); a scheme, path, port or leading dot (`'.github.com'`) raises `ValueError`, and so does
 `logins_for` without `profile=`.
 
 What the copy holds:
 
 | Carried over | Left behind |
 |---|---|
-| `Local State` (it holds the cookie key on Windows) and the cookie database, holding only the cookies Chrome sends to a listed host (a domain cookie `.atlassian.net` is kept for `acme.atlassian.net`, which receives it). The others are deleted from the copied file before Chrome starts, so no startup request carries them, and again over CDP once it runs; the kept ones are written back unchanged and every cookie is read again before any daemon, tab or agent connects: one that should be gone fails the start | saved passwords (`Login Data`, `Login Data For Account`), autofill, cards and the Google account's tokens (`Web Data`, `Account Web Data`), history, bookmarks, sessions, settings, extensions, and the site storage of every site (`Local Storage`, `Session Storage`, `IndexedDB`, `Service Worker`, `WebStorage`) |
+| `Local State` (it holds the cookie key on Windows) and the cookie database, holding only the cookies Chrome sends to a listed host (a domain cookie `.atlassian.net` is kept for `acme.atlassian.net`, which receives it). The others are deleted from the copied file before Chrome starts, so Chrome never loads them; a file it cannot filter fails the start. Once Chrome runs, every cookie is read over CDP before any daemon, tab or agent connects: one of an unlisted site fails the start | saved passwords (`Login Data`, `Login Data For Account`), autofill, cards and the Google account's tokens (`Web Data`, `Account Web Data`), history, bookmarks, sessions, settings, extensions, and the site storage of every site (`Local Storage`, `Session Storage`, `IndexedDB`, `Service Worker`, `WebStorage`) |
 
 Site storage is not filtered per site: Local Storage is one LevelDB for all origins, and no CDP command lists the
 origins that have storage, so `Storage.clearDataForOrigin` cannot be pointed at the rest. A site that keeps its login

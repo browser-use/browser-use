@@ -313,9 +313,10 @@ def copy_profile(root: Path, directory: str, dest: Path, *, cookies_only: bool =
 
 
 def drop_cookies_on_disk(profile_dir: Path, patterns: tuple[str, ...]) -> int:
-	"""Delete the cookies of every other host from the copied cookie database before Chrome starts, so no request it
-	makes at startup carries them (or gets a rotated session cookie back) before keep_logins runs. host_key is plain
-	text; the encrypted values are never read. VACUUM: the deleted rows leave no bytes in the file. Returns the count."""
+	"""The filter of logins_for: delete the cookies of every other host from the copied cookie database before Chrome
+	starts, so Chrome never loads them and no request carries them. host_key is plain text; the encrypted values are
+	never read. VACUUM: the deleted rows leave no bytes in the file. A database it cannot filter (copied while Chrome
+	wrote it, an unknown schema) raises: Chrome would start on every cookie. Returns the count."""
 	import sqlite3
 
 	from browser_use.domains import cookie_for
@@ -332,73 +333,31 @@ def drop_cookies_on_disk(profile_dir: Path, patterns: tuple[str, ...]) -> int:
 					for h in drop:
 						deleted += con.execute('DELETE FROM cookies WHERE host_key = ?', (h,)).rowcount
 				con.execute('VACUUM')
-		except sqlite3.Error as e:  # an unknown schema: keep_logins still filters them over CDP
-			logger.warning('logins_for: could not filter %s before launch (%s); filtering over CDP only', db, e)
+		except sqlite3.Error as e:
+			raise RuntimeError(
+				f'logins_for: could not filter the copied cookies ({e}); Chrome may have been writing them, run again'
+			) from None
 	return deleted
 
 
-_COOKIE_PARAMS = ('name', 'value', 'path', 'secure', 'httpOnly', 'sameSite', 'priority', 'sourceScheme', 'sourcePort')
-
-
-def _cookie_param(c: dict) -> dict:
-	"""Storage.getCookies' cookie as Storage.setCookies takes it back unchanged. A host-only cookie ('github.com') is set
-	by URL: with domain= Chrome makes it a domain cookie ('.github.com'), and refuses that for a __Host- cookie."""
-	p = {k: c[k] for k in _COOKIE_PARAMS if k in c}
-	if not c.get('session'):
-		p['expires'] = c['expires']
-	if c.get('partitionKey'):
-		p['partitionKey'] = c['partitionKey']
-	if c['domain'].startswith('.'):
-		p['domain'] = c['domain']
-	else:
-		host = f'[{c["domain"]}]' if ':' in c['domain'] else c['domain']
-		p['url'] = f'{"https" if c.get("secure") or c.get("sourceScheme") == "Secure" else "http"}://{host}{c["path"]}'
-	return p
-
-
-def _cookie_id(c: dict) -> tuple:
-	return c['name'], c['domain'], c['path'], json.dumps(c.get('partitionKey'), sort_keys=True)
-
-
-def keep_logins(ws: str, patterns: tuple[str, ...]) -> tuple[int, int]:
-	"""Delete every cookie of the launched browser except those Chrome sends to a host the patterns match
-	(domains.cookie_for), then read the cookies back: one that should be gone raises. Runs before any daemon, tab
-	or agent connects. Returns (kept, deleted)."""
+def check_logins(ws: str, patterns: tuple[str, ...]) -> int:
+	"""After launch, before any daemon, tab or agent connects: every cookie the browser holds is one Chrome sends to a
+	listed host (domains.cookie_for), else the start fails. drop_cookies_on_disk is the filter; this only reads.
+	Returns the count."""
 	from websockets.sync.client import connect
 
 	from browser_use.domains import cookie_for
 
 	with connect(ws, open_timeout=10, close_timeout=1, max_size=None) as conn:
-		ids = iter(range(1, 1_000_000))
-
-		def cdp(method: str, **params) -> dict:
-			i = next(ids)
-			conn.send(json.dumps({'id': i, 'method': method, 'params': params}))
-			while True:
-				r = json.loads(conn.recv(timeout=30))
-				if r.get('id') == i:
-					if 'error' in r:
-						raise RuntimeError(f'{method} failed: {r["error"]}')
-					return r.get('result') or {}
-
-		cookies = cdp('Storage.getCookies')['cookies']
-		keep = [c for c in cookies if cookie_for(c['domain'], patterns)]
-		cdp('Storage.clearCookies')
-		try:
-			if keep:
-				cdp('Storage.setCookies', cookies=[_cookie_param(c) for c in keep])
-		except RuntimeError:  # one cookie Chrome no longer accepts fails them all: set the others one by one
-			for c in keep:
-				try:
-					cdp('Storage.setCookies', cookies=[_cookie_param(c)])
-				except RuntimeError as e:
-					logger.warning('logins_for: could not keep the cookie %r of %s: %s', c['name'], c['domain'], e)
-		left = cdp('Storage.getCookies')['cookies']
-	if stray := sorted({c['domain'] for c in left if not cookie_for(c['domain'], patterns)}):
-		raise RuntimeError(f'logins_for: cookies of {", ".join(stray[:10])} are still in the browser after the filter')
-	if lost := {_cookie_id(c) for c in keep} - {_cookie_id(c) for c in left}:
-		logger.warning('logins_for: %d of %d cookies to keep were not kept', len(lost), len(keep))
-	return len(left), len(cookies) - len(keep)
+		conn.send(json.dumps({'id': 1, 'method': 'Storage.getCookies'}))
+		while (r := json.loads(conn.recv(timeout=30))).get('id') != 1:
+			pass
+	if 'error' in r:
+		raise RuntimeError(f'logins_for: Storage.getCookies failed: {r["error"]}')
+	cookies = r['result']['cookies']
+	if stray := sorted({c['domain'] for c in cookies if not cookie_for(c['domain'], patterns)}):
+		raise RuntimeError(f'logins_for: the browser holds cookies of {", ".join(stray[:10])}, which are not listed')
+	return len(cookies)
 
 
 def _try_lock(f) -> bool:
@@ -512,7 +471,7 @@ class LocalBrowser:
 	) -> str:
 		"""Launch Chrome; returns its browser websocket URL. profile: copy that Chrome profile into a temp dir first.
 		user_data_dir: a dedicated dir that is kept (default: a temp dir deleted on stop). logins_for (with profile):
-		copy only the profile's cookies, and keep only those of these host patterns (keep_logins)."""
+		copy only the profile's cookies, and keep only those of these host patterns (drop_cookies_on_disk)."""
 		try:
 			return self._start(executable_path, headless, user_data_dir, profile, logins_for)
 		except BaseException:
@@ -551,11 +510,9 @@ class LocalBrowser:
 				raise
 			logger.warning('Chrome has no usable sandbox here; starting it with --no-sandbox')
 			ws = self._launch(binary, [*args[:-1], '--no-sandbox', args[-1]])
-		if profile is not None and logins_for is not None:
-			kept, deleted = keep_logins(ws, logins_for)
-			logger.info(
-				'Chrome profile %r: kept %d cookies for %s, deleted %d', profile, kept, ', '.join(logins_for), dropped + deleted
-			)
+		if logins_for is not None:
+			kept = check_logins(ws, logins_for)
+			logger.info('Chrome profile %r: kept %d cookies for %s, deleted %d', profile, kept, ', '.join(logins_for), dropped)
 		return ws
 
 	def _launch(self, binary: str, args: list[str]) -> str:

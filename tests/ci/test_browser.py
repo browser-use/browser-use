@@ -78,6 +78,8 @@ def test_browser_kinds_and_their_0x_aliases():
 		({'kind': 'chrome', 'profile': 'Work', 'logins_for': ['https://github.com']}, 'not a host pattern'),
 		({'kind': 'chrome', 'profile': 'Work', 'logins_for': ['github.com:443']}, 'not a host pattern'),
 		({'kind': 'chrome', 'profile': 'Work', 'logins_for': ['git*.com']}, 'not a host pattern'),
+		# cookie-style: matched only .github.com's domain cookies, so github.com's host-only login was dropped
+		({'kind': 'chrome', 'profile': 'Work', 'logins_for': ['.github.com']}, 'not a host pattern'),
 	],
 )
 def test_browser_options_that_do_not_fit_the_kind_raise_before_start(kwargs, match):

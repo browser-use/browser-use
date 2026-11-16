@@ -197,13 +197,14 @@ def _patterns(value: Any, option: str) -> tuple[str, ...]:
 def login_patterns(value: Any) -> tuple[str, ...]:
 	"""Browser('chrome', profile=..., logins_for=[...]): host patterns only, 'github.com' (with www.github.com) or
 	'*.atlassian.net' (atlassian.net and every subdomain), as in allowed_domains. A scheme, path, port or other glob
-	has no meaning for a cookie's domain, so it raises instead of matching nothing."""
+	has no meaning for a cookie's domain, so it raises instead of matching nothing; so does a cookie-style '.github.com',
+	which kept only github.com's domain cookies and dropped its host-only login."""
 	patterns = _patterns(value, 'logins_for')
 	if not patterns:
 		raise ValueError("Browser(logins_for=[]) keeps no logins: use Browser('chromium') for a browser without any")
 	for p in patterns:
 		host = p.strip().removeprefix('*.')
-		if any(c in host for c in '*/:@?#') or not host.strip('.'):
+		if any(c in host for c in '*/:@?#') or host.startswith('.') or not host.strip('.'):
 			raise ValueError(
 				f"Browser(logins_for=...): {p!r} is not a host pattern; use 'example.com' or '*.example.com' (no scheme, "
 				'path or port)'

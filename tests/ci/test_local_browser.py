@@ -300,7 +300,7 @@ def test_logins_for_copies_the_cookie_database_and_nothing_else(tmp_path):
 		(profile / name).write_text(name)
 	dest = tmp_path / 'copy'
 	_local.copy_profile(root, 'Default', dest, cookies_only=True)
-	copied = sorted(str(f.relative_to(dest)) for f in dest.rglob('*') if f.is_file())
+	copied = sorted(f.relative_to(dest).as_posix() for f in dest.rglob('*') if f.is_file())
 	assert copied == [
 		'Default/Cookies',
 		'Default/Cookies-journal',
@@ -326,6 +326,15 @@ def test_logins_for_deletes_other_sites_cookies_from_the_copy_before_chrome_star
 	with contextlib.closing(sqlite3.connect(db)) as con:
 		assert sorted(con.execute('SELECT host_key, name FROM cookies')) == [('.github.test', 'b'), ('github.test', 'a')]
 	assert b'google.test' not in db.read_bytes()
+
+
+def test_logins_for_refuses_to_launch_on_a_cookie_database_it_cannot_filter(tmp_path):
+	"""A copy taken while Chrome wrote it (or an unknown schema) only logged a warning, and Chrome then started on every
+	cookie of the profile: its startup requests could carry them before the check over CDP. Now nothing launches."""
+	db = tmp_path / 'Cookies'
+	db.write_bytes(b'not a database: .google.test SID')
+	with pytest.raises(RuntimeError, match='could not filter'):
+		_local.drop_cookies_on_disk(tmp_path, ('github.test',))
 
 
 def test_profile_copy_launches_in_chrome_with_the_real_keychain(tmp_path):
@@ -1168,9 +1177,9 @@ async def test_logins_for_launches_a_copy_with_only_the_listed_sites_cookies(chr
 	assert leaked == [] and b'google.test' not in cookie_db and b'other.atlassian.test' not in cookie_db
 
 
-def test_logins_for_filters_cookies_a_running_chrome_holds(chrome_binary):
-	"""The check over CDP after launch, on its own: cookies Chrome holds beyond its database (a session cookie) are
-	filtered too, and the kept ones come back with every field."""
+def test_logins_for_fails_the_start_on_a_cookie_of_another_site(chrome_binary):
+	"""The check over CDP after launch, on its own: it never changes a cookie, and a cookie of an unlisted site the
+	database filter missed fails the start instead of reaching the agent."""
 	from websockets.sync.client import connect
 
 	lb = _local.LocalBrowser()
@@ -1182,20 +1191,16 @@ def test_logins_for_filters_cookies_a_running_chrome_holds(chrome_binary):
 				conn.send(json.dumps({'id': i, 'method': method, 'params': params}))
 				return json.loads(conn.recv())['result']
 
-			cdp(
-				1,
-				'Storage.setCookies',
-				cookies=[
-					{'name': 'keep', 'value': '1', 'url': 'https://github.test/', 'secure': True, 'sameSite': 'Strict'},
-					{'name': 'drop', 'value': '2', 'domain': '.google.test', 'path': '/'},
-				],
-			)
+			keep = {'name': 'keep', 'value': '1', 'url': 'https://github.test/', 'secure': True, 'sameSite': 'Strict'}
+			cdp(1, 'Storage.setCookies', cookies=[keep])
 			before = cdp(2, 'Storage.getCookies')['cookies']
-			assert _local.keep_logins(ws, ('github.test',)) == (1, 1)
-			after = cdp(3, 'Storage.getCookies')['cookies']
+			assert _local.check_logins(ws, ('github.test',)) == 1
+			assert cdp(3, 'Storage.getCookies')['cookies'] == before
+			cdp(4, 'Storage.setCookies', cookies=[{'name': 'SID', 'value': '2', 'domain': '.google.test', 'path': '/'}])
+			with pytest.raises(RuntimeError, match=r'cookies of \.google\.test'):
+				_local.check_logins(ws, ('github.test',))
 	finally:
 		lb.stop()
-	assert after == [c for c in before if c['name'] == 'keep'] and after[0]['session']
 
 
 async def test_a_kept_user_data_dir_keeps_its_cookies_across_a_normal_stop(chrome_binary, tmp_path):
