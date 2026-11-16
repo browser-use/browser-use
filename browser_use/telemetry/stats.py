@@ -35,6 +35,7 @@ MAX_ERRORS, MAX_ERROR = 20, 300  # per run, characters per error message
 MAX_RESULT = 500  # characters of the final result
 MAX_GOTCHAS = 5  # the judge's gotchas per run (as judge.MAX_GOTCHAS)
 MAX_VISITS = 200  # challenged or walled visits kept per run
+MAX_BLOCKS = 20  # walled (vendor, host, outcome) groups sent per run
 CLI_CONTENT = ('task', 'output', 'steps')  # browser-harness cli_event fields that carry the code or its output
 
 
@@ -370,6 +371,36 @@ def judged(judgement: dict | None, cost: float | None, clean: Callable[[str], st
 		'description': clean(judgement['description']) or '',
 		'gotchas': [g for g in (clean(g) for g in judgement['gotchas'][:MAX_GOTCHAS]) if g],
 		'cost_usd': cost,
+	}
+
+
+def antibot_fields(stats: RunStats, judgement: dict | None = None, keys: int = MAX_KEYS) -> dict[str, Any]:
+	"""agent_event's anti-bot fields: walled pages by vendor, host and outcome (hosts as domains sends them), the vendors
+	whose challenges were passed, the vendors whose headers showed (the denominator of a block rate), and the run's label
+	from the detector and the judge together."""
+	walls = [
+		{
+			'vendor': b.vendor,
+			'host': host(b.url) or host(f'http://{b.host}/'),
+			'outcome': b.outcome,
+			'challenge': b.challenge,
+			'count': b.count,
+			'status': b.statuses[-1] if b.statuses else None,
+		}
+		for b in stats.blocks()[:MAX_BLOCKS]
+	]
+	passed = Counter(r.get('vendor') or 'unknown' for r in stats.visits.values() if r.get('outcome') == 'passed')
+	success, bot = (judgement or {}).get('success'), (judgement or {}).get('bot_block_or_captcha_detected')
+	if walls:
+		label = 'got_through' if success else 'blocked'  # as the end-of-run warning: none after a judged success
+	else:
+		label = 'judge_only' if success is False and bot else 'clean'  # a wall no rule knows: rule discovery
+	return {
+		'blocks': walls,
+		'blocked_label': label,
+		'antibot_passed': top(passed, keys),
+		'antibot_seen': top(stats.antibot_seen, keys),
+		'antibot_detector': antibot.DETECTOR_VERSION,
 	}
 
 

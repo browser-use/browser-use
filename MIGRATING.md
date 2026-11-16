@@ -370,7 +370,8 @@ longer word or number; `Agent` warns about such values):
 - anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited in the agent's own tabs
   (without ports, query strings or path tokens such as a reset or invite link's), error messages (only the class of an
   error the model's own code raised: its message quotes the page) and the final result, also with emails, API keys, bearer
-  tokens, `password=...` values and runs of 6+ digits (phone, card, account numbers, one-time codes) replaced. Never
+  tokens, `password=...` values and runs of 6+ digits (phone, card, account numbers, one-time codes) replaced, and the
+  anti-bot vendor, hostname and outcome of each page `result.blocks` lists. Never
   the task text, typed text, code or secrets. Provider-masked key fragments (`sk-...***...eeb`, `Incorrect API key
   provided: ...`) are replaced too. `ANONYMIZED_TELEMETRY=false` turns it off
 - `result.messages`: the model's text, thinking and tool-call arguments, and the retry messages that quote them back (a follow-up task continues the unredacted
