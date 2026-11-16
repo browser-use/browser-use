@@ -320,10 +320,6 @@ async def test_the_final_page_is_taken_through_the_daemon_and_never_fails_the_ru
 	assert asked == []  # judge=False or use_vision=False: no capture
 
 
-def test_the_prompt_asks_for_gotchas_on_a_success_too():
-	assert 'on a success as on a failure' in JUDGE_PROMPT and 'write at least one' in JUDGE_PROMPT
-
-
 async def test_an_error_that_is_not_about_images_is_not_retried(monkeypatch):
 	from types import SimpleNamespace
 

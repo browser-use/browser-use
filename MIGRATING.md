@@ -15,13 +15,13 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
 | | 0.x | 1.0 |
 |---|---|---|
-| Model (`llm=None`) | required | `bu-fast` on the Browser Use gateway (`gpt-6-luna`, medium reasoning; `bu-ultrafast` is the same model at low reasoning on the priority tier) |
+| Model (`llm=None`) | required | `bu-4.0` (BU 4.0, high reasoning, $1.80/$9.00 per 1M input/output tokens) on the Browser Use gateway; also `bu-4.0-mini` and `bu-4.0-pro`. `bu-fast` (`gpt-6-luna`, medium reasoning, $0.12/$0.60) and `bu-ultrafast` (the same model at low reasoning on the priority tier) still work |
 | Browser (`Browser()`) | local Chromium | Browser Use Cloud browser (`Browser('chromium')` / `local=True` for a local one) |
 | Key | per provider | one Browser Use key: `browser-use login` (stored in `~/.config/browser-harness/auth.json`, shared with the CLI, the MCP server and browser-harness) or `BROWSER_USE_API_KEY` (wins when set). A `.env` in the working directory is read on import, as in 0.x |
 | Python | >= 3.11 | >= 3.11 |
 | Tasks with localhost / private IPs | worked | a cloud browser cannot reach them: one warning, use `Browser('chromium')` |
 | Cloud proxy | the API's default, `us` | `us` (`cloud_proxy_country_code=None` turns it off) |
-| Cloud live view | | off (`live_view=True` prints and opens it) |
+| Cloud live view | | prints the link to stderr; `live_view=True` also opens it, `live_view=False` hides it |
 
 ## Agent(...) arguments
 
@@ -35,7 +35,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | 0.x argument | 1.0 |
 |---|---|
 | `task` | kept |
-| `llm` | kept: `ChatBrowserUse`, `ChatOpenAI`, `ChatAnthropic`, `ChatGoogle`, a Pydantic AI model string or Model. Default `bu-fast` |
+| `llm` | kept: `ChatBrowserUse`, `ChatOpenAI`, `ChatAnthropic`, `ChatGoogle`, a Pydantic AI model string or Model. Default `bu-4.0` |
 | `browser`, `browser_session` | kept: take a `Browser(...)` |
 | `tools`, `controller` | kept: take `Tools()` (see below) |
 | `output_model_schema` | kept: `result.structured_output` |
@@ -120,7 +120,7 @@ at module level.
 
 | 0.x | 1.0 |
 |---|---|
-| `ChatBrowserUse(model=...)` | kept: `bu-fast` (default), `bu-ultrafast`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. The 0.x gateway models `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` are rejected: keep `browser-use<1.0` for them, or use `bu-fast`. The 0.x gateway also served other vendors (`'anthropic/claude-sonnet-4-6'`, `'google/gemini-3-pro'`): the preflight error names `ChatAnthropic(...)` / `ChatGoogle(...)` with your own key. `'openai/gpt-5.5'` is sent as `gpt-5.5`. Before the browser starts, the agent reads the gateway's model list (free): a gateway that is not there, a rejected key or a model it does not list ends the run with `result.error` and no browser created. Gateway errors (400/401/402/403/404) come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged. Another gateway URL: `ChatBrowserUse(base_url=...)` (0.x's `BROWSER_USE_LLM_URL` is not read) |
+| `ChatBrowserUse(model=...)` | kept: `bu-4.0` (default), `bu-4.0-mini`, `bu-4.0-pro`, `bu-fast`, `bu-ultrafast`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. The 0.x gateway models `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` are rejected: keep `browser-use<1.0` for them, or use `bu-fast`. The 0.x gateway also served other vendors (`'anthropic/claude-sonnet-4-6'`, `'google/gemini-3-pro'`): the preflight error names `ChatAnthropic(...)` / `ChatGoogle(...)` with your own key. `'openai/gpt-5.5'` is sent as `gpt-5.5`. Before the browser starts, the agent reads the gateway's model list (free): a gateway that is not there, a rejected key or a model it does not list ends the run with `result.error` and no browser created. Gateway errors (400/401/402/403/404) come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged. Another gateway URL: `ChatBrowserUse(base_url=...)` (0.x's `BROWSER_USE_LLM_URL` is not read) |
 | `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL (`https://api.browser-use.com/api/v4/llm/v1`) is served as `ChatBrowserUse` (key: `api_key`, else a `bu_` key in `OPENAI_API_KEY`, else the Browser Use key); any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept, built in (no extra needed). Other 0.x arguments raise `TypeError` naming the answer: `ChatAnthropic(temperature=...)`: delete it (Anthropic's API answers 400 to `temperature` on Claude 4.x models); the rest: a Pydantic AI model with `settings=`, e.g. `GoogleModel('gemini-flash-latest', settings={'temperature': 0.5})` (`from pydantic_ai.models.google import GoogleModel`) or `AnthropicModel('claude-...', settings={'max_tokens': 8000})` |
 | LangChain chat models (`langchain_openai.ChatOpenAI`, `langchain_anthropic.ChatAnthropic`, ...) | not supported: `Agent(llm=...)` raises `TypeError`. Use `from browser_use import ChatOpenAI` (same `model=`), or a Pydantic AI model string like `'openai:gpt-4o'` |

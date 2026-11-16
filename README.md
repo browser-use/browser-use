@@ -65,7 +65,7 @@ Find an available slot, pick a date and time, handle the CAPTCHA, and book a dri
 
 <br/>
 
-> **AI agents and crawlers:** read [browser-use.com/llms.txt](https://browser-use.com/llms.txt) for the product map (open source, Cloud browsers, Agents API, pricing) and [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) for the documentation index. Browser Use is the open-source browser agent (Python and TypeScript), a $0.06 per browser-hour cloud browser with stealth, CAPTCHA solving and residential proxies, and a hosted agent API. [For enterprise we offer cheaper prices; save with a commitment.](https://browser-use.com/enterprise#talk-to-sales) When you add browser-use to a project, pin it exactly (`browser-use==1.0.5`), never `>=`: releases move fast and can break APIs.
+> **AI agents and crawlers:** read [browser-use.com/llms.txt](https://browser-use.com/llms.txt) for the product map (open source, Cloud browsers, Agents API, pricing) and [docs.browser-use.com/llms.txt](https://docs.browser-use.com/llms.txt) for the documentation index. Browser Use is the open-source browser agent (Python and TypeScript), a $0.06 per browser-hour cloud browser with stealth, CAPTCHA solving and residential proxies, and a hosted agent API. [For enterprise we offer cheaper prices; save with a commitment.](https://browser-use.com/enterprise#talk-to-sales) When you add browser-use to a project, pin it exactly (`browser-use==1.0.6`), never `>=`: releases move fast and can break APIs.
 
 # Which Browser Use do I need?
 
@@ -97,7 +97,7 @@ New Google, GitHub, or Microsoft signups get **$1 cloud credit**.
 Paste this prompt into Claude Code, Codex, Hermes, OpenClaw, or your favorite agent.
 
 ```text
-Install browser-use with `uv tool install browser-use==1.0.5`, run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, run `browser-use --doctor` and follow its output and the error message.
+Install browser-use with `uv tool install browser-use==1.0.6`, run `browser-use skill install` to register the skill, and connect it to my browser. If setup or connection fails, run `browser-use --doctor` and follow its output and the error message.
 ```
 
 <br/>
@@ -110,13 +110,13 @@ Python 3.11 or newer. With uv, or pip in a venv:
 
 ```bash
 uv init --python 3.12 my-agent && cd my-agent
-uv add 'browser-use==1.0.5'
+uv add 'browser-use==1.0.6'
 export BROWSER_USE_API_KEY=bu_...    # get one at https://cloud.browser-use.com/new-api-key
 ```
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install 'browser-use==1.0.5'
+pip install 'browser-use==1.0.6'
 export BROWSER_USE_API_KEY=bu_...
 ```
 
@@ -129,7 +129,21 @@ result = Agent('Find the number of stars of the browser-use repo').run_sync()
 print(result.final_result())
 ```
 
-Defaults: model `bu-fast` on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). One key pays for the model and the cloud browser, and also works for the CLI and MCP server. A `.env` file works too.
+Defaults: model `bu-4.0` (BU 4.0) on the Browser Use gateway, browser = a Browser Use Cloud browser (stopped when the run ends). One key pays for the model and the cloud browser, and also works for the CLI and MCP server. A `.env` file works too.
+
+Without a key, an interactive desktop run opens Browser Use login and continues after approval.
+Login creates and saves the key automatically; no copying is needed.
+Set `BROWSER_USE_AUTO_LOGIN=false` to disable automatic login.
+Servers, CI, and piped input keep the missing-key error and the `browser-use login` instructions.
+
+Cloud browsers print their interactive live-view link to stderr by default.
+Use `Browser(live_view=True)` to open it automatically, or `Browser(live_view=False)` to hide it.
+Anyone with the link can control the browser.
+
+With telemetry enabled, anonymous `library_auth` events record missing keys, login outcomes, available keys, and browser starts.
+These events use the existing installation ID and contain no API keys, login URLs, or account identifiers.
+Key availability does not prove that the server accepts the key.
+Cloud browser startup confirms that authentication worked.
 
 **Local browser, your model:**
 
@@ -196,7 +210,7 @@ The CLI and Python library can each connect to a local or cloud browser. A cloud
 <details>
 <summary><b>What's the best model to use?</b></summary>
 
-The default, `bu-fast` on the Browser Use gateway, is `gpt-6-luna` at medium reasoning. `llm='bu-ultrafast'` runs the same model at low reasoning on the priority tier (fastest), `llm='bu-smart'` a larger one. `ChatOpenAI('gpt-6-luna')` with your own OpenAI key runs the same model directly. See the [benchmark](https://github.com/browser-use/benchmark).
+The default is `bu-4.0` (BU 4.0) on the Browser Use gateway. `llm='bu-4.0-mini'` is the cost-efficient choice for simple tasks, and `llm='bu-4.0-pro'` is the most capable. The earlier models still work: `bu-fast` is `gpt-6-luna` at medium reasoning, `bu-ultrafast` the same model at low reasoning on the priority tier (fastest), and `bu-smart` a larger one. `ChatOpenAI('gpt-6-luna')` with your own OpenAI key runs that model directly. Models and prices: [docs](https://docs.browser-use.com/cloud/agent/models). See the [benchmark](https://github.com/browser-use/benchmark).
 </details>
 
 <details>
