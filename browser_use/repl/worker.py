@@ -543,7 +543,6 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha, Cal
 		AGENT_TAB['id'] = raw_send({'meta': 'current_tab'})['targetId']
 		unmark()
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
-	blocks.remote = cloud  # our cloud browsers send their own verdicts (BrowserUse.blockDetected)
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
 	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
 

@@ -4,8 +4,8 @@ A port of the cloud driver's blockdetect rules (detector_version 1, the header a
 runs use one vendor and outcome enum. It reads only what CDP gives without running script in the page: the main
 document's status and headers (Network.responseReceived, already in the daemon's event stream), the tab's title
 (Target.getTargetInfo) and selector and text hits (DOM.performSearch, CSS or XPath, which walks the DOM in Chrome and
-never runs page JS). Our cloud browsers classify each visit themselves and send BrowserUse.blockDetected; on them the
-local rules stay off.
+never runs page JS). Our cloud browsers also classify each walled visit and send BrowserUse.blockDetected: its verdict
+replaces the local one of that visit.
 
 Outcomes: ok, passed (challenged, then got through), blocked, stuck (still on a challenge or captcha), rate_limited, geo,
 auth_wall, queue. WALLS are the ones that left the user in front of a wall.
@@ -246,10 +246,17 @@ class _View:
 	def nodes(self) -> tuple[int, int]:
 		return self.count('text_nodes'), self.count('long_text')
 
+	def bare(self) -> bool:
+		n, long = self.nodes()
+		return self.read and n <= THIN_NODES and not long
+
 	def thin(self) -> bool:
 		"""A near-empty page; text alone flagged a tiny test page, so it also needs an error or a vendor title."""
-		n, long = self.nodes()
-		return self.read and n <= THIN_NODES and not long and (self.status != 200 or vendor_title(self.title) != '')
+		return self.bare() and (self.status != 200 or vendor_title(self.title) != '')
+
+	def deny_page(self) -> bool:
+		"""Shaped like a deny page, so a deny phrase on it means one: an error status, a vendor title or near-empty."""
+		return self.status >= 400 or vendor_title(self.title) != '' or self.bare()
 
 	def short(self) -> bool:
 		n, long = self.nodes()
@@ -259,8 +266,7 @@ class _View:
 		"""A challenge header still describes the page: a page can clear without a new document."""
 		if not self.page:
 			return True
-		n, long = self.nodes()
-		if self.read and n <= THIN_NODES and not long or vendor_title(self.title):
+		if self.bare() or vendor_title(self.title):
 			return True
 		return any(self.hit(h) for h in _WALL_HITS)
 
@@ -308,14 +314,16 @@ class _Rules(_View):
 		return self.status == 403 and self.cloudflare() and not self.h('cf-mitigated') and self.hit('cf_deny_code')
 
 	def cf_block_page(self):
-		return ('attention required' in self.title and 'cloudflare' in self.title) or self.hit('t_blocked')
+		title = 'attention required' in self.title and 'cloudflare' in self.title
+		return title or (self.hit('t_blocked') and self.deny_page())
 
 	def akamai_403(self):
 		return akamai_blocked(self.status, self.doc.headers)
 
 	def akamai_ref_code(self):
-		# the driver matches the reference code's shape in the text; here the phrase, from the Akamai edge or a deny page
-		return self.hit('t_akamai_ref') and (akamai_edge(self.doc.headers) or self.hit('t_access_denied'))
+		# the driver matches the reference code's shape in the text; here the phrase on a deny page, behind the Akamai edge
+		edge = akamai_edge(self.doc.headers) or self.hit('t_access_denied')
+		return self.hit('t_akamai_ref') and edge and self.deny_page()
 
 	def vercel_deny(self):
 		return self.h('x-vercel-mitigated') == 'deny'
@@ -496,9 +504,12 @@ class Visit:
 	vendors: set[str] = field(default_factory=set)
 
 	def merges(self, at: float, doc: Doc) -> bool:
+		"""A challenge clearing; never a block, which a later page of the site does not undo."""
 		if site(host_of(doc.url)) != site(host_of(self.doc.url)) or at - self.at > MERGE_WINDOW_S:
 			return False
-		return self.last.outcome != 'ok' or self.doc.status in CHALLENGE_STATUSES
+		if self.last.outcome == 'ok':
+			return self.doc.status in CHALLENGE_STATUSES
+		return self.last.outcome in ('stuck', 'rate_limited')
 
 	def add_doc(self, at: float, doc: Doc, loader: str) -> None:
 		self.doc, self.at, self.loader, self.reads, self.changed = doc, at, loader, 0, True
@@ -574,11 +585,12 @@ class BlockLog:
 	"""Visits of the worker's top frames, from the daemon's events and a probe at each cell's end. take() hands the
 	visits that changed (their latest verdict, by visit id) to the cell's stats."""
 
-	def __init__(self, remote: bool = False):
-		self.remote = remote  # a Browser Use cloud browser: its BrowserUse.blockDetected verdicts only
+	def __init__(self):
 		self.visits: dict[str, Visit] = {}  # frame id -> its current visit
+		self.done: list[tuple[str, Visit]] = []  # (frame, visit) a later document replaced before take() saw its end
 		self.tops: set[str] = set()  # frames seen as top frames (no parent)
 		self.reported: list[dict] = []  # cloud verdicts since the last take()
+		self.cloud_ids: set[str] = set()  # visits a cloud browser decided: its verdict wins over the local one
 		self.lock = threading.Lock()  # events arrive on the worker's background reader; probe() and take() on the main thread
 
 	def observe(self, events) -> None:
@@ -589,8 +601,6 @@ class BlockLog:
 			with self.lock:
 				if method == BLOCK_EVENT:
 					self._cloud(params)
-				elif self.remote:
-					continue
 				elif method == 'Network.responseReceived' and params.get('type') == 'Document':
 					self._document(params)
 				elif method == 'Page.frameNavigated' and not (params.get('frame') or {}).get('parentId'):
@@ -598,9 +608,11 @@ class BlockLog:
 
 	def _cloud(self, p: dict) -> None:
 		status, confidence = p.get('status'), p.get('confidence')
+		visit_id = str(p.get('visitId') or p.get('targetId') or '')  # the driver's visitId is its first loader id, as ours
+		self.cloud_ids.add(visit_id)
 		self.reported.append(
 			{
-				'id': str(p.get('visitId') or p.get('targetId') or ''),
+				'id': visit_id,
 				'host': str(p.get('host') or '').lower(),
 				'url': '',
 				'outcome': str(p.get('outcome') or ''),
@@ -621,19 +633,26 @@ class BlockLog:
 		at = float(params.get('timestamp') or time.monotonic())
 		visit = self.visits.get(frame)
 		if visit is None or not (visit.loader == loader or visit.merges(at, doc)):  # same loader: a probe saw it first
-			self.visits.pop(frame, None)  # re-inserted last: the oldest frames go first
-			visit = self.visits[frame] = Visit(loader or f'{frame}:{at}', doc, at)
-			if len(self.visits) > MAX_VISITS:
-				self.visits.pop(next((f for f in self.visits if f not in self.tops), next(iter(self.visits))))
+			visit = self._start(frame, Visit(loader or f'{frame}:{at}', doc, at))
 		visit.add_doc(at, doc, loader)
+
+	def _start(self, frame: str, visit: Visit) -> Visit:
+		"""The frame's new visit. The one it replaces waits in done for take(), unless take() already has its verdict."""
+		old = self.visits.pop(frame, None)  # re-inserted last: the oldest frames go first
+		if old is not None and (old.changed or not old.counted):
+			self.done.append((frame, old))
+			if len(self.done) > MAX_VISITS:
+				self.done.pop(next((i for i, (f, _) in enumerate(self.done) if f not in self.tops), 0))
+		self.visits[frame] = visit
+		if len(self.visits) > MAX_VISITS:
+			self.visits.pop(next((f for f in self.visits if f not in self.tops), next(iter(self.visits))))
+		return visit
 
 	def probe(self, cdp: Callable[..., dict]) -> None:
 		"""Read the attached tab, at most twice per document: frame tree and title, then on a page that could be a wall
 		one union of the DOM queries; when that matched, or the page has an error status or a vendor title, the rules
 		run the queries they need, in order, until one matches. cdp(method, **params) is the worker's raw CDP; a
 		failure leaves the visit as it was."""
-		if self.remote:
-			return
 		deadline = time.monotonic() + PROBE_BUDGET_S
 
 		def call(method: str, **params) -> dict:
@@ -652,7 +671,7 @@ class BlockLog:
 				visit = self.visits.get(frame)
 				if visit is None or visit.loader != loader:  # no document event seen for this load (an older tab)
 					doc = Doc(0, {}, url, str(root.get('mimeType') or ''))
-					visit = self.visits[frame] = Visit(loader or url, doc, float('-inf'), loader=loader)
+					visit = self._start(frame, Visit(loader or url, doc, float('-inf'), loader=loader))
 				if not _html(visit.doc.mime) or (visit.probed == loader and visit.reads >= 2):
 					return
 				doc = visit.doc
@@ -690,11 +709,12 @@ class BlockLog:
 		)
 
 	def take(self) -> dict:
-		"""{'visits': [result of each visit that changed and is not plainly ok], 'seen': {vendor: new visits}}."""
+		"""{'visits': [result of each visit that changed and is not plainly ok], 'seen': {vendor: new visits}}. A cloud
+		browser's verdicts come last and replace the local ones of their visits."""
 		seen: Counter = Counter()
+		visits: list[dict] = []
 		with self.lock:
-			visits, self.reported = self.reported, []
-			for frame, visit in self.visits.items():
+			for frame, visit in [*self.done, *self.visits.items()]:
 				if not visit.changed or frame not in self.tops:
 					continue
 				visit.changed = False
@@ -702,8 +722,10 @@ class BlockLog:
 					visit.counted = True
 					seen.update(visit.vendors)
 				r = visit.result()
-				if r['outcome'] != 'ok':
+				if r['outcome'] != 'ok' and r['id'] not in self.cloud_ids:
 					visits.append(r)
+			visits += self.reported
+			self.done, self.reported = [], []
 		return {'visits': visits, 'seen': dict(seen)}
 
 
