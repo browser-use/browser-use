@@ -42,7 +42,6 @@ test('pressKey sends the key, code and key code a US keyboard sends (browser-har
       code: 'Enter',
       modifiers: 0,
       windowsVirtualKeyCode: 13,
-      nativeVirtualKeyCode: 13,
       text: '\r',
     },
     {
@@ -51,7 +50,6 @@ test('pressKey sends the key, code and key code a US keyboard sends (browser-har
       code: 'Enter',
       modifiers: 0,
       windowsVirtualKeyCode: 13,
-      nativeVirtualKeyCode: 13,
     },
   ]);
   // Printable: keyDown without text, then a char event with it; uppercase adds Shift.
@@ -80,6 +78,8 @@ test('pressKey sends the key, code and key code a US keyboard sends (browser-har
     ],
   );
   assert.ok(sent().every((m) => m.sessionId === 's1'));
+  // Python 1.0.5 drops nativeVirtualKeyCode: macOS Chrome read it as a Mac key code (chrome://settings/help).
+  assert.ok(events.every((e) => !('nativeVirtualKeyCode' in e)));
 });
 
 test('typeText inserts text; scroll sends a mouse wheel, positive dy is down', async () => {

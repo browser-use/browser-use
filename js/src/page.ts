@@ -230,7 +230,9 @@ export class Page {
       [code, vk] = resolved ? [resolved[0], resolved[1]] : ['', 0];
       if (resolved?.[2] && !(modifiers & 7)) modifiers |= 8;
     }
-    const base = { key, code, modifiers, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk };
+    // No nativeVirtualKeyCode: macOS Chrome reads browser-harness's Windows code as a Mac one, so a printable key on
+    // a visible tab also opened chrome://settings/help. Python 1.0.5's worker drops it from every CDP call.
+    const base = { key, code, modifiers, windowsVirtualKeyCode: vk };
     const printable = [...key].length === 1 && !!text && !(modifiers & 7);
     await this.cdp('Input.dispatchKeyEvent', {
       type: 'keyDown',
