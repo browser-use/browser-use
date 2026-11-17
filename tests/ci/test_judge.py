@@ -33,11 +33,13 @@ def fake_browser(monkeypatch):
 
 
 @pytest.fixture
-def sent(monkeypatch):
-	"""The properties each agent_event would send, built as the telemetry thread builds them."""
+def captured(monkeypatch):
+	"""The properties of each event that would be sent, by event name, built as the telemetry thread builds them."""
+	from collections import defaultdict
+
 	import browser_use.telemetry.service as telemetry
 
-	events = []
+	events: defaultdict[str, list[dict]] = defaultdict(list)
 
 	class FakeTelemetry:
 		enabled = True
@@ -46,10 +48,16 @@ def sent(monkeypatch):
 			pass
 
 		def capture_run(self, job):
-			events.append(job.build(200, 50))
+			events[job.name].append(job.build(200, 50))
 
 	monkeypatch.setattr(telemetry, 'telemetry', FakeTelemetry)
 	return events
+
+
+@pytest.fixture
+def sent(captured):
+	"""The properties each agent_event would send."""
+	return captured['agent_event']
 
 
 def agent(model, tmp_path, **kwargs):
@@ -360,3 +368,50 @@ def test_a_hidden_tab_is_not_captured(monkeypatch):
 	monkeypatch.setattr(browser_module, '_daemon_request', daemon)
 	assert Browser(local=True)._screenshot(10) is None
 	assert asked == ['Runtime.evaluate']  # never activated, never captured
+
+
+LIBRARY_JUDGEMENT_KEYS = {
+	'surface', 'judge_source', 'version', 'run_id', 'model', 'success', 'failure_reason', 'description',
+	'prompt_injection_detected', 'bot_block_or_captcha_detected', 'gotchas', 'hosts', 'cost_usd', 'texts_withheld',
+	'schema_version', 'is_internal',
+}  # fmt: skip
+
+
+async def test_a_judged_run_also_sends_library_judgement_with_the_same_scrubbed_answer(captured, fake_browser, tmp_path):
+	"""The one schema of every surface: library_judgement next to agent_event.judgement, which stays as it was."""
+	leaky = {**VERDICT, 'success': False, 'failure_reason': 'Mail jane.doe@example.com for the price is 10'}
+	leaky['gotchas'] = [f'g{i} https://shop.test/p?session=Zq9' for i in range(7)]
+	model, _ = script(FINISH, ('final_result', leaky))
+	await agent(model, tmp_path, judge_context='the price is 10').run()
+	(run,) = captured['agent_event']
+	(event,) = captured['library_judgement']
+	assert LIBRARY_JUDGEMENT_KEYS <= set(event)
+	assert (event['surface'], event['judge_source'], event['schema_version']) == ('python', 'judge', 1)
+	assert (event['run_id'], event['model'], event['version']) == (run['run_id'], run['model'], run['version'])
+	assert (event['success'], event['bot_block_or_captcha_detected'], event['texts_withheld']) == (False, True, False)
+	assert event['failure_reason'] == 'Mail <email> for <task>'
+	assert event['gotchas'] == [f'g{i} https://shop.test/p' for i in range(5)]
+	assert event['hosts'] == [] and event['cost_usd'] == run['judgement']['cost_usd']
+	assert {k: run['judgement'][k] for k in ('failure_reason', 'gotchas')} == {k: event[k] for k in ('failure_reason', 'gotchas')}
+	assert 'texts_withheld' not in run['judgement']  # agent_event.judgement unchanged without ZDR
+	assert 'Zq9' not in str(captured) and 'the price is 10' not in str(captured)
+
+
+async def test_zdr_sends_both_judgements_without_their_texts(captured, fake_browser, tmp_path, monkeypatch):
+	monkeypatch.setenv('BROWSER_USE_ZDR', '1')
+	leaky = {**VERDICT, 'success': False, 'failure_reason': 'Zq9 reason', 'description': 'Zq9 did things'}
+	leaky['gotchas'] = ['Zq9 gotcha']
+	model, _ = script(FINISH, ('final_result', leaky))
+	await agent(model, tmp_path).run()
+	(run,) = captured['agent_event']
+	(event,) = captured['library_judgement']
+	for j in (run['judgement'], event):
+		assert (j['failure_reason'], j['description'], j['gotchas'], j['texts_withheld']) == (None, '', [], True)
+		assert (j['success'], j['bot_block_or_captcha_detected']) == (False, True)
+	assert 'Zq9' not in str(captured)
+
+
+async def test_an_unjudged_run_sends_no_library_judgement(captured, fake_browser, tmp_path):
+	model, _ = script(FINISH)
+	await agent(model, tmp_path, judge=False).run()
+	assert len(captured['agent_event']) == 1 and not captured['library_judgement']

@@ -809,7 +809,7 @@ class Agent:
 		"""One agent_event per run: counts, names, hostnames and classes, the URLs visited without query strings, error
 		messages and the final result, scrubbed of secrets and credentials (stats.scrub). Never the task text, typed
 		text, code or secrets. Here, on the run's path, only what can change after the run is copied; the event is built
-		in the telemetry thread (build())."""
+		in the telemetry thread (build()). A judged run also sends library_judgement (telemetry/judgement.py)."""
 		try:
 			from browser_use.telemetry.service import Job, telemetry
 			from browser_use.telemetry.stats import (
@@ -949,6 +949,18 @@ class Agent:
 				return event.properties
 
 			telemetry().capture_run(Job('agent_event', build, run_id=meta['run_id']))
+			if judgement is not None:  # the same judgement as library_judgement, the one schema of every surface
+				from browser_use.telemetry import judgement as library_judgement
+
+				def build_judgement() -> dict[str, Any]:
+					forms = secret_forms(secrets) if secrets else []
+					clean = judged(judgement, judge_cost, lambda text: scrub(text, forms, MAX_ERROR, tasks, stats.typed)) or {}
+					hosts = top(stats.domains, library_judgement.MAX_HOSTS)  # hostnames, as agent_event's domains
+					return library_judgement.properties(
+						'python', 'judge', clean, hosts=hosts, model=fields['model'], run_id=meta['run_id']
+					)
+
+				library_judgement.capture(build_judgement)
 		except Exception as e:  # - telemetry never breaks a run
 			logger.debug('telemetry failed: %s', e)
 			with contextlib.suppress(Exception):

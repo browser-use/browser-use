@@ -38,6 +38,16 @@ class Config:
 		return value != '' and value[0] in 'ty1'  # '' in 'ty1' is True: an empty value left telemetry on
 
 	@property
+	def BROWSER_USE_OFFLINE(self) -> bool:
+		"""BROWSER_USE_OFFLINE=1: browser-use sends no telemetry at all, not even feedback the user sends themselves."""
+		return os.getenv('BROWSER_USE_OFFLINE', '').strip().lower()[:1] in ('t', 'y', '1')
+
+	@property
+	def BROWSER_USE_ZDR(self) -> bool:
+		"""BROWSER_USE_ZDR=1 (zero data retention): judgements go out without their texts (texts_withheld)."""
+		return os.getenv('BROWSER_USE_ZDR', '').strip().lower()[:1] in ('t', 'y', '1')
+
+	@property
 	def BROWSER_USE_CONFIG_DIR(self) -> Path:
 		xdg = Path(os.getenv('XDG_CONFIG_HOME', '~/.config')).expanduser()
 		path = Path(os.getenv('BROWSER_USE_CONFIG_DIR', str(xdg / 'browseruse'))).expanduser().resolve()

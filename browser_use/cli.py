@@ -51,7 +51,7 @@ def _scrub_harness_telemetry() -> None:
 	if not getattr(enabled, '__bu_scrubbed__', False):
 
 		def is_enabled() -> bool:
-			return bool(CONFIG.ANONYMIZED_TELEMETRY) and enabled()
+			return bool(CONFIG.ANONYMIZED_TELEMETRY) and not CONFIG.BROWSER_USE_OFFLINE and enabled()
 
 		is_enabled.__bu_scrubbed__ = True  # type: ignore[attr-defined]
 		telemetry.is_enabled = is_enabled
@@ -188,7 +188,8 @@ def _run_mcp_server(command: str = 'browser-use --mcp') -> int:
 	# Chrome, or go to sites it was kept off.
 	print(
 		f'{command} is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
-		'browser_login, browser_feedback) on its own Chromium; browser-use --cli-mcp drives your own Chrome instead.',
+		'browser_login, browser_feedback, browser_report_run) on its own Chromium; browser-use --cli-mcp drives your own '
+		'Chrome instead.',
 		file=sys.stderr,
 	)
 	from browser_use.domains import DomainRules
@@ -475,8 +476,8 @@ def _run_feedback_command(argv: list[str]) -> int:
 	sender = telemetry()
 	sender.notice = False  # the CLI's stderr stays its own
 	job = feedback.capture('cli', text, args.category, consent=True)
-	if job is None:  # run by a model's code (BU_MODEL_CODE)
-		print(feedback.MODEL_CODE, file=sys.stderr)
+	if job is None:  # BROWSER_USE_OFFLINE=1, or run by a model's code (BU_MODEL_CODE)
+		print(feedback.OFFLINE if feedback.off_text() == feedback.OFFLINE else feedback.MODEL_CODE, file=sys.stderr)
 		return 1
 	if not sender.flush(10) or job.sent is None:  # still sending at exit: the exit sender takes it
 		print('Sending your feedback to the Browser Use team in the background. Thanks!')
@@ -792,6 +793,18 @@ class _HarnessStderr:
 		return getattr(self._wrapped, name)
 
 
+def _report_run(
+	success: bool, failure_reason: str | None = None, gotchas: Any = (), bot_block: bool = False, description: str = ''
+) -> str:
+	"""report_run() in the piped code: one library_judgement (surface 'cli', judge_source 'self') with the coding agent's
+	own verdict and gotchas, scrubbed; nothing with usage stats off or BROWSER_USE_OFFLINE=1. 3 per call at most."""
+	from browser_use.telemetry.judgement import report_run
+	from browser_use.telemetry.service import telemetry
+
+	telemetry().notice = False  # the CLI's stderr stays its own
+	return report_run(success, failure_reason, gotchas, bot_block, description)
+
+
 def _run_browser_harness(code: str | None = None) -> int | None:
 	import os
 
@@ -819,6 +832,7 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	# The Agent's http_get, plain HTTP from this machine: browser-harness's sends the URL and headers to the fetch-use
 	# proxy whenever BROWSER_USE_API_KEY is set (localhost and intranet URLs then fail, Authorization leaves the machine)
 	run.http_get = worker.http_get
+	run.report_run = _report_run  # type: ignore[attr-defined]  # the piped code reports its own run (library_judgement)
 	args = sys.argv[1:]
 	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
 		from browser_use import harness_cloud
@@ -1018,7 +1032,8 @@ Commands:
                                       print or install the agent skill
   browser-use feedback "what happened" [--category bug|docs|missing|other]
                                       tell the Browser Use team what went wrong with browser-use
-  browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback)
+  browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback,
+                                      browser_report_run)
   browser-use --version               print the versions
 Update: uv tool install browser-use@latest (or pip install -U browser-use). A call that cannot reach a browser asks
 PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=1 turns that off.

@@ -10,7 +10,7 @@ The agent's model and an MCP client's are not the user: with usage stats off the
 under BU_MODEL_CODE=1 (the REPL worker, the --cli-mcp server and what either starts): its browser_use.feedback() and
 `browser-use feedback` send nothing and point it at report_issue() or browser_feedback. Best effort, not a boundary:
 that code can unset the variable, and it can reach the network anyway; the flag only keeps the model off the user's
-path by mistake."""
+path by mistake. BROWSER_USE_OFFLINE=1 sends nothing, the user's own call included."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ CATEGORIES = ('bug', 'docs', 'missing', 'other')
 MAX_MESSAGE = 2000  # characters
 MAX_PER_RUN = 3  # report_issue() calls sent per Agent.run(), browser_feedback calls per MCP server process
 OFF = 'Feedback is off (ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable`): nothing was sent.'
+OFFLINE = 'Feedback is off (BROWSER_USE_OFFLINE=1): nothing was sent.'
 SENT = 'Reported to the Browser Use team. Thanks; carry on.'
 MODEL_CODE = 'From an agent cell use report_issue(...), from an MCP client the browser_feedback tool: nothing was sent.'
 MCP_TOOL = {  # browser_feedback, on --cli-mcp and on the server that only reports why nothing can run (cli.py)
@@ -44,6 +45,13 @@ MCP_TOOL = {  # browser_feedback, on --cli-mcp and on the server that only repor
 }
 
 
+def off_text() -> str:
+	"""What a report that was not sent says: OFFLINE or OFF."""
+	from browser_use.config import CONFIG
+
+	return OFFLINE if CONFIG.BROWSER_USE_OFFLINE else OFF
+
+
 def capture(
 	source: str,
 	message: Any,
@@ -56,12 +64,15 @@ def capture(
 	**run: Any,
 ) -> Job | None:
 	"""Queue one library_feedback event; its Job, or None when nothing was queued (no text, usage stats off without
-	consent, or the user's path called from a model's code). Scrubbed in the telemetry thread, as agent_event: secrets
+	consent, BROWSER_USE_OFFLINE=1, or the user's path called from a model's code). Scrubbed in the telemetry thread, as agent_event: secrets
 	(sensitive_data), each task and each typed text as placeholders when given. run: the agent's model, run_id, step
 	and last_error_type."""
+	from browser_use.config import CONFIG
 	from browser_use.telemetry.service import Job, telemetry
 
 	text = message.strip() if isinstance(message, str) else ''
+	if CONFIG.BROWSER_USE_OFFLINE:  # nothing at all, the user's own feedback included
+		return None
 	if source in ('python', 'cli') and os.environ.get('BU_MODEL_CODE'):  # a model's report under the user's name
 		return None
 	sender = telemetry()
@@ -88,7 +99,8 @@ def feedback(message: str, category: str = 'bug') -> bool:
 	"""Tell the Browser Use team what went wrong with browser-use: a bug, wrong docs, a missing feature. category: 'bug',
 	'docs', 'missing' or 'other'. Sent in the background, also with usage stats off (you asked to send it); secrets,
 	API keys, emails, URL queries and home folders in the text are replaced before it leaves. True if it was queued;
-	False from an agent cell or an MCP client's code (they report with report_issue() or browser_feedback)."""
+	False with BROWSER_USE_OFFLINE=1, or from an agent cell or an MCP client's code (they report with report_issue() or
+	browser_feedback)."""
 	return capture('python', message, category, consent=True) is not None
 
 
@@ -105,7 +117,7 @@ def mcp_call(arguments: dict) -> tuple[str, bool]:
 	if _mcp_sent >= MAX_PER_RUN:
 		return f'Already reported {MAX_PER_RUN} issues this session: nothing more was sent.', False
 	if not capture('mcp', message, arguments.get('category', 'bug')):
-		return OFF, False
+		return off_text(), False
 	_mcp_sent += 1
 	return SENT, False
 
@@ -130,7 +142,7 @@ class RunReports:
 		from browser_use.telemetry.service import telemetry
 
 		if not telemetry().enabled:
-			return OFF
+			return off_text()
 		if self.sent >= MAX_PER_RUN:
 			return f'Already reported {MAX_PER_RUN} issues this run: nothing more was sent.'
 		steps = self.rec.steps if self.rec is not None else []

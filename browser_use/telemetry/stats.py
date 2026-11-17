@@ -348,9 +348,14 @@ def provider_name(provider: Any) -> str:
 
 def judged(judgement: dict | None, cost: float | None, clean: Callable[[str], str | None]) -> dict | None:
 	"""The judge's whole answer as agent_event sends it: its text fields scrubbed (clean, as error messages), at most
-	MAX_GOTCHAS gotchas, and what the judge cost. None when the run was not judged."""
+	MAX_GOTCHAS gotchas, and what the judge cost. None when the run was not judged. BROWSER_USE_ZDR=1: the texts empty
+	(failure_reason None, description '', no gotchas) and texts_withheld True."""
+	from browser_use.config import CONFIG
+
 	if judgement is None:
 		return None
+	if CONFIG.BROWSER_USE_ZDR:
+		return {**judgement, 'failure_reason': None, 'description': '', 'gotchas': [], 'cost_usd': cost, 'texts_withheld': True}
 	return {
 		**judgement,
 		'failure_reason': clean(judgement['failure_reason']) if judgement['failure_reason'] else None,

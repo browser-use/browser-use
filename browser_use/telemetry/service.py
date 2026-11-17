@@ -4,7 +4,8 @@ and POSTs it (3 s timeout, one retry); a failed send goes to an outbox the next 
 queued go to a detached sender process, so a one-shot script neither waits for the network nor loses its event.
 ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable`: no thread, no network, no files; only feedback the user
 sends themselves (Job.consent: browser_use.feedback(), `browser-use feedback`) is sent, and nothing else with it: under
-an id of this process (no device_id file), sent once or dropped (no outbox)."""
+an id of this process (no device_id file), sent once or dropped (no outbox). BROWSER_USE_OFFLINE=1: nothing at all,
+that feedback included."""
 
 from __future__ import annotations
 
@@ -221,7 +222,7 @@ class ProductTelemetry:
 
 	@property
 	def enabled(self) -> bool:
-		return CONFIG.ANONYMIZED_TELEMETRY and not harness_disabled()
+		return CONFIG.ANONYMIZED_TELEMETRY and not CONFIG.BROWSER_USE_OFFLINE and not harness_disabled()
 
 	def _own(self) -> None:
 		"""A forked child (a multiprocessing pool on Linux) starts with none of the parent's thread, queue, runs or
@@ -242,7 +243,8 @@ class ProductTelemetry:
 						logger.info(
 							'Using anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited (without '
 							'query strings), error messages and the final result. Never the task text, typed text, code or '
-							'secrets. ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable` turns it off.'
+							'secrets. ANONYMIZED_TELEMETRY=false or `browser-use telemetry disable` turns it off, '
+							'BROWSER_USE_OFFLINE=1 turns off every send.'
 						)
 					atexit.register(self._at_exit)
 					self._atexit = True
@@ -263,7 +265,7 @@ class ProductTelemetry:
 			logger.debug('telemetry: %s', e)
 
 	def capture_run(self, job: Job) -> None:
-		if not (self.enabled or job.consent):
+		if CONFIG.BROWSER_USE_OFFLINE or not (self.enabled or job.consent):
 			self._active.pop(job.run_id, None)
 			return
 		try:
@@ -406,7 +408,7 @@ class ProductTelemetry:
 		OpenSSL: a CLI call that exited as its thread began its first send segfaulted (0.6% of offline calls on macOS)."""
 		global _tls
 		with self._lock:
-			if self._exiting:
+			if self._exiting or CONFIG.BROWSER_USE_OFFLINE:  # set after events were queued: they stay unsent
 				return False
 			if _tls is None:
 				from browser_use.utils import tls_context
@@ -575,7 +577,7 @@ class ProductTelemetry:
 		An event the thread is still POSTing is handed on too: its request may not have left yet (a CLI call's first send
 		is still connecting), and a second copy carries the same uuid, timestamp and distinct_id, which PostHog keeps once."""
 		try:
-			if os.getpid() != self._pid:
+			if os.getpid() != self._pid or CONFIG.BROWSER_USE_OFFLINE:
 				return
 			locked = self._lock.acquire(timeout=0.5)  # held by the thread for one rename or its TLS setup (~10 ms)
 			self._exiting = True

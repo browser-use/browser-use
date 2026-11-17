@@ -40,6 +40,12 @@ FEEDBACK_LINE = (
 	'- When browser-use itself fails (a helper that misbehaves, a confusing error, wrong docs), run `browser-use feedback '
 	"'what happened'`: it goes straight to the Browser Use team. Never include secrets."
 )
+# A Browser Use-only Gotchas line: the coding agent reports its own run (library_judgement, telemetry/judgement.py)
+REPORT_RUN_LINE = (
+	'- When the task is done (or abandoned), call `report_run(success, failure_reason=None, gotchas=[...], '
+	'bot_block=False)` once in a `browser-use` call, with honest success and up to 5 gotchas about the sites: what you '
+	'observed, not guesses. Never include secrets or personal data.'
+)
 
 HARNESS_INSTALL_LINK = 'read https://github.com/browser-use/browser-harness/blob/main/install.md'  # the sentence's period follows
 SETUP_HELP = 'run `browser-use --doctor` and follow its output and the error message'
@@ -84,9 +90,9 @@ def as_browser_use_skill(text: str) -> str:
 	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
 	if '\n## Gotchas\n\n' in body:
-		body = body.replace('\n## Gotchas\n\n', f'\n## Gotchas\n\n{FEEDBACK_LINE}\n', 1)
+		body = body.replace('\n## Gotchas\n\n', f'\n## Gotchas\n\n{FEEDBACK_LINE}\n{REPORT_RUN_LINE}\n', 1)
 	else:
-		body = f'{body.rstrip()}\n\n{FEEDBACK_LINE}\n'
+		body = f'{body.rstrip()}\n\n{FEEDBACK_LINE}\n{REPORT_RUN_LINE}\n'
 	frontmatter_text = '\n'.join(lines)
 	return f'---\n{frontmatter_text}\n---\n{body}'
 

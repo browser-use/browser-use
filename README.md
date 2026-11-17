@@ -145,6 +145,12 @@ These events use the existing installation ID and contain no API keys, login URL
 Key availability does not prove that the server accepts the key.
 Cloud browser startup confirms that authentication worked.
 
+A judged run also sends one anonymous `library_judgement` event: success, the judge's scrubbed failure reason,
+description and gotchas, the hostnames visited (no paths or queries) and the judge's cost. The CLI's `report_run(...)`
+and the MCP server's `browser_report_run` tool send the same event with the coding agent's own verdict.
+`ANONYMIZED_TELEMETRY=false` turns usage telemetry off. `BROWSER_USE_OFFLINE=1` sends nothing at all, feedback included.
+`BROWSER_USE_ZDR=1` sends judgements without their texts (`texts_withheld: true`).
+
 **Local browser, your model:**
 
 ```python

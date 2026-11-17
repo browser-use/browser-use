@@ -269,6 +269,35 @@ class FeedbackEvent(BaseTelemetryEvent):
 	name: str = 'library_feedback'
 
 
+@dataclass
+class LibraryJudgementEvent(BaseTelemetryEvent):
+	"""One per judged or self-reported run, the same fields on every Browser Use surface (telemetry/judgement.py). Texts
+	scrubbed (stats.scrub), 300 chars each, 5 gotchas at most; empty with BROWSER_USE_ZDR=1 (texts_withheld). Hostnames
+	only, never a URL's path or query; never the task, page text, typed text, code or secrets."""
+
+	version: str
+	surface: str  # python | js | cli | cli-mcp | harness-cli | harness-mcp
+	judge_source: str  # judge (a separate judge request) | self (the calling agent's own report_run)
+	success: bool
+	run_id: str | None = None  # joins agent_event
+	model: str | None = None  # the judging model (judge); None for self
+	failure_reason: str | None = None
+	description: str = ''
+	prompt_injection_detected: bool = False
+	bot_block_or_captcha_detected: bool = False
+	gotchas: list[str] = field(default_factory=list)
+	hosts: list[str] = field(default_factory=list)  # 20 at most
+	cost_usd: float | None = None  # the judge's
+	texts_withheld: bool = False  # BROWSER_USE_ZDR=1: failure_reason, description and gotchas sent empty
+	is_internal: bool = False
+
+	name: str = 'library_judgement'
+
+	@property
+	def properties(self) -> dict[str, Any]:
+		return {**super().properties, 'schema_version': 1}  # its own schema, not agent_event's
+
+
 if not TYPE_CHECKING:  # pyright would accept any name imported from here
 	from browser_use.legacy import removed_names
 
