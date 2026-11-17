@@ -148,6 +148,73 @@ async def test_gallery_retries_failed_setup_without_losing_tab_or_session(failur
 			)
 
 
+async def test_gallery_detach_clears_last_frame():
+	info = {'targetId': 'tab', 'type': 'page', 'title': 'Still open', 'url': 'about:blank'}
+	detach = asyncio.Event()
+
+	async def fake_cdp(ws):
+		async for raw in ws:
+			request = json.loads(raw)
+			result = {}
+			if request['method'] == 'Target.setDiscoverTargets':
+				await ws.send(json.dumps({'method': 'Target.targetCreated', 'params': {'targetInfo': info}}))
+			elif request['method'] == 'Target.attachToTarget':
+				result = {'sessionId': 'session'}
+			await ws.send(json.dumps({'id': request['id'], 'result': result}))
+			if request['method'] == 'Page.startScreencast':
+				await ws.send(
+					json.dumps(
+						{'method': 'Page.screencastFrame', 'sessionId': 'session', 'params': {'data': 'old', 'sessionId': 1}}
+					)
+				)
+				await detach.wait()
+				await ws.send(json.dumps({'method': 'Target.detachedFromTarget', 'params': {'sessionId': 'session'}}))
+
+	async with serve(fake_cdp, '127.0.0.1', 0) as server:
+		port = server.sockets[0].getsockname()[1]
+		async with Gallery(f'ws://127.0.0.1:{port}') as gallery:
+			async with connect(gallery.url.replace('http:', 'ws:').replace('/?', '/events?')) as viewer:
+				await snapshot(viewer, lambda tabs: tabs.get('tab', {}).get('frame') == 'old')
+				detach.set()
+				await snapshot(viewer, lambda tabs: 'tab' in tabs and not tabs['tab'].get('frame'))
+			assert not gallery._sessions
+
+
+async def test_gallery_stalled_retry_does_not_delay_other_tabs(monkeypatch):
+	gallery = Gallery('unused')
+	gallery.tabs = {target: {'id': target, 'title': 'Old'} for target in ('stalled', 'later')}
+	attempts = []
+	refreshed = asyncio.Event()
+	polls = 0
+
+	async def call(method, session=None, **params):
+		nonlocal polls
+		if method == 'Target.getTargets':
+			polls += 1
+			if polls >= 2:
+				refreshed.set()
+			return {'targetInfos': [{'targetId': target, 'title': 'New', 'url': 'about:blank'} for target in gallery.tabs]}
+		if method == 'Target.attachToTarget':
+			target = params['targetId']
+			attempts.append(target)
+			if target == 'stalled':
+				await asyncio.Event().wait()
+			return {'sessionId': target}
+		return {}
+
+	monkeypatch.setattr(gallery, '_call', call)
+	gallery._spawn(gallery._refresh_titles())
+	try:
+		await asyncio.wait_for(refreshed.wait(), 3)
+		# Let the second refresh's attach tasks run to detect duplicate retries.
+		await asyncio.sleep(0)
+		assert gallery.tabs['later']['title'] == 'New'
+		assert gallery._sessions == {'later': 'later'}
+		assert attempts == ['stalled', 'later']
+	finally:
+		await gallery.__aexit__()
+
+
 async def test_gallery_enlarging_tab_without_frame_clears_previous_image(chrome):
 	async with Gallery(chrome['ws']) as gallery, connect(chrome['ws']) as browser:
 		cdp = CDP(browser)
@@ -165,14 +232,18 @@ async def test_gallery_enlarging_tab_without_frame_clears_previous_image(chrome)
 				'Runtime.evaluate',
 				session,
 				expression="""(() => {
-					enlarge({title:'First', url:'about:blank', frame:'previous'});
+					const tab = {id:'detached', title:'First', url:'about:blank', frame:'previous'};
+					socket.onmessage({data:JSON.stringify({tabs:[tab]})});
+					socket.onmessage({data:JSON.stringify({tabs:[{...tab, frame:null}]})});
+					const tile = tiles.get(tab.id).querySelector('img').getAttribute('src');
+					enlarge(tab);
 					const previous = document.querySelector('#detail-img').getAttribute('src');
 					enlarge({title:'Second', url:'about:blank'});
-					return [previous, document.querySelector('#detail-img').getAttribute('src')];
+					return [previous, document.querySelector('#detail-img').getAttribute('src'), tile];
 				})()""",
 				returnByValue=True,
 			)
-			assert result['result']['value'] == ['data:image/jpeg;base64,previous', None]
+			assert result['result']['value'] == ['data:image/jpeg;base64,previous', None, None]
 		finally:
 			await cdp.call('Target.closeTarget', targetId=target)
 

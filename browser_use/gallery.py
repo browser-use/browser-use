@@ -41,7 +41,7 @@ socket.onclose=()=>{document.querySelector('#status').textContent='Disconnected'
 document.querySelector('#close').onclick=()=>detail.close();detail.onclick=e=>{if(e.target===detail)detail.close()};
 socket.onmessage=e=>{const {tabs}=JSON.parse(e.data);document.querySelector('#count').textContent=`${tabs.length} open tab${tabs.length===1?'':'s'}`;document.querySelector('#empty').hidden=!!tabs.length;
 for(const [id,tile] of tiles)if(!tabs.some(t=>t.id===id)){tile.remove();tiles.delete(id);if(selected===id)detail.close()}
-tabs.forEach((tab,i)=>{let tile=tiles.get(tab.id);if(!tile){tile=document.createElement('button');tile.className='tile';tile.innerHTML='<div class="info"><span class="number"></span><div class="labels"><div class="title"></div><div class="url"></div></div><span class="expand">&#8599;</span></div><img alt="Live browser tab">';tile.onclick=()=>{selected=tab.id;enlarge(tab);detail.showModal()};tiles.set(tab.id,tile);grid.append(tile)}tile.querySelector('.number').textContent=String(i+1).padStart(2,'0');tile.querySelector('.title').textContent=tab.title||'Untitled';tile.querySelector('.url').textContent=tab.url;if(tab.frame)tile.querySelector('img').src='data:image/jpeg;base64,'+tab.frame;if(selected===tab.id)enlarge(tab)});
+tabs.forEach((tab,i)=>{let tile=tiles.get(tab.id);if(!tile){tile=document.createElement('button');tile.className='tile';tile.innerHTML='<div class="info"><span class="number"></span><div class="labels"><div class="title"></div><div class="url"></div></div><span class="expand">&#8599;</span></div><img alt="Live browser tab">';tile.onclick=()=>{selected=tab.id;enlarge(tab);detail.showModal()};tiles.set(tab.id,tile);grid.append(tile)}tile.querySelector('.number').textContent=String(i+1).padStart(2,'0');tile.querySelector('.title').textContent=tab.title||'Untitled';tile.querySelector('.url').textContent=tab.url;if(tab.frame)tile.querySelector('img').src='data:image/jpeg;base64,'+tab.frame;else tile.querySelector('img').removeAttribute('src');if(selected===tab.id)enlarge(tab)});
 };
 function enlarge(tab){document.querySelector('#detail-title').textContent=tab.title;document.querySelector('#detail-url').textContent=tab.url;if(tab.frame)document.querySelector('#detail-img').src='data:image/jpeg;base64,'+tab.frame;else document.querySelector('#detail-img').removeAttribute('src')}
 </script></html>"""
@@ -131,7 +131,7 @@ class Gallery:
 				for info in infos:
 					if info['targetId'] in self.tabs:
 						self.tabs[info['targetId']].update(title=info['title'], url=info['url'])
-						await self._attach(info['targetId'])
+						self._spawn(self._attach(info['targetId']))
 			except Exception:
 				return
 
@@ -192,7 +192,9 @@ class Gallery:
 					self.tabs.pop(target, None)
 					self._sessions = {s: t for s, t in self._sessions.items() if t != target}
 				elif method == 'Target.detachedFromTarget':
-					self._sessions.pop(params['sessionId'], None)
+					target = self._sessions.pop(params['sessionId'], None)
+					if target in self.tabs:
+						self.tabs[target].pop('frame', None)
 				elif method == 'Page.screencastFrame':
 					session = msg['sessionId']
 					target = self._sessions.get(session)
