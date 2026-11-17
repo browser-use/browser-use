@@ -1230,3 +1230,23 @@ asyncio.run(main())
 	finally:
 		for p in (chrome, other):
 			p.kill()
+
+
+def test_relative_executable_path_is_made_absolute(tmp_path, monkeypatch):
+	"""`./chrome` must not reach Popen as a bare name that PATH cannot resolve."""
+	binary = tmp_path / 'fake-chrome-relative'
+	binary.write_text('')
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	assert _local.find_binary('./fake-chrome-relative') == str(binary)
+
+
+def test_relative_bh_chrome_path_is_made_absolute(tmp_path, monkeypatch):
+	binary = tmp_path / 'fake-chrome-env-relative'
+	binary.write_text('')
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.setenv('BH_CHROME_PATH', './fake-chrome-env-relative')
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', str(tmp_path / 'no-playwright'))
+	assert _local.find_binary() == str(binary)

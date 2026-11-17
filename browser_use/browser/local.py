@@ -163,7 +163,8 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			raise FileNotFoundError(f'executable_path={executable_path!r} is not a file')
 		if is_snap(str(Path(executable_path).expanduser())):
 			raise RuntimeError(_snap_error(executable_path))
-		return str(Path(executable_path).expanduser())
+		# Keep it absolute: `subprocess.Popen` searches PATH for a relative path such as `./chrome`.
+		return os.path.abspath(os.path.expanduser(executable_path))
 	tried = [p for k in ('BH_CHROME_PATH', 'CHROME_PATH') if (p := (os.environ.get(k) or '').strip())]
 	for path in tried:  # it silently fell back to another browser
 		if not Path(path).expanduser().is_file():
@@ -193,7 +194,7 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			if is_snap(str(Path(path).expanduser())):
 				snaps.append(path)
 				continue
-			return str(Path(path).expanduser())
+			return os.path.abspath(os.path.expanduser(path))
 	if snaps:
 		raise RuntimeError(_snap_error(snaps[0]))
 	tried += [f'{n} on PATH' for n in on_path]
