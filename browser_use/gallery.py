@@ -15,15 +15,15 @@ from websockets.asyncio.client import connect
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-HTML = """<!doctype html>
+HTML = r"""<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Browser Use · Live gallery</title>
+<title>Browser Use &middot; Live gallery</title>
 <style>
 :root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#101213;color:#eef1ef}
 *{box-sizing:border-box}body{margin:0}header{padding:28px 36px 24px;border-bottom:1px solid #303534;display:flex;align-items:center;justify-content:space-between;gap:16px}
 h1{font-size:23px;letter-spacing:-.7px;margin:5px 0 7px;font-weight:550}.brand{font-size:11px;letter-spacing:2px;color:#a0aaa5}
 p{margin:0;color:#9ba6a0;font-size:13px}.status{font-size:12px;color:#b9e7bf;background:#203329;padding:8px 12px;border-radius:30px;white-space:nowrap}
-.status:before{content:'●';color:#8be7a1;margin-right:7px}main{padding:26px 36px}.toolbar{display:flex;justify-content:space-between;margin-bottom:18px;font-size:12px;color:#99a59e}
+.status:before{content:'\25cf';color:#8be7a1;margin-right:7px}main{padding:26px 36px}.toolbar{display:flex;justify-content:space-between;margin-bottom:18px;font-size:12px;color:#99a59e}
 #grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.tile{padding:0;text-align:left;background:#1a1e1c;border:1px solid #39413c;border-radius:12px;overflow:hidden;color:inherit;cursor:zoom-in;font:inherit;min-width:0;box-shadow:0 8px 25px #0002}
 .tile:hover{border-color:#8caa96}.info{height:69px;padding:14px 15px;display:flex;gap:12px;align-items:center}.number{font-size:11px;color:#a6bcad;background:#303c34;border-radius:6px;padding:6px}.labels{min-width:0;flex:1}.title{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:5px}.url{font-size:11px;color:#97a29b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.expand{color:#8c9b91}
 img{width:100%;aspect-ratio:16/10;object-fit:contain;object-position:top;background:#fff;display:block}.tile:has(img:not([src])) img{background:#252d28}
@@ -31,17 +31,17 @@ img{width:100%;aspect-ratio:16/10;object-fit:contain;object-position:top;backgro
 @media(min-width:1700px){#grid{grid-template-columns:repeat(4,minmax(0,1fr))}}@media(max-width:950px){#grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){header{padding:22px 18px;align-items:flex-start}h1{font-size:21px}.status{font-size:10px;padding:7px 9px}header p{max-width:220px;line-height:1.5}main{padding:22px 18px}#grid{grid-template-columns:1fr;gap:16px}.toolbar{font-size:11px}.info{height:65px}}
 </style>
 <header><div><div class="brand">BROWSER USE / LOCAL</div><h1>Live gallery</h1><p>Every tab. One place to follow the work.</p></div><span class="status" id="status">Connecting</span></header>
-<main><div class="toolbar"><span id="count">Waiting for tabs</span><span>Read only · Click a tab to enlarge</span></div><div id="grid"></div><p id="empty">Waiting for browser tabs…</p></main>
-<dialog id="detail"><div class="info"><div class="labels"><div class="title" id="detail-title"></div><div class="url" id="detail-url"></div></div><button id="close">Close ✕</button></div><img id="detail-img" alt="Live enlarged tab"></dialog>
+<main><div class="toolbar"><span id="count">Waiting for tabs</span><span>Read only &middot; Click a tab to enlarge</span></div><div id="grid"></div><p id="empty">Waiting for browser tabs&hellip;</p></main>
+<dialog id="detail"><div class="info"><div class="labels"><div class="title" id="detail-title"></div><div class="url" id="detail-url"></div></div><button id="close">Close &#10005;</button></div><img id="detail-img" alt="Live enlarged tab"></dialog>
 <script>
 const grid=document.querySelector('#grid'), detail=document.querySelector('#detail'), tiles=new Map();let selected=null;
 const socket=new WebSocket(`ws://${location.host}/events${location.search}`);
-socket.onopen=()=>document.querySelector('#status').textContent='Live · Local';
+socket.onopen=()=>document.querySelector('#status').textContent='Live \u00b7 Local';
 socket.onclose=()=>{document.querySelector('#status').textContent='Disconnected';document.querySelector('#empty').textContent='Browser connection closed';};
 document.querySelector('#close').onclick=()=>detail.close();detail.onclick=e=>{if(e.target===detail)detail.close()};
 socket.onmessage=e=>{const {tabs}=JSON.parse(e.data);document.querySelector('#count').textContent=`${tabs.length} open tab${tabs.length===1?'':'s'}`;document.querySelector('#empty').hidden=!!tabs.length;
 for(const [id,tile] of tiles)if(!tabs.some(t=>t.id===id)){tile.remove();tiles.delete(id);if(selected===id)detail.close()}
-tabs.forEach((tab,i)=>{let tile=tiles.get(tab.id);if(!tile){tile=document.createElement('button');tile.className='tile';tile.innerHTML='<div class="info"><span class="number"></span><div class="labels"><div class="title"></div><div class="url"></div></div><span class="expand">↗</span></div><img alt="Live browser tab">';tile.onclick=()=>{selected=tab.id;enlarge(tab);detail.showModal()};tiles.set(tab.id,tile);grid.append(tile)}tile.querySelector('.number').textContent=String(i+1).padStart(2,'0');tile.querySelector('.title').textContent=tab.title||'Untitled';tile.querySelector('.url').textContent=tab.url;if(tab.frame)tile.querySelector('img').src='data:image/jpeg;base64,'+tab.frame;if(selected===tab.id)enlarge(tab)});
+tabs.forEach((tab,i)=>{let tile=tiles.get(tab.id);if(!tile){tile=document.createElement('button');tile.className='tile';tile.innerHTML='<div class="info"><span class="number"></span><div class="labels"><div class="title"></div><div class="url"></div></div><span class="expand">&#8599;</span></div><img alt="Live browser tab">';tile.onclick=()=>{selected=tab.id;enlarge(tab);detail.showModal()};tiles.set(tab.id,tile);grid.append(tile)}tile.querySelector('.number').textContent=String(i+1).padStart(2,'0');tile.querySelector('.title').textContent=tab.title||'Untitled';tile.querySelector('.url').textContent=tab.url;if(tab.frame)tile.querySelector('img').src='data:image/jpeg;base64,'+tab.frame;if(selected===tab.id)enlarge(tab)});
 };
 function enlarge(tab){document.querySelector('#detail-title').textContent=tab.title;document.querySelector('#detail-url').textContent=tab.url;if(tab.frame)document.querySelector('#detail-img').src='data:image/jpeg;base64,'+tab.frame}
 </script></html>"""
@@ -71,9 +71,10 @@ class Gallery:
 			self._reader = asyncio.create_task(self._read())
 			await self._call('Target.setDiscoverTargets', discover=True)
 			self._spawn(self._refresh_titles())
-			self._server = await serve(self._viewer, '127.0.0.1', 0, process_request=self._http, max_size=1024)
+			host = '127.0.0.1'
+			self._server = await serve(self._viewer, host, 0, process_request=self._http, max_size=1024)
 			port = next(iter(self._server.sockets)).getsockname()[1]
-			self.url = f'http://127.0.0.1:{port}/?token={self.token}'
+			self.url = f'http://{host}:{port}/?token={self.token}'
 			return self
 		except BaseException:
 			await self.__aexit__(None, None, None)

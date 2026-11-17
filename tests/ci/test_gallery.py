@@ -7,6 +7,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from urllib.parse import quote
 
 import pytest
@@ -15,7 +16,14 @@ from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
 from websockets.exceptions import InvalidStatus
 
-from browser_use.gallery import Gallery
+import browser_use.gallery as gallery_module
+from browser_use.gallery import HTML, Gallery
+
+
+def test_gallery_source_and_html_are_ascii():
+	# Source scans on Windows may use a legacy default encoding.
+	Path(gallery_module.__file__).read_text(encoding='ascii')
+	assert HTML.isascii()
 
 
 class CDP:
