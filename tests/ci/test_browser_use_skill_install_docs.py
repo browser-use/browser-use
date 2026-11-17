@@ -466,7 +466,7 @@ def test_skill_install_preference_is_opt_in_and_idempotent(monkeypatch, tmp_path
 	assert install.handle([*args, '--prefer']) == 0
 	assert path.read_bytes() == (install.PREFERENCE_LINE + '\n').encode()
 	assert install.PREFERENCE_LINE in capsys.readouterr().out
-	original = b'# My instructions\r\nKeep this caf\xc3\xa9'
+	original = b'# My instructions\r\nKeep this na\xc3\xafve text'
 	path.write_bytes(original)
 	assert install.handle([*args, '--prefer']) == 0
 	expected = original + ('\n' + install.PREFERENCE_LINE + '\n').encode()
