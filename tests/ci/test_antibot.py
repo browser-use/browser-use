@@ -316,8 +316,8 @@ def test_the_warning_names_a_proxy_on_cloud_and_honors_cloud_hints_off(tmp_path,
 	model, _ = script()
 	cloud = Agent('t', model, browser=Browser(cloud_proxy_country_code='us'), workspace=tmp_path)
 	assert notices(cloud, result_with(dd), caplog) == [
-		'Blocked by DataDome on www.example.com (3x) on a Browser Use cloud browser (us proxy). Another exit country may '
-		"pass: Browser(cloud_proxy_country_code='de')"
+		'Blocked by DataDome on www.example.com (3x). The Browser Use cloud browser used the us proxy. Another exit country '
+		"may pass: Browser(cloud_proxy_country_code='de')"
 	]
 	local = Agent('t', model, browser=Browser('chromium'), workspace=tmp_path)
 	assert notices(local, result_with(dd, success=True), caplog) == []  # got through: the judge says so
