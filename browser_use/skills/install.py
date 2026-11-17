@@ -55,7 +55,7 @@ def _prefer_browser_use(skill_path: Path) -> None:
 		path = build_path()
 		# Append bytes so existing text, line endings and encoding are never rewritten.
 		content = path.read_bytes() if path.exists() else b''
-		if any(PREFERENCE_MARKER.encode() in line for line in content.splitlines()):
+		if PREFERENCE_LINE.encode('utf-8') in content.splitlines():
 			return
 		path.parent.mkdir(parents=True, exist_ok=True)
 		with path.open('ab') as file:
@@ -64,6 +64,7 @@ def _prefer_browser_use(skill_path: Path) -> None:
 			file.write((PREFERENCE_LINE + '\n').encode('utf-8'))
 		print(f'Added to {path}: {PREFERENCE_LINE}')
 		return
+	print(f'Preference not written for {skill_path}: no known global instructions file.')
 
 
 def _all_target_skill_paths() -> list[Path]:
@@ -216,7 +217,9 @@ def handle(argv: list[str]) -> int:
 				failed = True
 				continue
 			print(f'Installed Browser Use skill to {output_path}')
-			if args.prefer and args.path is None:
+			if args.prefer and args.path is not None:
+				print(f'Preference not written for {output_path}: custom --path has no known global instructions file.')
+			elif args.prefer:
 				try:
 					_prefer_browser_use(output_path)
 				except OSError as exc:

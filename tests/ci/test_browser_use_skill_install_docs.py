@@ -477,6 +477,46 @@ def test_skill_install_preference_is_opt_in_and_idempotent(monkeypatch, tmp_path
 	assert path.read_bytes() == expected
 
 
+def test_skill_install_preference_requires_the_exact_marked_line(monkeypatch, tmp_path):
+	from browser_use.skills import install
+
+	monkeypatch.setattr(install.Path, 'home', lambda: tmp_path)
+	path = tmp_path / '.codex/AGENTS.md'
+	path.parent.mkdir()
+	original = (
+		f'# Notes about {install.PREFERENCE_MARKER}\r\n'
+		f'{install.PREFERENCE_MARKER} An older preference.\n'
+		f'Prefix {install.PREFERENCE_LINE}\n'
+		f'{install.PREFERENCE_LINE} suffix\n'
+	).encode()
+	path.write_bytes(original)
+	args = ['install', '--target', 'codex', '--prefer']
+	assert install.handle(args) == 0
+	expected = original + (install.PREFERENCE_LINE + '\n').encode()
+	assert path.read_bytes() == expected
+	assert install.handle(args) == 0
+	assert path.read_bytes() == expected
+
+
+def test_skill_install_preference_reports_unsupported_targets(monkeypatch, tmp_path, capsys):
+	from browser_use.skills import install
+
+	monkeypatch.setattr(install.Path, 'home', lambda: tmp_path)
+	monkeypatch.delenv('XDG_CONFIG_HOME', raising=False)
+	(tmp_path / '.cursor').mkdir()
+	assert install.handle(['install', '--prefer']) == 0
+	lines = [line for line in capsys.readouterr().out.splitlines() if 'Preference not written' in line]
+	assert len(lines) == 2
+	for target in ('agents', 'cursor'):
+		path = install.TARGET_DIR_BUILDERS[target]() / 'SKILL.md'
+		assert f'Preference not written for {path}: no known global instructions file.' in lines
+	custom = tmp_path / 'custom'
+	assert install.handle(['install', '--target', 'codex', '--path', str(custom), '--prefer']) == 0
+	lines = [line for line in capsys.readouterr().out.splitlines() if 'Preference not written' in line]
+	assert lines == [f'Preference not written for {custom / "SKILL.md"}: custom --path has no known global instructions file.']
+	assert not (tmp_path / '.codex/AGENTS.md').exists()
+
+
 def test_skill_install_preference_only_updates_successful_known_targets(monkeypatch, tmp_path):
 	from browser_use.skills import install
 
