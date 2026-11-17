@@ -389,6 +389,19 @@ def test_executable_path_that_is_not_a_file_raises(tmp_path):
 		_local.find_binary(str(tmp_path / 'no-chrome'))
 
 
+@pytest.mark.parametrize('source', ['argument', 'BH_CHROME_PATH', 'CHROME_PATH'])
+def test_relative_executable_path_is_resolved(fake_chrome, tmp_path, monkeypatch, source):
+	binary = Path(fake_chrome('ok'))
+	monkeypatch.chdir(tmp_path)
+	relative = f'./{binary.name}'
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	if source != 'argument':
+		monkeypatch.setenv(source, relative)
+	found = _local.find_binary(relative if source == 'argument' else None)
+	assert found == str(binary)
+
+
 def test_a_bh_chrome_path_that_is_not_a_file_warns(tmp_path, monkeypatch, caplog):
 	"""Low: BH_CHROME_PATH=/nonexistent silently fell back to the installed Chrome."""
 	import logging
