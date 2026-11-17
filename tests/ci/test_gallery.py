@@ -361,8 +361,12 @@ async def test_gallery_keyboard_enlarge_returns_focus_and_respects_reduced_motio
 					tiles.get('keyboard').focus();
 				})()""",
 			)
-			await cdp.call('Input.dispatchKeyEvent', session, type='keyDown', key='Enter', code='Enter', windowsVirtualKeyCode=13)
+			await cdp.call(
+				'Input.dispatchKeyEvent', session, type='keyDown', key='Enter', code='Enter', windowsVirtualKeyCode=13, text='\r'
+			)
 			await cdp.call('Input.dispatchKeyEvent', session, type='keyUp', key='Enter', code='Enter', windowsVirtualKeyCode=13)
+			opened = await cdp.call('Runtime.evaluate', session, expression='detail.open')
+			assert opened['result']['value'] is True
 			# Escape during opening must reverse the current animation and restore focus.
 			await cdp.call(
 				'Input.dispatchKeyEvent', session, type='keyDown', key='Escape', code='Escape', windowsVirtualKeyCode=27
@@ -383,15 +387,19 @@ async def test_gallery_keyboard_enlarge_returns_focus_and_respects_reduced_motio
 					const tile = tiles.get('keyboard');
 					const focused = document.activeElement === tile;
 					openTile('keyboard');
-					const staticOpen = detail.open && raf === 0 && panel.style.transform === 'none';
+					const staticOpen = detail.open && raf === 0 && panel.style.transform === 'none'
+						&& state.every((value, i) => value === target[i]) && velocity.every(value => value === 0);
 					closeDetail();
 					const frame = tile.querySelector('.preview').getBoundingClientRect();
 					return [focused, staticOpen, !detail.open, document.activeElement === tile,
 						document.documentElement.scrollWidth === innerWidth, Math.abs(frame.width / frame.height - 1.6) < .01,
-						tile.querySelector('img').getAttribute('src'), tile.getAttribute('aria-label').includes('loading preview')];
+						tile.querySelector('img').getAttribute('src'), tile.getAttribute('aria-label').includes('loading preview'),
+						getComputedStyle(tile.querySelector('img')).objectFit === 'contain',
+						grid.getAttribute('role') === 'list' && grid.getAttribute('aria-label') === 'Live browser tabs'
+							&& tile.parentElement.getAttribute('role') === 'listitem' && tile.parentElement.parentElement === grid];
 				})()""",
 				returnByValue=True,
 			)
-			assert result['result']['value'] == [True, True, True, True, True, True, None, True]
+			assert result['result']['value'] == [True, True, True, True, True, True, None, True, True, True]
 		finally:
 			await cdp.call('Target.closeTarget', targetId=target)
