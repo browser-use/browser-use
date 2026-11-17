@@ -96,6 +96,87 @@ async def test_view_exits_when_browser_connection_closes():
 			await process.wait()
 
 
+@pytest.mark.parametrize('failure', ['Emulation.setFocusEmulationEnabled', 'Page.startScreencast'])
+async def test_gallery_retries_failed_setup_without_losing_tab_or_session(failure):
+	info = {'targetId': 'tab', 'type': 'page', 'title': 'Still open', 'url': 'about:blank'}
+	calls = []
+	attempts = 0
+	cleaned = asyncio.Event()
+
+	async def fake_cdp(ws):
+		nonlocal attempts
+		async for raw in ws:
+			request = json.loads(raw)
+			method = request['method']
+			calls.append(request)
+			result = {}
+			if method == 'Target.setDiscoverTargets':
+				await ws.send(json.dumps({'method': 'Target.targetCreated', 'params': {'targetInfo': info}}))
+			elif method == 'Target.getTargets':
+				result = {'targetInfos': [info]}
+			elif method == 'Target.attachToTarget':
+				attempts += 1
+				result = {'sessionId': f'session-{attempts}'}
+			if request.get('sessionId') == 'session-1' and method in (failure, 'Page.stopScreencast'):
+				await ws.send(json.dumps({'id': request['id'], 'error': {'message': 'transient CDP failure'}}))
+				continue
+			await ws.send(json.dumps({'id': request['id'], 'result': result}))
+			if method == 'Target.detachFromTarget' and request['params']['sessionId'] == 'session-1':
+				cleaned.set()
+			if method == 'Page.startScreencast' and request.get('sessionId') == 'session-2':
+				await ws.send(
+					json.dumps(
+						{'method': 'Page.screencastFrame', 'sessionId': 'session-2', 'params': {'data': 'frame', 'sessionId': 1}}
+					)
+				)
+
+	async with serve(fake_cdp, '127.0.0.1', 0) as server:
+		port = server.sockets[0].getsockname()[1]
+		async with Gallery(f'ws://127.0.0.1:{port}') as gallery:
+			await asyncio.wait_for(cleaned.wait(), 3)
+			assert gallery.tabs['tab']['title'] == 'Still open'
+			async with connect(gallery.url.replace('http:', 'ws:').replace('/?', '/events?')) as viewer:
+				await snapshot(viewer, lambda tabs: tabs.get('tab', {}).get('frame') == 'frame')
+			assert gallery._sessions == {'session-2': 'tab'}
+			assert attempts == 2
+			assert any(c['method'] == 'Page.stopScreencast' and c.get('sessionId') == 'session-1' for c in calls)
+			assert any(
+				c['method'] == 'Emulation.setFocusEmulationEnabled'
+				and c.get('sessionId') == 'session-1'
+				and c['params'] == {'enabled': False}
+				for c in calls
+			)
+
+
+async def test_gallery_enlarging_tab_without_frame_clears_previous_image(chrome):
+	async with Gallery(chrome['ws']) as gallery, connect(chrome['ws']) as browser:
+		cdp = CDP(browser)
+		target = (await cdp.call('Target.createTarget', url='about:blank'))['targetId']
+		try:
+			session = (await cdp.call('Target.attachToTarget', targetId=target, flatten=True))['sessionId']
+			await cdp.call('Page.navigate', session, url=gallery.url)
+			async with asyncio.timeout(10):
+				while True:
+					ready = await cdp.call('Runtime.evaluate', session, expression='typeof enlarge === "function"')
+					if ready['result'].get('value'):
+						break
+					await asyncio.sleep(0.05)
+			result = await cdp.call(
+				'Runtime.evaluate',
+				session,
+				expression="""(() => {
+					enlarge({title:'First', url:'about:blank', frame:'previous'});
+					const previous = document.querySelector('#detail-img').getAttribute('src');
+					enlarge({title:'Second', url:'about:blank'});
+					return [previous, document.querySelector('#detail-img').getAttribute('src')];
+				})()""",
+				returnByValue=True,
+			)
+			assert result['result']['value'] == ['data:image/jpeg;base64,previous', None]
+		finally:
+			await cdp.call('Target.closeTarget', targetId=target)
+
+
 async def test_gallery_streams_every_tab_and_tracks_open_close(chrome, monkeypatch):
 	focus_disabled = set()
 	original_call = Gallery._call

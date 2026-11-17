@@ -43,7 +43,7 @@ socket.onmessage=e=>{const {tabs}=JSON.parse(e.data);document.querySelector('#co
 for(const [id,tile] of tiles)if(!tabs.some(t=>t.id===id)){tile.remove();tiles.delete(id);if(selected===id)detail.close()}
 tabs.forEach((tab,i)=>{let tile=tiles.get(tab.id);if(!tile){tile=document.createElement('button');tile.className='tile';tile.innerHTML='<div class="info"><span class="number"></span><div class="labels"><div class="title"></div><div class="url"></div></div><span class="expand">&#8599;</span></div><img alt="Live browser tab">';tile.onclick=()=>{selected=tab.id;enlarge(tab);detail.showModal()};tiles.set(tab.id,tile);grid.append(tile)}tile.querySelector('.number').textContent=String(i+1).padStart(2,'0');tile.querySelector('.title').textContent=tab.title||'Untitled';tile.querySelector('.url').textContent=tab.url;if(tab.frame)tile.querySelector('img').src='data:image/jpeg;base64,'+tab.frame;if(selected===tab.id)enlarge(tab)});
 };
-function enlarge(tab){document.querySelector('#detail-title').textContent=tab.title;document.querySelector('#detail-url').textContent=tab.url;if(tab.frame)document.querySelector('#detail-img').src='data:image/jpeg;base64,'+tab.frame}
+function enlarge(tab){document.querySelector('#detail-title').textContent=tab.title;document.querySelector('#detail-url').textContent=tab.url;if(tab.frame)document.querySelector('#detail-img').src='data:image/jpeg;base64,'+tab.frame;else document.querySelector('#detail-img').removeAttribute('src')}
 </script></html>"""
 
 
@@ -56,6 +56,7 @@ class Gallery:
 		self.url = ''
 		self.tabs: dict[str, dict[str, Any]] = {}
 		self._sessions: dict[str, str] = {}
+		self._attaching: set[str] = set()
 		self._pending: dict[int, asyncio.Future] = {}
 		self._tasks: set[asyncio.Task] = set()
 		self._id = 0
@@ -130,10 +131,15 @@ class Gallery:
 				for info in infos:
 					if info['targetId'] in self.tabs:
 						self.tabs[info['targetId']].update(title=info['title'], url=info['url'])
+						await self._attach(info['targetId'])
 			except Exception:
 				return
 
 	async def _attach(self, target: str) -> None:
+		if target in self._attaching or target in self._sessions.values():
+			return
+		self._attaching.add(target)
+		session = None
 		try:
 			session = (await self._call('Target.attachToTarget', targetId=target, flatten=True))['sessionId']
 			self._sessions[session] = target
@@ -141,7 +147,19 @@ class Gallery:
 			await self._call('Emulation.setFocusEmulationEnabled', session, enabled=True)
 			await self._call('Page.startScreencast', session, format='jpeg', quality=65, maxWidth=1000, maxHeight=700)
 		except Exception:
-			self.tabs.pop(target, None)  # target may close while attaching
+			# A setup error doesn't mean the target closed. Keep the tile and retry on refresh.
+			if session:
+				for method, params in (
+					('Page.stopScreencast', {}),
+					('Emulation.setFocusEmulationEnabled', {'enabled': False}),
+				):
+					with contextlib.suppress(Exception):
+						await self._call(method, session, **params)
+				with contextlib.suppress(Exception):
+					await self._call('Target.detachFromTarget', sessionId=session)
+				self._sessions.pop(session, None)
+		finally:
+			self._attaching.discard(target)
 
 	async def _ack(self, session: str, frame: int) -> None:
 		await asyncio.sleep(0.3)  # backpressure on Chrome, not an unbounded queue of JPEGs
@@ -173,6 +191,8 @@ class Gallery:
 					target = params['targetId']
 					self.tabs.pop(target, None)
 					self._sessions = {s: t for s, t in self._sessions.items() if t != target}
+				elif method == 'Target.detachedFromTarget':
+					self._sessions.pop(params['sessionId'], None)
 				elif method == 'Page.screencastFrame':
 					session = msg['sessionId']
 					target = self._sessions.get(session)
