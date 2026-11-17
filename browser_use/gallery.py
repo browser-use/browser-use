@@ -218,6 +218,7 @@ class Gallery:
 def main(args: list[str]) -> int:
 	import argparse
 	import os
+	import sys
 
 	from browser_use.browser import local
 	from browser_use.browser.browser import _ws_url
@@ -238,10 +239,15 @@ def main(args: list[str]) -> int:
 	async def run() -> None:
 		async with Gallery(await asyncio.to_thread(_ws_url, endpoint)) as gallery:
 			print(f'Live gallery: {gallery.url}', flush=True)
-			await asyncio.Future()
+			assert gallery._reader is not None
+			await gallery._reader
+			raise ConnectionError('the browser connection closed')
 
 	try:
 		asyncio.run(run())
 	except KeyboardInterrupt:
 		pass
+	except ConnectionError:
+		print('the browser connection closed', file=sys.stderr)
+		return 1
 	return 0

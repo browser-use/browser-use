@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import json
+import sys
 import urllib.error
 import urllib.request
 from urllib.parse import quote
@@ -11,6 +12,7 @@ from urllib.parse import quote
 import pytest
 from PIL import Image
 from websockets.asyncio.client import connect
+from websockets.asyncio.server import serve
 from websockets.exceptions import InvalidStatus
 
 from browser_use.gallery import Gallery
@@ -42,7 +44,61 @@ async def snapshot(ws, predicate):
 				return tabs
 
 
-async def test_gallery_streams_every_tab_and_tracks_open_close(chrome):
+async def test_view_exits_when_browser_connection_closes():
+	close_cdp = asyncio.Event()
+
+	async def fake_cdp(ws):
+		request = json.loads(await ws.recv())
+		assert request['method'] == 'Target.setDiscoverTargets'
+		await ws.send(json.dumps({'id': request['id'], 'result': {}}))
+		await close_cdp.wait()
+		await ws.close()
+
+	async with serve(fake_cdp, '127.0.0.1', 0) as server:
+		port = server.sockets[0].getsockname()[1]
+		process = await asyncio.create_subprocess_exec(
+			sys.executable,
+			'-m',
+			'browser_use.cli',
+			'view',
+			'--cdp-url',
+			f'ws://127.0.0.1:{port}',
+			stdout=asyncio.subprocess.PIPE,
+			stderr=asyncio.subprocess.PIPE,
+		)
+		try:
+			assert process.stdout is not None
+			line = await asyncio.wait_for(process.stdout.readline(), 15)
+			assert line.startswith(b'Live gallery: '), line
+			url = line.decode().strip().removeprefix('Live gallery: ')
+			async with connect(url.replace('http:', 'ws:').replace('/?', '/events?')) as viewer:
+				await asyncio.wait_for(viewer.recv(), 5)
+				close_cdp.set()
+				stdout, stderr = await asyncio.wait_for(process.communicate(), 10)
+				await asyncio.wait_for(viewer.wait_closed(), 5)
+			assert process.returncode != 0
+			assert stdout == b''
+			assert stderr.decode().splitlines() == ['the browser connection closed']
+			with pytest.raises(OSError):
+				await asyncio.open_connection('127.0.0.1', int(url.split(':')[2].split('/')[0]))
+		finally:
+			close_cdp.set()
+			if process.returncode is None:
+				process.kill()
+			await process.wait()
+
+
+async def test_gallery_streams_every_tab_and_tracks_open_close(chrome, monkeypatch):
+	focus_disabled = set()
+	original_call = Gallery._call
+
+	async def record_call(self, method, session=None, **params):
+		result = await original_call(self, method, session, **params)
+		if method == 'Emulation.setFocusEmulationEnabled' and params == {'enabled': False}:
+			focus_disabled.add(session)
+		return result
+
+	monkeypatch.setattr(Gallery, '_call', record_call)
 	async with connect(chrome['ws']) as browser:
 		cdp = CDP(browser)
 		first = (await cdp.call('Target.createTarget', url='data:text/html,<title>First</title><body style="background:red">'))[
@@ -84,7 +140,9 @@ async def test_gallery_streams_every_tab_and_tracks_open_close(chrome):
 					await cdp.call('Target.closeTarget', targetId=second)
 					tabs = await snapshot(viewer, lambda tabs: second not in tabs)
 					assert first in tabs
+				live_sessions = set(gallery._sessions)
 			# Closing the gallery leaves the browser and its tabs alive.
+			assert live_sessions and focus_disabled == live_sessions
 			assert first in {t['targetId'] for t in (await cdp.call('Target.getTargets'))['targetInfos']}
 			assert gallery._reader.done() and not gallery._tasks
 		finally:
