@@ -655,34 +655,51 @@ class Agent:
 		if judgement is None:
 			return
 		verdict = 'success' if judgement.success else f'failure: {judgement.failure_reason or judgement.description}'
+		if judgement.blocked_by and not judgement.success:  # ground() leaves none on a success
+			verdict = f'failure: {judgement.blocked_by}. {judgement.failure_reason or judgement.description}'
 		logger.info(f'Judge: {verdict}' + ''.join(f'\n  gotcha: {g}' for g in judgement.gotchas))
 
 	def _block_notice(self, result: AgentHistoryList | None) -> None:
-		"""One WARNING when anti-bots walled pages and the judge did not call the run a success. A local browser gets the
-		cloud link (BROWSER_USE_CLOUD_HINTS=false leaves it out); a cloud browser, a proxy to try instead."""
-		if result is None or not result.blocks or (result.judgement is not None and result.judgement.success):
+		"""One WARNING after the judge when an anti-bot wall made the run fail. The judge named it (Judgement.blocked_by,
+		already in its failure line): the hint alone. Else the detector's walls, unless the judge called the run a success.
+		The hint: a local browser gets the cloud link (BROWSER_USE_CLOUD_HINTS=false leaves it out); a cloud browser, a
+		proxy to try instead."""
+		if result is None:
 			return
-		from browser_use.telemetry.stats import cdp_category, host
-
+		judgement = result.judgement
+		named = judgement.blocked_by if judgement is not None and not judgement.success else None
+		if named is None and (not result.blocks or (judgement is not None and judgement.success)):
+			return
+		hint = self._wall_hint(named.vendor if named else result.blocks[0].vendor)
+		if named is not None:
+			if hint:
+				logger.warning(hint)
+			return
 		shown = result.blocks[:3]
 		walls = ', '.join(map(str, shown)) + (f' and {len(result.blocks) - 3} more' if len(result.blocks) > 3 else '')
-		browser, hint = self.browser, ''
+		logger.warning(f'Blocked by {walls}' + (f'. {hint}' if hint else ''))
+
+	def _wall_hint(self, vendor: str) -> str:
+		"""What to try after an anti-bot wall: on a cloud browser another proxy, no upsell; on a local one a cloud browser."""
+		from browser_use.telemetry.stats import cdp_category, host
+
+		browser = self.browser
 		if browser.use_cloud and browser.proxy:
 			other = 'de' if browser.proxy.lower() == 'us' else 'us'
-			hint = (
-				f' on a Browser Use cloud browser ({browser.proxy} proxy). Another exit country may pass: '
+			return (
+				f'The Browser Use cloud browser used the {browser.proxy} proxy. Another exit country may pass: '
 				f"Browser(cloud_proxy_country_code='{other}')"
 			)
-		elif browser.use_cloud:
-			hint = " on a Browser Use cloud browser without a proxy. Turn one on: Browser(cloud_proxy_country_code='us')"
-		elif browser.kind == 'cdp' and cdp_category(host(browser.cdp_url)) == 'browser-use-cloud':
-			hint = ' on a Browser Use cloud browser. Another cloud_proxy_country_code may pass'
-		elif os.getenv('BROWSER_USE_CLOUD_HINTS', 'true').strip().lower() not in ('false', '0', 'no', 'off'):
-			hint = (
-				'. Cloud browsers pass most anti-bots, Browser() runs one: https://cloud.browser-use.com/'
-				f'?utm_source=oss&utm_medium=block_nudge&utm_content={shown[0].vendor}'
-			)
-		logger.warning(f'Blocked by {walls}{hint}')
+		if browser.use_cloud:
+			return "The Browser Use cloud browser had no proxy. Turn one on: Browser(cloud_proxy_country_code='us')"
+		if browser.kind == 'cdp' and cdp_category(host(browser.cdp_url)) == 'browser-use-cloud':
+			return 'This was a Browser Use cloud browser. Another cloud_proxy_country_code may pass'
+		if os.getenv('BROWSER_USE_CLOUD_HINTS', 'true').strip().lower() in ('false', '0', 'no', 'off'):
+			return ''
+		return (
+			'Cloud browsers pass most anti-bots, Browser() runs one: https://cloud.browser-use.com/'
+			f'?utm_source=oss&utm_medium=block_nudge&utm_content={vendor}'
+		)
 
 	def _failed(self, error: str, started: float) -> AgentHistoryList:
 		"""The result of a run that failed before the agent loop (preflight, browser start): status 'error', no steps."""
