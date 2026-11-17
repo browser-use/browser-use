@@ -201,7 +201,7 @@ Talk to us about:
 - **Network control:** domain allow and block lists, network policies, egress control, your own proxies, IP allowlists and private networking.
 - **Agent controls:** tool and action restrictions, blocked downloads and uploads, and human approval for sensitive steps.
 - **Identity and access:** SSO with SAML, SCIM provisioning and role-based access.
-- **Secrets:** vault integrations, so agents type credentials without seeing them.
+- **Secrets:** vault integrations and domain-scoped credentials, kept out of prompts and task text.
 - **Audit logging:** a record of every navigation and action, exported to your SIEM.
 - **Deployment:** a fully on-prem browser, in your VPC or self-hosted.
 - **Support:** SLAs, dedicated support and onboarding.
