@@ -2560,6 +2560,21 @@ async def test_the_mcp_report_run_tool_is_listed_and_sends_one_scrubbed_self_rep
 	assert [e['properties']['tool_name'] for e in events if e['event'] == 'mcp_server_event'] == ['browser_report_run'] * 3
 
 
+def test_report_run_in_browser_exec_is_the_tools_report_not_browser_harness_own(posthog):
+	"""A browser-harness pin with its own report_run helper would send surface harness-cli from this server: browser_exec's
+	report_run is the browser_report_run tool's (surface cli-mcp, the same cap and switches)."""
+	from browser_use.mcp import cli_mcp
+	from browser_use.telemetry import judgement
+
+	ns = cli_mcp.CLIMCPServer()._ensure_namespace()
+	assert ns['report_run'](False, 'Zq9 blocked https://zq9.test/a?k=Zq9q', ['Mail jane@zq9.test']) == judgement.SENT
+	with pytest.raises(TypeError, match='success'):
+		ns['report_run']('yes')
+	(p,) = _judgements(posthog.events(1))
+	assert (p['surface'], p['judge_source'], p['gotchas']) == ('cli-mcp', 'self', ['Mail <email>'])
+	assert 'Zq9q' not in p['failure_reason']
+
+
 def test_report_run_sends_at_most_three_per_process(posthog):
 	from browser_use.telemetry import judgement
 

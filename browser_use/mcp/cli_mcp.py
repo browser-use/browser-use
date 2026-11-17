@@ -49,6 +49,16 @@ _NAMESPACE_IMPORTS = (
 )
 
 
+def _report_run(
+	success: bool, failure_reason: str | None = None, gotchas: Any = (), bot_block: bool = False, description: str = ''
+) -> str:
+	"""report_run() in browser_exec: the browser_report_run tool's report (surface cli-mcp, its per-process cap)."""
+	text, failed = judgement.report('cli-mcp', success, failure_reason, gotchas, bot_block, description)
+	if failed:
+		raise TypeError(text.removeprefix('Error: '))
+	return text
+
+
 _INTERNAL = tuple(os.path.dirname(m.__file__ or '') + os.sep for m in (browser_harness, browser_use))
 
 LOGIN_HINT = 'Not signed in to Browser Use Cloud. Call the browser_login tool (it opens the browser to approve), then retry.'
@@ -633,6 +643,8 @@ class CLIMCPServer:
 				for name in harness_cloud.CLOUD_ADMIN:  # a cloud browser has no Guard: it would go anywhere
 					ns[name] = functools.partial(_refuse_cloud, name)
 			ns['http_get'] = _local_http_get(rules)
+			# browser-harness's own report_run (a later pin) would send surface harness-cli past this server's switches
+			ns['report_run'] = _report_run
 			self._namespace = ns
 		return self._namespace
 
