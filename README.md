@@ -195,15 +195,16 @@ Something broken? `browser-use feedback 'what happened'` (or `browser_use.feedba
 
 # Browser Use for enterprises
 
-Enterprise teams work with us on:
+Talk to us about:
 
-- Watching agents live in-house with a local live view of every tab.
-- Running headed browsers in cloud dev environments like Coder and Kubernetes, viewable from a browser tab.
-- Applying safety policies: allowed and blocked domains, no logins, no downloads or uploads.
-- Keeping audit logs of every navigation and action.
-- Making Claude Code and Codex use Browser Use as their browser.
-- Running many tabs and agents in parallel.
-- Running a fully on-prem browser: the Browser Use browser runs on your own machines.
+- **Security and compliance:** SOC 2, HIPAA with a BAA, GDPR, zero data retention and EU data residency.
+- **Network control:** domain allow and block lists, network policies, egress control, your own proxies, IP allowlists and private networking.
+- **Agent controls:** tool and action restrictions, blocked downloads and uploads, and human approval for sensitive steps.
+- **Identity and access:** SSO with SAML, SCIM provisioning and role-based access.
+- **Secrets:** vault integrations, so agents type credentials without seeing them.
+- **Audit logging:** a record of every navigation and action, exported to your SIEM.
+- **Deployment:** a fully on-prem browser, in your VPC or self-hosted.
+- **Support:** SLAs, dedicated support and onboarding.
 
 [Reach out to us](https://browser-use.com/enterprise#talk-to-sales) to tell us what your team needs.
 
