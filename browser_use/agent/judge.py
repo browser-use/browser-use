@@ -6,10 +6,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, ValidatorFunctionWrapHandler, field_validator
 from pydantic.json_schema import SkipJsonSchema
 from pydantic_ai import Agent, BinaryContent, capture_run_messages
 from pydantic_ai.direct import model_request
@@ -27,7 +28,7 @@ from pydantic_ai.models.openai import OpenAIResponsesModel
 
 from browser_use.agent.loop import StreamedRequest, _is_image, _plain, as_text, reasoning_supported
 from browser_use.repl import redact
-from browser_use.repl.antibot import NAMES, host_of, site
+from browser_use.repl.antibot import NAMES, WALLS, host_of, site
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentHistoryList
@@ -74,6 +75,11 @@ FINAL_SCREENSHOT_TIMEOUT_S = 10  # the whole capture; past it the judge goes wit
 JUDGE_TIMEOUT_S = 180
 MAX_BLOCKS = 10  # <detected_blocks> lines, most visits first
 VENDORS = (*NAMES, 'unknown')
+VENDOR_OF = {k: v for name, display in NAMES.items() for k, v in ((name, name), (display.lower(), name))}
+# <detected_blocks> carries only these shapes: a cloud browser's blockDetected strings arrive unchecked
+VENDOR_ID = re.compile(r'[a-z0-9_]{1,32}')
+HOST_NAME = re.compile(r'[a-z0-9.:_-]{1,253}')  # urlsplit().hostname of a URL Chrome loaded; ':' for IPv6
+CHALLENGES = ('interstitial', 'captcha')
 EFFORT_KEYS = ('thinking', 'openai_reasoning_effort')
 DROPPED = ('tool_choice', 'parallel_tool_calls', 'cache', 'openai_context_management', 'request_timeout', 'first_event_timeout')
 
@@ -117,6 +123,15 @@ class Judgement(BaseModel):
 		default_factory=list,
 		description='Lessons from observed website, agent, tool or environment behavior; no guesses or untested fixes. May be empty.',
 	)
+
+	@field_validator('blocked_by', mode='wrap')
+	@classmethod
+	def _malformed_is_none(cls, value: Any, handler: ValidatorFunctionWrapHandler) -> BlockedBy | None:
+		# no output retry: a blocked_by that does not fit (no host, a string) must not cost the run its verdict
+		try:
+			return handler(value)
+		except ValidationError:
+			return None
 
 	@field_validator('gotchas')
 	@classmethod
@@ -166,14 +181,18 @@ def screenshots(messages: list[ModelMessage], final: BinaryContent | None = None
 
 
 def detected(blocks: list[Block]) -> str:
-	"""result.blocks as the judge reads them, one line per vendor, host and outcome; '' when the detector saw no wall."""
-	if not blocks:
-		return ''
+	"""result.blocks as the judge reads them, one line per vendor, host and outcome, only well-formed ones (a cloud
+	browser's blockDetected strings arrive unchecked); '' when there is none."""
+	shown = [b for b in blocks if HOST_NAME.fullmatch(b.host.lower()) and b.outcome in WALLS]
 	lines = []
-	for b in blocks[:MAX_BLOCKS]:
-		signal = ', '.join([*(f'HTTP {s}' for s in b.statuses), *([b.challenge] if b.challenge else [])]) or 'page markers'
-		lines.append(f'- vendor={b.vendor} host={b.host} outcome={b.outcome} visits={b.count} signal={signal}')
-	more = f'\n- and {len(blocks) - MAX_BLOCKS} more' if len(blocks) > MAX_BLOCKS else ''
+	for b in shown[:MAX_BLOCKS]:
+		vendor = b.vendor.lower() if VENDOR_ID.fullmatch(b.vendor.lower()) else 'unknown'
+		challenge = [b.challenge] if b.challenge in CHALLENGES else []
+		signal = ', '.join([*(f'HTTP {s}' for s in b.statuses), *challenge]) or 'page markers'
+		lines.append(f'- vendor={vendor} host={b.host.lower()} outcome={b.outcome} visits={b.count} signal={signal}')
+	if not lines:
+		return ''
+	more = f'\n- and {len(shown) - MAX_BLOCKS} more' if len(shown) > MAX_BLOCKS else ''
 	return '<detected_blocks>\n' + '\n'.join(lines) + more + '\n</detected_blocks>\n\n'
 
 
@@ -191,8 +210,9 @@ def prompt(task: str, result: AgentHistoryList, judge_context: str | None) -> st
 
 def ground(judgement: Judgement, blocks: list[Block]) -> Judgement:
 	"""The judge's blocked_by checked against the detector. A host the detector walled takes the detector's vendor and
-	visits (source 'detector'); another keeps the judge's host with a known vendor or 'unknown' (source 'judge'). A
-	success has none; a wall the run failed on means the agent met one (bot_block_or_captcha_detected)."""
+	visits (source 'detector'); another keeps the judge's host with a known vendor (its id or display name, any case)
+	or 'unknown' (source 'judge'). A success has none; a wall the run failed on means the agent met one
+	(bot_block_or_captcha_detected)."""
 	named = judgement.blocked_by
 	if named is None:
 		return judgement
@@ -206,7 +226,7 @@ def ground(judgement: Judgement, blocks: list[Block]) -> Judgement:
 		visits = sum(b.count for b in walls if b.vendor == top.vendor)
 		blocked = BlockedBy(vendor=top.vendor, host=top.host, source='detector', visits=visits)
 	else:
-		blocked = BlockedBy(vendor=named.vendor if named.vendor in NAMES else 'unknown', host=name, source='judge')
+		blocked = BlockedBy(vendor=VENDOR_OF.get(named.vendor.strip().lower(), 'unknown'), host=name, source='judge')
 	return judgement.model_copy(update={'blocked_by': blocked, 'bot_block_or_captcha_detected': True})
 
 
