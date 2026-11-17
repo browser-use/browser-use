@@ -1237,16 +1237,20 @@ async def test_a_none_delivered_for_a_nullable_schema_is_the_result(tmp_path):
 
 
 async def test_markdown_links_decode_workspace_files_and_reject_paths_outside_workspace(tmp_path):
-	workspace = tmp_path / 'workspace'
+	workspace = tmp_path / 'work space'
 	(workspace / 'downloads').mkdir(parents=True)
 	(workspace / 'downloads' / 'report (1).csv').write_text('a\n1\n')
+	(workspace / 'downloads' / 'report((1)).csv').write_text('a\n1\n')
+	(workspace / '%2e%2e').mkdir()
+	(workspace / '%2e%2e' / 'outside.csv').write_text(' decoy\n')
 	(workspace / 'page.html').write_text('<h1>ok</h1>')
 	outside = tmp_path / 'outside.csv'
 	outside.write_text('a\n1\n')
 
 	valid = (
-		'Saved [dup](report%20%281%29.csv), [parens](report%20(1).csv), [angle](<report (1).csv>), '
-		f'[query](page.html?tab=1#top), [titled](page.html "Summary") and [abs]({(workspace / "page.html").as_posix()}).'
+		'Saved [dup](report%20%281%29.csv), [parens](report%20(1).csv), [nested](report((1)).csv), '
+		'[angle](<report (1).csv>), [angle-titled](<report (1).csv> "Summary"), '
+		f'[query](page.html?tab=1#top), [titled](page.html "Summary") and [abs](<{(workspace / "page.html").as_posix()}>).'
 	)
 	model, seen = script(('finish', {'result': valid, 'success': True}))
 	result = await run(build_agent(model), 'task', Session(repl=FakeRepl(workspace)), 'function:x')
@@ -1261,9 +1265,12 @@ async def test_markdown_links_decode_workspace_files_and_reject_paths_outside_wo
 
 	for bad in (
 		'Saved [escaped](../outside.csv)',
+		'Saved [encoded-escaped](%2e%2e/outside.csv)',
 		'Saved `../outside.csv`',
-		f'Saved [abs]({outside.as_posix()})',
+		f'Saved [abs](<{outside.as_posix()}>)',
 		'Saved [angle](<missing (1).csv>)',
+		'Saved [angle-titled](<missing.csv> "Summary")',
+		'Saved [nested](missing((1)).csv)',
 		'Saved [parens](missing%20(1).csv)',
 		'Saved [titled](missing.csv "Summary")',
 	):
