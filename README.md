@@ -195,7 +195,7 @@ Something broken? `browser-use feedback 'what happened'` (or `browser_use.feedba
 
 # Browser Use for enterprises
 
-Teams use Browser Use inside their own infrastructure for:
+Enterprise teams work with us on:
 
 - Watching agents live in-house with a local live view of every tab.
 - Running headed browsers in cloud dev environments like Coder and Kubernetes, viewable from a browser tab.
