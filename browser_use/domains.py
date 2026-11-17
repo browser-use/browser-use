@@ -426,8 +426,12 @@ class Guard:
 				if 'error' in msg:
 					if not self._ready.is_set():
 						raise RuntimeError(f'File guard / audit setup failed: {msg["error"]}')
-					if self.block_uploads and (sid := msg.get('sessionId')):
-						self._send('Runtime.runIfWaitingForDebugger', sid)
+					if sid := msg.get('sessionId'):
+						if self.block_uploads:
+							if target := self.sessions.pop(sid, None):
+								self._send('Target.closeTarget', targetId=target)
+						else:
+							self._send('Runtime.runIfWaitingForDebugger', sid)
 					logger.warning('File guard / audit tab setup failed: %s', msg['error'])
 			reply = self._replies.pop(msg['id'], None)
 			if reply is not None and 'result' in msg:
@@ -443,7 +447,7 @@ class Guard:
 					self._send(
 						'Page.setInterceptFileChooserDialog',
 						sid,
-						reply=lambda _: self._send('Runtime.runIfWaitingForDebugger', sid),
+						reply=lambda _: self._send('Runtime.runIfWaitingForDebugger', sid) if sid in self.sessions else None,
 						enabled=True,
 					)
 				)

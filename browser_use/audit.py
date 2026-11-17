@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class AuditLog:
 	def __init__(self, path: str | Path, secrets: Secrets | None = None):
+		self._disabled = False
 		self.path = Path(path).expanduser().resolve()
 		self.path.parent.mkdir(parents=True, exist_ok=True)
 		if secrets is not None and not isinstance(secrets, dict | list | tuple):
@@ -43,6 +44,9 @@ class AuditLog:
 			os.close(fd)
 
 	def write(self, event: str, target_id: str | None = None, **details) -> None:
+		if self._disabled:
+			return
+
 		def clean(value: Any, redact: bool = False) -> Any:
 			if isinstance(value, str):
 				value = _scrub_url(value)
@@ -54,7 +58,7 @@ class AuditLog:
 			return value
 
 		def serialize(record: dict) -> str:
-			return json.dumps(record, ensure_ascii=True) + '\n'
+			return json.dumps(record, ensure_ascii=False) + '\n'
 
 		try:
 			record = dict(ts=time.time(), event=event, target_id=target_id)
@@ -72,7 +76,10 @@ class AuditLog:
 					raise OSError('Partial audit write')
 			finally:
 				os.close(fd)
-		except (OSError, TypeError, ValueError):
+		except (OSError, TypeError, ValueError) as exc:
+			if isinstance(exc, OSError):
+				# A failed append may leave partial bytes; never join another record onto them.
+				self._disabled = True
 			# Evidence is best effort: an append failure must never bypass enforcement.
 			# Exception text can contain record data, so do not log it.
 			logger.warning('Audit record could not be written')

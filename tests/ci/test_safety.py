@@ -298,7 +298,8 @@ async def test_mcp_download_navigation_raises_permission_error(chrome, daemon, s
 		({'s': '[', 't': '*'}, 'before [ * after'),
 	],
 )
-def test_audit_falls_back_for_unsafe_markers_and_substitution_results(tmp_path, secrets, text):
+def test_audit_falls_back_for_unsafe_markers_and_substitution_results(tmp_path, secrets, text, monkeypatch):
+	monkeypatch.setattr('browser_use.audit.time.time', lambda: 1700000000.0)
 	log = tmp_path / 'audit.jsonl'
 	audit = AuditLog(log, secrets)
 	audit.write('action', text=text, nested={text: [text]})
@@ -319,6 +320,13 @@ def test_audit_matches_case_insensitive_encodings(tmp_path, text, one_shot):
 	assert read_audit(log)[0]['text'] == '[REDACTED]'
 
 
+def test_audit_redacts_unicode_case_forms(tmp_path):
+	audit = AuditLog(tmp_path / 'audit.jsonl', {'s': 'ÿsecret'})
+	audit.write('action', text='ŸSECRET')
+	assert read_audit(audit.path)[0]['text'] == '[REDACTED]'
+	assert not audit.pattern.search(audit.path.read_text(encoding='utf-8'))
+
+
 def test_aborted_navigation_does_not_claim_a_download():
 	from browser_use.repl.worker import _download_navigation_result
 
@@ -327,7 +335,8 @@ def test_aborted_navigation_does_not_claim_a_download():
 	assert 'Download navigation refused' not in str(error.value)
 
 
-def test_audit_short_write_is_not_retried(tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize('failure', ['short', 'error'])
+def test_audit_write_failure_disables_later_appends(tmp_path, monkeypatch, caplog, failure):
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
 	audit = AuditLog(tmp_path / 'audit.jsonl')
 	write = os.write
@@ -335,13 +344,18 @@ def test_audit_short_write_is_not_retried(tmp_path, monkeypatch, caplog):
 
 	def partial_write(fd, data):
 		calls.append(data)
-		return write(fd, data[:3])
+		written = write(fd, data[:3])
+		if failure == 'error':
+			raise OSError('private contents')
+		return written
 
 	monkeypatch.setattr(os, 'write', partial_write)
 	audit.write('action', text='private contents')
+	audit.write('action', text='next record')
+	audit.write('action', text='another record')
 	assert len(calls) == 1
 	assert audit.path.stat().st_size == 3
-	assert 'Audit record could not be written' in caplog.text
+	assert caplog.text.count('Audit record could not be written') == 1
 	assert 'private contents' not in caplog.text
 
 
@@ -445,10 +459,13 @@ def test_audit_skips_secret_identifiers(tmp_path, caplog, monkeypatch, field):
 	assert 'private-id' not in caplog.text
 
 
-@pytest.mark.parametrize('failed_method', ['Page.enable', 'Page.setInterceptFileChooserDialog'])
-def test_tab_setup_failure_resumes_auto_attached_tab(monkeypatch, caplog, failed_method):
+@pytest.mark.parametrize(
+	('block_uploads', 'failed_method'),
+	[(False, 'Page.enable'), (True, 'Page.enable'), (True, 'Page.setInterceptFileChooserDialog')],
+)
+def test_tab_setup_failure_closes_only_upload_guarded_tab(monkeypatch, caplog, failed_method, block_uploads):
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
-	guard = Guard('unused', DomainRules(), block_uploads=True)
+	guard = Guard('unused', DomainRules(), block_uploads=block_uploads, block_downloads=True)
 	guard._ready.set()
 	sent = []
 
@@ -465,6 +482,13 @@ def test_tab_setup_failure_resumes_auto_attached_tab(monkeypatch, caplog, failed
 	)
 	failed = next(msg for msg in sent if msg['method'] == failed_method)
 	guard._handle({'id': failed['id'], 'sessionId': 'session', 'error': {'message': 'setup refused'}})
-	assert sent[-1]['method'] == 'Runtime.runIfWaitingForDebugger'
-	assert sent[-1]['sessionId'] == 'session'
+	if block_uploads:
+		assert sent[-1]['method'] == 'Target.closeTarget'
+		assert sent[-1]['params'] == {'targetId': 'tab'}
+		for pending in list(guard._setup):
+			guard._handle({'id': pending, 'sessionId': 'session', 'result': {}})
+		assert not any(msg['method'] == 'Runtime.runIfWaitingForDebugger' for msg in sent)
+	else:
+		assert sent[-1]['method'] == 'Runtime.runIfWaitingForDebugger'
+		assert sent[-1]['sessionId'] == 'session'
 	assert 'setup refused' in caplog.text

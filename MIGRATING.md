@@ -195,7 +195,8 @@ Uploads: `upload_file`, the shared local/remote upload implementation, and the w
 `cdp('DOM.setFileInputFiles', ...)` refuse with `PermissionError`. The same guard connection attaches to page targets,
 including new tabs, enables `Page.setInterceptFileChooserDialog`, and clears the input on a chooser event. This
 suppresses the native chooser; it does **not** provide a browser-wide veto of `DOM.setFileInputFiles` from other CDP
-clients. New page targets wait for interception setup before resuming. Same-process frames inherit the page's
+clients. New page targets wait for interception setup before resuming; if per-tab setup fails with uploads blocked,
+the target is closed with a warning. Same-process frames inherit the page's
 interception; separate iframe targets are not attached by this guard.
 
 The browser controls cover cloud, Chromium, Chrome with a profile, and `cdp_url`, just like the domain guard.
@@ -222,7 +223,8 @@ contents are not included. Browser events are
 observed on the guard connection, so helper-bypassing page navigations and completed downloads are included. Existing
 pages before the guard connects and events during a connection gap cannot be reconstructed. Auditing observes page download events without
 changing an existing download behavior or destination. Audit files are created with owner-only permissions (0600),
-also applied to existing files. Audit append failures warn without record contents and do not interrupt enforcement.
+also applied to existing files. A short or failed append disables further writes for that AuditLog instance and
+warns once without record contents; enforcement continues.
 
 CLI/MCP: the deprecated `--mcp` path reads `block_downloads` and `block_uploads` from the default browser profile in
 its 0.x config, alongside domain rules. `BROWSER_USE_BLOCK_DOWNLOADS=1` and/or `BROWSER_USE_BLOCK_UPLOADS=1` with
