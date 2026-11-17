@@ -193,6 +193,23 @@ Something broken? `browser-use feedback 'what happened'` (or `browser_use.feedba
 
 <br/>
 
+# Browser Use for enterprises
+
+Talk to us about:
+
+- **Security and compliance:** SOC 2, HIPAA with a BAA, GDPR, zero data retention and EU data residency.
+- **Network control:** domain allow and block lists, network policies, egress control, your own proxies, IP allowlists and private networking.
+- **Agent controls:** tool and action restrictions, blocked downloads and uploads, and human approval for sensitive steps.
+- **Identity and access:** SSO with SAML, SCIM provisioning and role-based access.
+- **Secrets:** vault integrations and domain-scoped credentials, kept out of prompts and task text.
+- **Audit logging:** a record of every navigation and action, exported to your SIEM.
+- **Deployment:** a fully on-prem browser, in your VPC or self-hosted.
+- **Support:** SLAs, dedicated support and onboarding.
+
+[Reach out to us](https://browser-use.com/enterprise#talk-to-sales) to tell us what your team needs.
+
+<br/>
+
 # FAQ
 
 <details>
