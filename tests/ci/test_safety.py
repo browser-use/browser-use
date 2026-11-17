@@ -305,9 +305,10 @@ def test_audit_falls_back_for_unsafe_markers_and_substitution_results(tmp_path, 
 		assert all(secret not in record['text'] for secret in secrets.values())
 
 
+@pytest.mark.parametrize('one_shot', [False, True])
 @pytest.mark.parametrize('text', ['%c3%bf', '%C3%bF', 'c3bF'])
-def test_audit_matches_case_insensitive_encodings(tmp_path, text):
+def test_audit_matches_case_insensitive_encodings(tmp_path, text, one_shot):
 	log = tmp_path / 'audit.jsonl'
-	audit = AuditLog(log, {'s': 'ÿ'})
+	audit = AuditLog(log, iter([('s', 'ÿ')]) if one_shot else {'s': 'ÿ'})
 	audit.write('action', text=text)
 	assert read_audit(log)[0]['text'] == '[REDACTED]'

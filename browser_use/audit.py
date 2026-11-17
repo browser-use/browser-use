@@ -19,6 +19,8 @@ class AuditLog:
 	def __init__(self, path: str | Path, secrets: Secrets | None = None):
 		self.path = Path(path).expanduser().resolve()
 		self.path.parent.mkdir(parents=True, exist_ok=True)
+		if secrets is not None and not isinstance(secrets, dict | list | tuple):
+			secrets = list(secrets)  # read twice below; a one-shot iterator would miss the second pass
 		forms = [form for form, _ in secret_forms(secrets or {}, include_short_encodings=True)]
 		patterns = [re.escape(form) for form in forms]
 		for _, value, _ in scoped_secrets(secrets or {}):
