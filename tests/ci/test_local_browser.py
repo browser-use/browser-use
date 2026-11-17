@@ -441,6 +441,20 @@ def test_playwright_chromium_from_browser_use_install_is_found_last(tmp_path, mo
 		_local.find_binary()  # rc5 local-2: the library error names the documented fix, not only `browser-use doctor`
 
 
+def test_relative_playwright_browsers_path_is_resolved(tmp_path, monkeypatch):
+	monkeypatch.setattr(sys, 'platform', 'linux')
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', 'pw')
+	binary = tmp_path / 'pw' / 'chromium-1248' / 'chrome-linux64' / 'chrome'
+	binary.parent.mkdir(parents=True)
+	binary.write_text('')
+	monkeypatch.chdir(tmp_path)
+	assert _local.playwright_chromium() == [str(binary)]
+	assert _local.find_binary() == str(binary)
+
+
 def test_a_file_named_like_a_browser_in_the_working_directory_is_never_launched(tmp_path, monkeypatch):
 	"""cubic: the Linux names not on PATH stayed in the list as bare names, which is_file() read in the working directory:
 	a file named ./chromium there was launched as the browser."""

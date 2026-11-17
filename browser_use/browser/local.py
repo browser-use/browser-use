@@ -232,7 +232,7 @@ def playwright_chromium() -> list[str]:
 		rels = ['chrome-win*/chrome.exe']
 	else:
 		rels = ['chrome-linux*/chrome']
-	return [str(hit) for build in builds for rel in rels for hit in sorted(build.glob(rel))]
+	return [str(hit.resolve()) for build in builds for rel in rels for hit in sorted(build.glob(rel))]
 
 
 def is_snap(path: str) -> bool:
