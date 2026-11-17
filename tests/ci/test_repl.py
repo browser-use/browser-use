@@ -733,7 +733,7 @@ def test_a_worker_whose_event_loop_closed_is_reaped_without_asyncio_warnings(tmp
 	assert not [r for r in caplog.records if r.name == 'asyncio' and 'that handles pid' in r.getMessage()]
 
 
-def _tab(capture_hangs: bool):
+def _tab(capture_hangs: bool, headless: bool = False):
 	"""A stub browser-harness cdp for one hidden attached tab; records (method, response timeout) per call."""
 	from browser_harness.helpers import _IPCResponseTimeout
 
@@ -742,7 +742,7 @@ def _tab(capture_hangs: bool):
 	def raw_cdp(method, session_id=None, _response_timeout=5.0, **params):
 		calls.append((method, _response_timeout))
 		if method == 'Runtime.evaluate':
-			return {'result': {'type': 'string', 'value': state['visibility']}}
+			return {'result': {'type': 'string', 'value': state['visibility'] + (' headless' if headless else '')}}
 		if method == 'Target.activateTarget':
 			state['visibility'] = 'visible'
 			return {}
@@ -791,6 +791,17 @@ def test_hidden_cloud_tab_is_activated_before_its_capture():
 	calls.clear()
 	assert capture(raw_cdp, lambda: {'targetId': 'T'}, activate=True, format='jpeg')['data']  # visible now: no activate
 	assert [m for m, _ in calls] == ['Runtime.evaluate', 'Page.captureScreenshot']
+
+
+def test_hidden_headless_tab_is_activated_before_its_capture():
+	"""The CLI on a headless cdp browser (BU_CDP_WS): every first screenshot after new_tab() waited the full 10 s try,
+	as cloud ones did. Headless has no visible tab to switch, so activate first."""
+	from browser_use.repl.capture import SCREENSHOT_TIMEOUT_S, capture
+
+	raw_cdp, calls, state = _tab(capture_hangs=True, headless=True)
+	assert capture(raw_cdp, lambda: {'targetId': 'T'}, format='jpeg')['data']
+	assert calls == [('Runtime.evaluate', 5), ('Target.activateTarget', 5.0), ('Page.captureScreenshot', SCREENSHOT_TIMEOUT_S)]
+	assert state['visibility'] == 'visible'
 
 
 @pytest.mark.parametrize('kind', ['cdp', 'cloud'])
