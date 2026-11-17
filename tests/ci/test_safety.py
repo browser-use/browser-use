@@ -4,6 +4,9 @@ import base64
 import html
 import http.server
 import json
+import logging
+import os
+import stat
 import threading
 import urllib.parse
 
@@ -83,6 +86,7 @@ async def test_worker_refuses_upload_and_download_helpers(daemon, site, tmp_path
 			('upload_file("#file", "nonexistent.txt")', 'block_uploads'),
 			('cdp("DOM.setFileInputFiles", files=["nonexistent.txt"], backendNodeId=1)', 'block_uploads'),
 			('cdp("Browser.setDownloadBehavior", behavior="allow", downloadPath="/tmp")', 'block_downloads'),
+			('cdp("Page.setDownloadBehavior", behavior="allow", downloadPath="/tmp")', 'block_downloads'),
 			(f'http_get({site + "/download"!r})', 'block_downloads'),
 		):
 			r = await repl.call('exec', code, 30)
@@ -197,8 +201,8 @@ def test_mcp_file_flags_config_and_helper_refusals(tmp_path, monkeypatch):
 	from browser_use import cli
 
 	launched = []
-	monkeypatch.setenv('BROWSER_USE_BLOCK_DOWNLOADS', '1')
-	monkeypatch.setenv('BROWSER_USE_BLOCK_UPLOADS', 'true')
+	monkeypatch.setenv('BROWSER_USE_BLOCK_DOWNLOADS', ' 1')
+	monkeypatch.setenv('BROWSER_USE_BLOCK_UPLOADS', ' YES ')
 	monkeypatch.setattr(cli, '_run_mcp_stdio_server', lambda module, **options: launched.append(options))
 	cli._run_cli_mcp_server()
 	assert launched == [options]
@@ -208,6 +212,7 @@ def test_mcp_file_flags_config_and_helper_refusals(tmp_path, monkeypatch):
 		'upload_file("#file", "missing")',
 		'cdp("DOM.setFileInputFiles", files=["missing"])',
 		'cdp("Browser.setDownloadBehavior", behavior="allow")',
+		'cdp("Page.setDownloadBehavior", behavior="allow")',
 	):
 		out, failed = server._execute(code, connect=False)
 		assert failed and 'PermissionError:' in out, out
@@ -262,7 +267,7 @@ def test_audit_preserves_schema_and_redacts_values_once(tmp_path, secret):
 	marker = record['target_id']
 	assert secret not in marker
 	assert record['text'] == marker + 'ction'
-	assert record['nested'] == {secret: [marker, {secret: marker}]}
+	assert record['nested'] == {marker: [marker, {marker: marker}]}
 
 
 async def test_mcp_download_navigation_raises_permission_error(chrome, daemon, site, monkeypatch):
@@ -279,7 +284,7 @@ async def test_mcp_download_navigation_raises_permission_error(chrome, daemon, s
 		ns = server._ensure_namespace()
 		assert ns['goto_url'](site).get('errorText') is None
 		for navigate in (lambda url: ns['goto_url'](url), lambda url: ns['cdp']('Page.navigate', url=url)):
-			with pytest.raises(PermissionError, match=r'Download navigation refused \(block_downloads=True\)'):
+			with pytest.raises(PermissionError, match=r'Navigation aborted .*block_downloads=True'):
 				navigate(site + '/download')
 	finally:
 		await browser.stop()
@@ -300,7 +305,7 @@ def test_audit_falls_back_for_unsafe_markers_and_substitution_results(tmp_path, 
 	record = read_audit(log)[0]
 	assert record['event'] == 'action'
 	assert record['text'] is None or record['text'] in ('[REDACTED]', '[***]')
-	assert record['nested'] == {text: [record['text']]}
+	assert record['nested'] == {record['text'] if record['text'] is not None else 'null': [record['text']]}
 	if record['text'] is not None:
 		assert all(secret not in record['text'] for secret in secrets.values())
 
@@ -312,3 +317,108 @@ def test_audit_matches_case_insensitive_encodings(tmp_path, text, one_shot):
 	audit = AuditLog(log, iter([('s', 'ÿ')]) if one_shot else {'s': 'ÿ'})
 	audit.write('action', text=text)
 	assert read_audit(log)[0]['text'] == '[REDACTED]'
+
+
+def test_aborted_navigation_does_not_claim_a_download():
+	from browser_use.repl.worker import _download_navigation_result
+
+	with pytest.raises(PermissionError, match='Navigation aborted') as error:
+		_download_navigation_result({'errorText': 'net::ERR_ABORTED'}, blocked=True)
+	assert 'Download navigation refused' not in str(error.value)
+
+
+def test_audit_short_writes_are_completed(tmp_path, monkeypatch):
+	audit = AuditLog(tmp_path / 'audit.jsonl')
+	write = os.write
+	monkeypatch.setattr(os, 'write', lambda fd, data: write(fd, data[:3]))
+	audit.write('action', text='first')
+	audit.write('action', text='second')
+	assert [r['text'] for r in read_audit(audit.path)] == ['first', 'second']
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX permissions')
+@pytest.mark.parametrize('existing', [False, True])
+def test_audit_file_is_private(tmp_path, existing):
+	path = tmp_path / 'audit.jsonl'
+	if existing:
+		path.touch(mode=0o644)
+	audit = AuditLog(path)
+	assert stat.S_IMODE(audit.path.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize('failure', ['io', 'serialization', 'zero_write'])
+def test_audit_failures_do_not_prevent_enforcement(tmp_path, monkeypatch, failure):
+	audit = AuditLog(tmp_path / 'audit.jsonl')
+	if failure == 'io':
+		monkeypatch.setattr(os, 'open', lambda *a, **kw: (_ for _ in ()).throw(OSError('disk full')))
+	elif failure == 'zero_write':
+		monkeypatch.setattr(os, 'write', lambda *a: 0)
+	else:
+		audit.write('action', text=object())
+	guard = Guard('unused', DomainRules.of(['allowed.test']), audit=audit)
+	sent = []
+	monkeypatch.setattr(guard, '_send', lambda method, *a, **kw: sent.append(method))
+	guard.pages['tab'] = 'about:blank'
+	guard._handle(
+		{
+			'method': 'Fetch.requestPaused',
+			'params': {'frameId': 'tab', 'requestId': 'r', 'request': {'url': 'https://blocked.test'}},
+		}
+	)
+	guard._reset('tab', 'https://blocked.test', 'blocked')
+	assert sent == ['Fetch.failRequest', 'Target.attachToTarget']
+
+
+def test_audit_preserves_safe_strings_without_a_marker(tmp_path):
+	audit = AuditLog(tmp_path / 'audit.jsonl', {'one': '[', 'two': '*'})
+	audit.write('action', text='safe', nested={'unsafe': '['})
+	assert read_audit(audit.path)[0]['text'] == 'safe'
+	assert read_audit(audit.path)[0]['nested'] == {'unsafe': None}
+
+
+def test_runtime_tab_setup_failure_keeps_guard_connected():
+	guard = Guard('unused', DomainRules())
+	guard._ready.set()
+	guard._setup.add(1)
+	guard._handle({'id': 1, 'error': {'message': 'target closed'}})
+	assert not guard._setup
+
+
+@pytest.mark.parametrize('method', ['Target.detachedFromTarget', 'Target.targetDestroyed'])
+def test_guard_discards_frames_for_closed_targets(method):
+	guard = Guard('unused', DomainRules())
+	guard.sessions = {'session': 'tab'}
+	guard.frames = {'main': 'tab', 'child': 'tab', 'other': 'other-tab'}
+	guard._handle({'method': method, 'params': {'sessionId': 'session', 'targetId': 'tab'}})
+	assert guard.frames == {'other': 'other-tab'}
+
+
+@pytest.mark.parametrize('name', ['block_downloads', 'block_uploads'])
+@pytest.mark.parametrize('value', ['false', 1, None])
+def test_file_flags_require_bools(name, value):
+	with pytest.raises(TypeError, match=name):
+		Browser(**{name: value})
+
+
+@pytest.mark.parametrize('path', ['', '.'])
+def test_agent_rejects_invalid_audit_path(path):
+	model, _ = script(('finish', {'success': True, 'result': 'done'}))
+	with pytest.raises(ValueError, match='audit_log'):
+		Agent('Browse', model, audit_log=path)
+
+
+def test_repl_preserves_positional_arguments(tmp_path):
+	async def reattach():
+		pass
+
+	repl = Repl(tmp_path, {}, 'default', {}, reattach)
+	assert repl.reattach is reattach
+	assert repl.audit_log is None
+
+
+def test_short_secret_warning_contains_no_secret_names(caplog, monkeypatch):
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
+	model, _ = script(('finish', {'success': True, 'result': 'done'}))
+	Agent('Browse', model, sensitive_data={'abc': 'abc'})
+	assert 'values under' in caplog.text
+	assert 'abc' not in caplog.text

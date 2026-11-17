@@ -424,7 +424,9 @@ class Guard:
 			if msg['id'] in self._setup:
 				self._setup.discard(msg['id'])
 				if 'error' in msg:
-					raise RuntimeError(f'File guard / audit setup failed: {msg["error"]}')
+					if not self._ready.is_set():
+						raise RuntimeError(f'File guard / audit setup failed: {msg["error"]}')
+					logger.debug('File guard / audit tab setup failed')
 			reply = self._replies.pop(msg['id'], None)
 			if reply is not None and 'result' in msg:
 				reply(msg['result'])
@@ -444,7 +446,8 @@ class Guard:
 					)
 				)
 		elif method == 'Target.detachedFromTarget':
-			self.sessions.pop(params.get('sessionId', ''), None)
+			if target := self.sessions.pop(params.get('sessionId', ''), None):
+				self.frames = {frame: tab for frame, tab in self.frames.items() if tab != target}
 		elif method == 'Page.fileChooserOpened' and self.block_uploads:
 			sid = msg.get('sessionId')
 			if params.get('backendNodeId'):
@@ -495,7 +498,9 @@ class Guard:
 					# a tab created on that URL has loaded nothing yet: its request, if any, is blocked and reported
 					self._reset(target, url, why, silent=before is None)
 		elif method == 'Target.targetDestroyed':
-			self.pages.pop(str(params.get('targetId')), None)
+			target = str(params.get('targetId'))
+			self.pages.pop(target, None)
+			self.frames = {frame: tab for frame, tab in self.frames.items() if tab != target}
 		elif method == 'Fetch.requestPaused':
 			url = str((params.get('request') or {}).get('url', ''))
 			frame = str(params.get('frameId'))

@@ -613,6 +613,9 @@ class Browser:
 					'Browser(allowed_domains=[...]); unset the variable.',
 				)
 			)
+		for name, value in (('block_downloads', block_downloads), ('block_uploads', block_uploads)):
+			if not isinstance(value, bool):
+				raise TypeError(f'{name} must be True or False, not {value!r}')
 		self.block_downloads, self.block_uploads = block_downloads, block_uploads
 		self._audit: AuditLog | None = None
 		self.domains = DomainRules.of(allowed_domains, prohibited_domains, block_ip_addresses)

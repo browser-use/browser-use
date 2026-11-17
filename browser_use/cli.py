@@ -211,7 +211,7 @@ def _run_cli_mcp_server() -> None:
 	options = {
 		name: True
 		for name in ('block_downloads', 'block_uploads')
-		if os.environ.get(f'BROWSER_USE_{name.upper()}', '').lower() in ('1', 'true')
+		if os.environ.get(f'BROWSER_USE_{name.upper()}', '').strip().lower() in ('1', 'true', 'yes')
 	}
 	_run_mcp_stdio_server('browser_use.mcp.cli_mcp', **options)
 

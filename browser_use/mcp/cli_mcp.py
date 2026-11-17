@@ -647,7 +647,11 @@ class CLIMCPServer:
 						and not kwargs.get('enabled')
 					):
 						raise PermissionError('Uploads are blocked (block_uploads=True)')
-					if browser.block_downloads and method == 'Browser.setDownloadBehavior' and kwargs.get('behavior') != 'deny':
+					if (
+						browser.block_downloads
+						and method in ('Browser.setDownloadBehavior', 'Page.setDownloadBehavior')
+						and kwargs.get('behavior') != 'deny'
+					):
 						raise PermissionError('Downloads are blocked (block_downloads=True)')
 					result = original_cdp(method, *args, **kwargs)
 					if method == 'Page.navigate':

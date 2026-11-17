@@ -319,13 +319,13 @@ class Repl:
 		env: dict[str, str] | None = None,
 		mode: str | None = 'default',
 		secrets: Secrets | None = None,
-		audit_log: Path | None = None,
 		reattach: Callable[[], Awaitable[Any]] | None = None,
 		after_cell: Callable[[], Awaitable[tuple[list[str], int]]] | None = None,
 		search: web.WebSearch | None = None,
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		highlight_actions: bool = False,
 		feedback: Callable[[dict], str] | None = None,
+		audit_log: Path | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.audit_log = audit_log

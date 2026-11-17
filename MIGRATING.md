@@ -200,8 +200,9 @@ interception; separate iframe targets are not attached by this guard.
 
 The browser controls cover cloud, Chromium, Chrome with a profile, and `cdp_url`, just like the domain guard.
 Opting into file flags or auditing on `Browser('chrome')` also opens a guard connection using the harness's Chrome
-endpoint discovery. In a shared browser these file controls apply to every page, including your own tabs; existing
-domain restriction behavior for your tabs stays the same. Initial setup failure raises before agent cells run;
+endpoint discovery. Chrome may show **Allow remote debugging?** again; click **Allow**. In a shared browser these
+file controls apply to every page, including your own tabs; existing domain restriction behavior for your tabs stays
+the same. Initial setup failure raises before agent cells run;
 a dropped connection reconnects, with a gap in browser enforcement and browser events until it does.
 
 The JSONL audit file is appended across runs. Each record has a Unix `ts`, an `event`, and `target_id` (null when no
@@ -212,16 +213,17 @@ attempts, including failed helper calls. Read-only helpers are also recorded, wi
 The harness recorder's URL credential scrubbing and action detail/password masking functions are reused. Password
 fields are checked before filling; `type_secret` and accessibility typing actions always mask their text. All
 `sensitive_data` values and their known encoded forms are redacted before writing, including short values inside
-other text. Only string values are redacted; JSON keys and fixed event/schema names are preserved.
+other text. Nested JSON keys are also redacted; fixed event/schema names are preserved.
 Percent escapes and hex encodings match regardless of hex digit case; other forms match literally (including the
 known lower- and upper-case forms of the value). After substitution, the entire string is checked again. If any
 known secret form remains, the whole value becomes a constant marker containing no known secret form. If neither
-`[REDACTED]` nor `[***]` is safe, string values become JSON null. No redacted string value contains a known secret
-form. JSON keys and event names remain untouched. Raw Python source, arbitrary `js`/CDP arguments, and page contents are not included. Browser events are
+`[REDACTED]` nor `[***]` is safe, matching strings become JSON null ("null" for keys); other strings are preserved.
+No redacted string value contains a known secret form. Raw Python source, arbitrary `js`/CDP arguments, and page
+contents are not included. Browser events are
 observed on the guard connection, so helper-bypassing page navigations and completed downloads are included. Existing
 pages before the guard connects and events during a connection gap cannot be reconstructed. Auditing observes page download events without
-changing an existing download behavior or destination. Audit write errors propagate; browser event write failures
-trigger guard reconnection.
+changing an existing download behavior or destination. Audit files are created with owner-only permissions (0600),
+also applied to existing files. Audit append failures warn without record contents and do not interrupt enforcement.
 
 CLI/MCP: the deprecated `--mcp` path reads `block_downloads` and `block_uploads` from the default browser profile in
 its 0.x config, alongside domain rules. `BROWSER_USE_BLOCK_DOWNLOADS=1` and/or `BROWSER_USE_BLOCK_UPLOADS=1` with

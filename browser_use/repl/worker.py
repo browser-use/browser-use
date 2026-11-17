@@ -444,9 +444,9 @@ def http_get(url, headers=None, timeout=20.0):
 
 
 def _download_navigation_result(result, *, blocked: bool):
-	"""Translate Chrome's aborted download navigation consistently for worker and MCP helpers."""
+	"""Report aborted navigations without assuming that a download caused the abort."""
 	if blocked and isinstance(result, dict) and 'ERR_ABORTED' in result.get('errorText', ''):
-		raise PermissionError('Download navigation refused (block_downloads=True)')
+		raise PermissionError('Navigation aborted (possibly a refused download; block_downloads=True)')
 	return result
 
 
@@ -679,7 +679,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			kind = 'upload'
 		if (
 			os.environ.get('BU_BLOCK_DOWNLOADS') == '1'
-			and method == 'Browser.setDownloadBehavior'
+			and method in ('Browser.setDownloadBehavior', 'Page.setDownloadBehavior')
 			and params.get('behavior') != 'deny'
 		):
 			kind = 'download'

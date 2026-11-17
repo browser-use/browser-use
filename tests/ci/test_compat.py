@@ -134,7 +134,8 @@ def test_short_or_list_shaped_sensitive_data_is_explained(no_browser, caplog):
 		Agent('t', script()[0], browser=Browser(local=True), sensitive_data={'pin': '42', 'pw': 'long-enough'})
 	finally:
 		logging.getLogger('browser_use').propagate = False
-	assert 'sensitive_data pin: values under 4 characters' in caplog.text and 'pw' not in caplog.text.split('sensitive_data')[1]
+	assert 'sensitive_data values under 4 characters' in caplog.text
+	assert all(name not in caplog.text.split('sensitive_data')[1] for name in ('pin', 'pw'))
 	with pytest.raises(TypeError, match='sensitive_data must be a dict'):
 		Agent('t', script()[0], browser=Browser(local=True), sensitive_data=[('pw', 'x', 'https://a.com')])
 
