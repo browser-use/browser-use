@@ -58,17 +58,21 @@ class AuditLog:
 			return value
 
 		def serialize(record: dict) -> str:
-			return json.dumps(record, ensure_ascii=False) + '\n'
+			return (json.dumps(record, ensure_ascii=False) + '\n').encode('utf-8', errors='backslashreplace').decode('utf-8')
 
 		try:
-			record = dict(ts=time.time(), event=event, target_id=target_id)
-			line = serialize({**record, **clean(details)})
-			if self.pattern and self.pattern.search(line):
-				line = serialize({**record, **clean(details, redact=True)})
-				if self.pattern.search(line):
-					line = serialize({**record, 'redacted': True})
-				if self.pattern.search(line):
+			payload = dict(target_id=clean(target_id), **clean(details))
+			if self.pattern and self.pattern.search(serialize(payload)):
+				payload = dict(target_id=clean(target_id, redact=True), **clean(details, redact=True))
+				if self.pattern.search(serialize(payload)):
+					target = payload['target_id']
+					if self.pattern.search(serialize({'target_id': target})):
+						target = None
+					payload = dict(target_id=target, redacted=True)
+				if self.pattern.search(serialize(payload)):
 					raise ValueError('Unsafe audit record')
+			# Only the fixed event name and numeric timestamp are exempt from the secret check.
+			line = serialize({'ts': time.time(), 'event': event, **payload})
 			fd = os.open(self.path, os.O_WRONLY | os.O_APPEND)
 			try:
 				data = line.encode('utf-8')

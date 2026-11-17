@@ -449,14 +449,39 @@ def test_audit_null_key_cannot_leak_secret(tmp_path):
 	assert 'null' not in audit.path.read_text()
 
 
-@pytest.mark.parametrize('field', ['target_id', 'event'])
-def test_audit_skips_secret_identifiers(tmp_path, caplog, monkeypatch, field):
-	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
-	audit = AuditLog(tmp_path / 'audit.jsonl', {'s': 'private-id'})
-	audit.write(**{'event': 'action', 'target_id': 'tab', field: 'private-id'})
-	assert audit.path.read_text() == ''
-	assert 'Audit record could not be written' in caplog.text
-	assert 'private-id' not in caplog.text
+@pytest.mark.parametrize(
+	('secret', 'target_id', 'expected_target'),
+	[
+		('tion', 'tab', 'tab'),
+		('1700000000', 'tab', 'tab'),
+		('ts', 'tab', 'tab'),
+		('event', 'tab', 'tab'),
+		('private-id', 'private-id', '[REDACTED]'),
+		('[', '[', None),
+	],
+)
+def test_audit_preserves_fixed_fields_and_scrubs_target(tmp_path, monkeypatch, secret, target_id, expected_target):
+	monkeypatch.setattr('browser_use.audit.time.time', lambda: 1700000000.0)
+	audit = AuditLog(tmp_path / 'audit.jsonl', {'s': secret})
+	audit.write('action', target_id, text='safe')
+	record = read_audit(audit.path)[0]
+	assert record['ts'] == 1700000000.0
+	assert record['event'] == 'action'
+	assert record['target_id'] == expected_target
+	assert not audit.pattern.search(json.dumps({k: v for k, v in record.items() if k not in ('ts', 'event')}))
+
+
+@pytest.mark.parametrize('secret', ['private', r'\ud800'])
+def test_audit_preserves_lone_surrogates_and_checks_written_escapes(tmp_path, secret):
+	audit = AuditLog(tmp_path / 'audit.jsonl', {'s': secret})
+	audit.write('action', 'tab', text='before \ud800 private after')
+	record = read_audit(audit.path)[0]
+	assert record['event'] == 'action'
+	if secret == 'private':
+		assert record['text'] == 'before \ud800 [REDACTED] after'
+	else:
+		assert record['redacted'] is True
+	assert not audit.pattern.search(audit.path.read_text(encoding='utf-8'))
 
 
 @pytest.mark.parametrize(
