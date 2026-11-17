@@ -302,10 +302,10 @@ class Agent:
 				"sensitive_data must be a dict: {'name': 'value'} or {'https://site.com': {'name': 'value'}}, "
 				f'not {type(sensitive_data).__name__}'
 			)
-		short = any(0 < len(v) < SHORT_SECRET for _, v, _ in scoped_secrets(sensitive_data))  # raises on non-str
+		short = sorted({n for n, v, _ in scoped_secrets(sensitive_data) if 0 < len(v) < SHORT_SECRET})  # raises on non-str
 		if short:
 			logger.warning(
-				f'sensitive_data values under {SHORT_SECRET} characters are redacted only where they '
+				f'sensitive_data {", ".join(short)}: values under {SHORT_SECRET} characters are redacted only where they '
 				'stand alone, not inside longer words or numbers; a longer value is safer.'
 			)
 		self.task, self.llm, self.browser, self.tools = task, as_chat_model(llm), browser, tools

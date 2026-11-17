@@ -35,8 +35,6 @@ class AuditLog:
 				parts = re.split(r'(%[0-9A-Fa-f]{2})', encoded)
 				patterns.append(''.join(f'(?i:{part})' if part.startswith('%') else re.escape(part) for part in parts))
 		self.pattern = re.compile('|'.join(patterns)) if patterns else None
-		# A marker must not itself contain a secret (for example, REDACTED).
-		self.marker = next((m for m in ('[REDACTED]', '[***]') if not self.pattern or not self.pattern.search(m)), None)
 		# Fail before starting a browser if the destination is unwritable.
 		fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
 		try:
@@ -45,40 +43,33 @@ class AuditLog:
 			os.close(fd)
 
 	def write(self, event: str, target_id: str | None = None, **details) -> None:
-		def clean(value: Any) -> Any:
+		def clean(value: Any, redact: bool = False) -> Any:
 			if isinstance(value, str):
 				value = _scrub_url(value)
-				if not self.pattern or not self.pattern.search(value):
-					return value
-				marker = self.marker
-				if marker is None:
-					return None
-				value = self.pattern.sub(lambda _: marker, value)
-				# Substitution can join surrounding text into another secret form.
-				return marker if self.pattern.search(value) else value
+				return self.pattern.sub('[REDACTED]', value) if redact and self.pattern else value
 			if isinstance(value, dict):
-				return {clean(k): clean(v) for k, v in value.items()}
+				return {clean(k, redact): clean(v, redact) for k, v in value.items()}
 			if isinstance(value, (list, tuple)):
-				return [clean(v) for v in value]
+				return [clean(v, redact) for v in value]
 			return value
 
+		def serialize(record: dict) -> str:
+			return json.dumps(record, ensure_ascii=True) + '\n'
+
 		try:
-			# Keep schema names fixed; nested keys and all detail values may contain secrets.
-			line = (
-				json.dumps(
-					dict(ts=time.time(), event=event, target_id=clean(target_id), **{k: clean(v) for k, v in details.items()}),
-					ensure_ascii=True,
-				)
-				+ '\n'
-			)
+			record = dict(ts=time.time(), event=event, target_id=target_id)
+			line = serialize({**record, **clean(details)})
+			if self.pattern and self.pattern.search(line):
+				line = serialize({**record, **clean(details, redact=True)})
+				if self.pattern.search(line):
+					line = serialize({**record, 'redacted': True})
+				if self.pattern.search(line):
+					raise ValueError('Unsafe audit record')
 			fd = os.open(self.path, os.O_WRONLY | os.O_APPEND)
 			try:
-				data = memoryview(line.encode('utf-8'))
-				while data:
-					written = os.write(fd, data)
-					if written <= 0:
-						raise OSError('Audit write made no progress')
-					data = data[written:]
+				data = line.encode('utf-8')
+				if os.write(fd, data) != len(data):
+					raise OSError('Partial audit write')
 			finally:
 				os.close(fd)
 		except (OSError, TypeError, ValueError):

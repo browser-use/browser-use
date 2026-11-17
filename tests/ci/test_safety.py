@@ -256,16 +256,16 @@ def test_audit_redacts_all_encodings_for_every_secret_length(tmp_path, secret):
 		assert all(form not in record['text'] for form in forms)
 
 
-@pytest.mark.parametrize('secret', ['a', 'REDACTED', 'abc', '[***]'])
+@pytest.mark.parametrize('secret', ['abc', 'long-secret'])
 def test_audit_preserves_schema_and_redacts_values_once(tmp_path, secret):
 	log = tmp_path / 'audit.jsonl'
 	audit = AuditLog(log, {'x': secret})
-	audit.write('action', secret, text=secret + 'ction', nested={secret: [secret, {secret: secret}]})
+	audit.write('action', 'tab', text=secret + 'ction', nested={secret: [secret, {secret: secret}]})
 	record = read_audit(log)[0]
 	assert set(record) == {'ts', 'event', 'target_id', 'text', 'nested'}
 	assert record['event'] == 'action'
-	marker = record['target_id']
-	assert secret not in marker
+	assert record['target_id'] == 'tab'
+	marker = '[REDACTED]'
 	assert record['text'] == marker + 'ction'
 	assert record['nested'] == {marker: [marker, {marker: marker}]}
 
@@ -302,12 +302,12 @@ def test_audit_falls_back_for_unsafe_markers_and_substitution_results(tmp_path, 
 	log = tmp_path / 'audit.jsonl'
 	audit = AuditLog(log, secrets)
 	audit.write('action', text=text, nested={text: [text]})
+	if 'REDACTED' in secrets.values():  # The fallback schema's redacted key also matches.
+		assert read_audit(log) == []
+		return
 	record = read_audit(log)[0]
-	assert record['event'] == 'action'
-	assert record['text'] is None or record['text'] in ('[REDACTED]', '[***]')
-	assert record['nested'] == {record['text'] if record['text'] is not None else 'null': [record['text']]}
-	if record['text'] is not None:
-		assert all(secret not in record['text'] for secret in secrets.values())
+	assert record == {'ts': record['ts'], 'event': 'action', 'target_id': None, 'redacted': True}
+	assert not audit.pattern.search(log.read_text())
 
 
 @pytest.mark.parametrize('one_shot', [False, True])
@@ -327,13 +327,22 @@ def test_aborted_navigation_does_not_claim_a_download():
 	assert 'Download navigation refused' not in str(error.value)
 
 
-def test_audit_short_writes_are_completed(tmp_path, monkeypatch):
+def test_audit_short_write_is_not_retried(tmp_path, monkeypatch, caplog):
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
 	audit = AuditLog(tmp_path / 'audit.jsonl')
 	write = os.write
-	monkeypatch.setattr(os, 'write', lambda fd, data: write(fd, data[:3]))
-	audit.write('action', text='first')
-	audit.write('action', text='second')
-	assert [r['text'] for r in read_audit(audit.path)] == ['first', 'second']
+	calls = []
+
+	def partial_write(fd, data):
+		calls.append(data)
+		return write(fd, data[:3])
+
+	monkeypatch.setattr(os, 'write', partial_write)
+	audit.write('action', text='private contents')
+	assert len(calls) == 1
+	assert audit.path.stat().st_size == 3
+	assert 'Audit record could not be written' in caplog.text
+	assert 'private contents' not in caplog.text
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='POSIX permissions')
@@ -367,13 +376,6 @@ def test_audit_failures_do_not_prevent_enforcement(tmp_path, monkeypatch, failur
 	)
 	guard._reset('tab', 'https://blocked.test', 'blocked')
 	assert sent == ['Fetch.failRequest', 'Target.attachToTarget']
-
-
-def test_audit_preserves_safe_strings_without_a_marker(tmp_path):
-	audit = AuditLog(tmp_path / 'audit.jsonl', {'one': '[', 'two': '*'})
-	audit.write('action', text='safe', nested={'unsafe': '['})
-	assert read_audit(audit.path)[0]['text'] == 'safe'
-	assert read_audit(audit.path)[0]['nested'] == {'unsafe': None}
 
 
 def test_runtime_tab_setup_failure_keeps_guard_connected():
@@ -416,9 +418,53 @@ def test_repl_preserves_positional_arguments(tmp_path):
 	assert repl.audit_log is None
 
 
-def test_short_secret_warning_contains_no_secret_names(caplog, monkeypatch):
+@pytest.mark.parametrize('details', [{'value': 1234}, {'nested': {1234: 'safe'}}])
+def test_audit_drops_details_with_numeric_secret(tmp_path, details, monkeypatch):
+	monkeypatch.setattr('browser_use.audit.time.time', lambda: 1700000000.0)
+	audit = AuditLog(tmp_path / 'audit.jsonl', {'s': '1234'})
+	audit.write('action', 'tab', **details)
+	record = read_audit(audit.path)[0]
+	assert record == {'ts': record['ts'], 'event': 'action', 'target_id': 'tab', 'redacted': True}
+
+
+def test_audit_null_key_cannot_leak_secret(tmp_path):
+	audit = AuditLog(tmp_path / 'audit.jsonl', {'s': 'null', 'one': '[', 'two': '*'})
+	audit.write('action', 'page', nested={'[': 'safe'})
+	record = read_audit(audit.path)[0]
+	assert record == {'ts': record['ts'], 'event': 'action', 'target_id': 'page', 'redacted': True}
+	assert 'null' not in audit.path.read_text()
+
+
+@pytest.mark.parametrize('field', ['target_id', 'event'])
+def test_audit_skips_secret_identifiers(tmp_path, caplog, monkeypatch, field):
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
-	model, _ = script(('finish', {'success': True, 'result': 'done'}))
-	Agent('Browse', model, sensitive_data={'abc': 'abc'})
-	assert 'values under' in caplog.text
-	assert 'abc' not in caplog.text
+	audit = AuditLog(tmp_path / 'audit.jsonl', {'s': 'private-id'})
+	audit.write(**{'event': 'action', 'target_id': 'tab', field: 'private-id'})
+	assert audit.path.read_text() == ''
+	assert 'Audit record could not be written' in caplog.text
+	assert 'private-id' not in caplog.text
+
+
+@pytest.mark.parametrize('failed_method', ['Page.enable', 'Page.setInterceptFileChooserDialog'])
+def test_tab_setup_failure_resumes_auto_attached_tab(monkeypatch, caplog, failed_method):
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)
+	guard = Guard('unused', DomainRules(), block_uploads=True)
+	guard._ready.set()
+	sent = []
+
+	class Socket:
+		def send(self, data):
+			sent.append(json.loads(data))
+
+	guard._ws = Socket()
+	guard._handle(
+		{
+			'method': 'Target.attachedToTarget',
+			'params': {'sessionId': 'session', 'targetInfo': {'targetId': 'tab'}},
+		}
+	)
+	failed = next(msg for msg in sent if msg['method'] == failed_method)
+	guard._handle({'id': failed['id'], 'sessionId': 'session', 'error': {'message': 'setup refused'}})
+	assert sent[-1]['method'] == 'Runtime.runIfWaitingForDebugger'
+	assert sent[-1]['sessionId'] == 'session'
+	assert 'setup refused' in caplog.text

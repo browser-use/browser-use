@@ -211,14 +211,13 @@ and `frame_id`), `action` (helper name, tab and available selector/coordinates/t
 `download_blocked`, `upload_blocked`, and `download_completed` (URL and download GUID). Action records describe
 attempts, including failed helper calls. Read-only helpers are also recorded, without their returned page content.
 The harness recorder's URL credential scrubbing and action detail/password masking functions are reused. Password
-fields are checked before filling; `type_secret` and accessibility typing actions always mask their text. All
-`sensitive_data` values and their known encoded forms are redacted before writing, including short values inside
-other text. Nested JSON keys are also redacted; fixed event/schema names are preserved.
-Percent escapes and hex encodings match regardless of hex digit case; other forms match literally (including the
-known lower- and upper-case forms of the value). After substitution, the entire string is checked again. If any
-known secret form remains, the whole value becomes a constant marker containing no known secret form. If neither
-`[REDACTED]` nor `[***]` is safe, matching strings become JSON null ("null" for keys); other strings are preserved.
-No redacted string value contains a known secret form. Raw Python source, arbitrary `js`/CDP arguments, and page
+fields are checked before filling; `type_secret` and accessibility typing actions always mask their text.
+Each final serialized JSON line is checked against all `sensitive_data` values and their known encoded forms
+(including short values inside other text, case-insensitive percent escapes and hex digits); matching lines have
+string values and keys in details redacted and are serialized again, then lose all details in favor of
+`"redacted": true` if still matching. If even that serialized line matches (including event, target ID, or schema),
+the record is skipped with a warning containing no record contents; only a final line with no match is written.
+Raw Python source, arbitrary `js`/CDP arguments, and page
 contents are not included. Browser events are
 observed on the guard connection, so helper-bypassing page navigations and completed downloads are included. Existing
 pages before the guard connects and events during a connection gap cannot be reconstructed. Auditing observes page download events without

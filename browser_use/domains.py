@@ -426,7 +426,9 @@ class Guard:
 				if 'error' in msg:
 					if not self._ready.is_set():
 						raise RuntimeError(f'File guard / audit setup failed: {msg["error"]}')
-					logger.debug('File guard / audit tab setup failed')
+					if self.block_uploads and (sid := msg.get('sessionId')):
+						self._send('Runtime.runIfWaitingForDebugger', sid)
+					logger.warning('File guard / audit tab setup failed: %s', msg['error'])
 			reply = self._replies.pop(msg['id'], None)
 			if reply is not None and 'result' in msg:
 				reply(msg['result'])
