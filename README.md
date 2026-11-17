@@ -193,6 +193,22 @@ Something broken? `browser-use feedback 'what happened'` (or `browser_use.feedba
 
 <br/>
 
+# Browser Use for enterprises
+
+Teams use Browser Use inside their own infrastructure for:
+
+- Watching agents live in-house with a local live view of every tab.
+- Running headed browsers in cloud dev environments like Coder and Kubernetes, viewable from a browser tab.
+- Applying safety policies: allowed and blocked domains, no logins, no downloads or uploads.
+- Keeping audit logs of every navigation and action.
+- Making Claude Code and Codex use Browser Use as their browser.
+- Running many tabs and agents in parallel.
+- Running a fully on-prem browser: the Browser Use browser runs on your own machines.
+
+[Reach out to us](https://browser-use.com/enterprise#talk-to-sales) to tell us what your team needs.
+
+<br/>
+
 # FAQ
 
 <details>
