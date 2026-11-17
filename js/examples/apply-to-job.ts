@@ -1,4 +1,4 @@
-import { Browser, BrowserUse, Type } from '@browser_use/pi';
+import { Browser, BrowserUse, Type } from '@browser_use/core';
 import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 

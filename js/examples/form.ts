@@ -1,4 +1,4 @@
-import { Browser, BrowserUse, Type } from '@browser_use/pi';
+import { Browser, BrowserUse, Type } from '@browser_use/core';
 
 const agent = await BrowserUse.create({
   model: process.env.MODEL || 'openrouter/openai/gpt-5.6-luna',

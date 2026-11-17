@@ -10,7 +10,7 @@ browser-use/
 ├── browser_use/ tests/ examples/ docker/ scripts/   Python (unchanged)
 ├── pyproject.toml uv.lock Dockerfile server.json    Python packaging (unchanged)
 ├── skills/ static/ AGENTS.md                        shared
-├── js/                                              Browser Use JS (npm @browser_use/pi)
+├── js/                                              Browser Use JS (npm @browser_use/core)
 │   ├── src/ test/ examples/ docs/ eval/
 │   ├── package.json package-lock.json tsconfig*.json
 │   └── .history/browser-use-pi-commit-map.tsv       old Pi SHA -> new SHA
@@ -87,9 +87,24 @@ separate until the parity work settles the wording. Then:
 
 ## Decisions for Gregor
 
-- **npm name.** Keep `@browser_use/pi` for now (this PR). Proposal: publish as `@browser_use/browser-use` (free) from the
-  first monorepo release, then deprecate `@browser_use/pi` and `@browser_use/js`. Reversible until the first publish
-  under the new name. Unscoped `browser-use` belongs to someone else.
+- **npm name.** `@browser_use/core` (Gregor, 2026-11-17). It is a new package, and npm only lets trusted publishing be
+  set on a package that exists, so the first version is published by hand once (see "First npm publish" below); every
+  later `js-v*` release publishes from `publish-js.yml`. After it is live, deprecate `@browser_use/pi`:
+  `npm deprecate @browser_use/pi "Moved to @browser_use/core"`.
 - **npm trusted publisher.** One-time account step: in the npm package settings add a trusted publisher for
   `browser-use/browser-use`, workflow `publish-js.yml`, environment `release`. Until then JS keeps publishing by hand.
 - **Archive `browser-use-pi`** after merge, with a README pointer here; move its open issues with `gh issue transfer`.
+
+## First npm publish (one time, by an owner of the @browser_use npm scope)
+
+npm cannot attach a trusted publisher to a package that has never been published, so `@browser_use/core` 0.2.0 goes up
+by hand once, from main after this PR merges (npm >= 11.15, account 2FA on):
+
+```bash
+git clone --depth 1 https://github.com/browser-use/browser-use /tmp/bu && cd /tmp/bu/js
+npm ci && npm publish --access public
+npm trust github @browser_use/core --repo browser-use/browser-use --file publish-js.yml --env release --allow-publish
+```
+
+Then `gh release create js-v0.2.0 --latest=false` tags it: `publish-js.yml` sees 0.2.0 already on npm and skips. From
+0.2.1 on, a `js-vX.Y.Z` release publishes through OIDC with provenance after the `release` environment approval.

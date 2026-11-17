@@ -9,9 +9,9 @@ Run your app with **Node 22.19+** or **Bun 1.3.14+**. Bun also requires Node on 
 Use local Chrome or [Browser Use Cloud](./sessions.md). Runtime checks cover macOS; Windows has not been verified. The SDK requires a Node process and filesystem, so it does not run directly inside Cloudflare Workers. A remote browser does not remove that runtime requirement.
 
 ```sh
-npm install @browser_use/pi
-# or: pnpm add @browser_use/pi
-# or: bun add @browser_use/pi
+npm install @browser_use/core
+# or: pnpm add @browser_use/core
+# or: bun add @browser_use/core
 export OPENROUTER_API_KEY=...
 export BROWSER_USE_API_KEY=...
 ```
@@ -21,7 +21,7 @@ export BROWSER_USE_API_KEY=...
 Save as `agent.ts`:
 
 ```ts
-import { Browser, BrowserUse } from '@browser_use/pi';
+import { Browser, BrowserUse } from '@browser_use/core';
 
 const agent = await BrowserUse.create({
   model: 'openrouter/openai/gpt-5.6-luna',
@@ -51,11 +51,11 @@ Use [models](./models.md) for credentials, [sessions](./sessions.md) for login a
 
 ## Moving from `@browser_use/js`
 
-Install `@browser_use/pi` and change your imports. The `BrowserUse` API, browser options, environment variables, profile directories and session history format are unchanged. The earlier package remains available; this rename does not migrate or delete existing data.
+Install `@browser_use/core` and change your imports. The `BrowserUse` API, browser options, environment variables, profile directories and session history format are unchanged. The earlier package remains available; this rename does not migrate or delete existing data.
 
 ## Publish to npm (maintainers)
 
-The public package is `@browser_use/pi`. Use an npm account with publish permission in the `browser_use` organization and complete npm's required 2FA setup.
+The public package is `@browser_use/core`. Use an npm account with publish permission in the `browser_use` organization and complete npm's required 2FA setup.
 
 ```sh
 npm login

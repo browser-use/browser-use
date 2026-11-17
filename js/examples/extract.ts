@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { Browser, BrowserUse, Type } from '@browser_use/pi';
+import { Browser, BrowserUse, Type } from '@browser_use/core';
 
 // A website becomes a typed dataset and a CSV, with source URLs for every row.
 const agent = await BrowserUse.create({

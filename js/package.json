@@ -1,5 +1,5 @@
 {
-  "name": "@browser_use/pi",
+  "name": "@browser_use/core",
   "version": "0.2.0",
   "description": "Browser Use, built on Pi. Persistent V8 REPL + raw CDP, in TypeScript.",
   "type": "module",

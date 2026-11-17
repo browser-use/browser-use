@@ -1,4 +1,4 @@
-import { Browser, BrowserUse, Type } from '@browser_use/pi';
+import { Browser, BrowserUse, Type } from '@browser_use/core';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 

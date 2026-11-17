@@ -51,7 +51,7 @@ uv run pyright
 
 ## JavaScript (`js/`)
 
-`js/` is Browser Use JS (npm `@browser_use/pi`, imported from browser-use-pi with history). Layout, CI and releases are in
+`js/` is Browser Use JS (npm `@browser_use/core`, imported from browser-use-pi with history). Layout, CI and releases are in
 MONOREPO.md.
 
 - Work inside `js/`: `npm ci && npm run build && npm run check && npm run format:check`. Build before check: examples

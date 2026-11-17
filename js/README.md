@@ -17,15 +17,15 @@ The programmability of Browser Harness, with sessions, saved logins, streaming a
 ## Start
 
 ```sh
-npm install @browser_use/pi
-# or: pnpm add @browser_use/pi
-# or: bun add @browser_use/pi
+npm install @browser_use/core
+# or: pnpm add @browser_use/core
+# or: bun add @browser_use/core
 export OPENROUTER_API_KEY=...
 export BROWSER_USE_API_KEY=...
 ```
 
 ```ts
-import { Browser, BrowserUse } from '@browser_use/pi';
+import { Browser, BrowserUse } from '@browser_use/core';
 
 const agent = await BrowserUse.create({
   model: 'openrouter/openai/gpt-5.6-luna',

@@ -1,7 +1,7 @@
 # Sessions, login and files
 
 ```js
-import { Browser, BrowserUse } from '@browser_use/pi';
+import { Browser, BrowserUse } from '@browser_use/core';
 
 const agent = await BrowserUse.create({
   model: 'openrouter/openai/gpt-5.6-luna',
@@ -31,7 +31,7 @@ Reuse a profile to keep login. Reuse a workspace to keep files. Restore history 
 ## Choose a browser
 
 ```js
-import { Browser, BrowserUse } from '@browser_use/pi';
+import { Browser, BrowserUse } from '@browser_use/core';
 
 // Browser Use Cloud. close() stops the browser this session creates.
 const browser = Browser.cloud({
@@ -96,7 +96,7 @@ Each session accepts one operation at a time. Use separate sessions for concurre
 Enable `recording: true` on creation. When a run returns `recordingPath`:
 
 ```js
-import { exportRecording } from '@browser_use/pi';
+import { exportRecording } from '@browser_use/core';
 await exportRecording(result.recordingPath, { output: './demo.gif' });
 ```
 

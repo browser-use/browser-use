@@ -74,7 +74,21 @@ jobs:
             echo "::error::Version $version is neither X.Y.Z nor X.Y.Z-rc.N"
             exit 1
           fi
-      - run: npm ci
-      - run: npm run build
-      - run: npm run check
-      - run: npm publish --provenance --access public --tag "${{ steps.version.outputs.dist_tag }}"
+      # A version already on npm (the one-time manual first publish of a new package, MONOREPO.md) is not republished.
+      - name: Skip a version that is already on npm
+        id: published
+        run: |
+          set -euo pipefail
+          spec="$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")"
+          if npm view "$spec" version >/dev/null 2>&1; then
+            echo "::notice::$spec is already on npm; nothing to publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.published.outputs.skip != 'true'
+        run: npm ci
+      - if: steps.published.outputs.skip != 'true'
+        run: npm run build
+      - if: steps.published.outputs.skip != 'true'
+        run: npm run check
+      - if: steps.published.outputs.skip != 'true'
+        run: npm publish --provenance --access public --tag "${{ steps.version.outputs.dist_tag }}"

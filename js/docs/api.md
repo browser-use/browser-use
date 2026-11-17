@@ -5,7 +5,7 @@
 ## Typed results
 
 ```js
-import { BrowserUse, Type } from '@browser_use/pi';
+import { BrowserUse, Type } from '@browser_use/core';
 const agent = await BrowserUse.create({ model: 'openrouter/openai/gpt-5.6-luna' });
 try {
   const result = await agent.run('Read the page title at example.com.', {

@@ -184,7 +184,7 @@ Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI 
 Browser Use JS is Browser Use in TypeScript, built on Pi Mono: the model writes JavaScript in a persistent V8 REPL with raw CDP. It lives in [`js/`](https://github.com/browser-use/browser-use/tree/main/js) in this repo. Node 22.19+ or Bun 1.3.14+.
 
 ```bash
-npm install @browser_use/pi
+npm install @browser_use/core
 ```
 
 See [js/README.md](https://github.com/browser-use/browser-use/blob/main/js/README.md).
