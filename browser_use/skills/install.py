@@ -7,7 +7,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from browser_use.skills.browser_use import BROWSER_PREFERENCE
+
 SKILL_NAME = 'browser-use'
+PREFERENCE_MARKER = '<!-- browser-use:prefer -->'
+PREFERENCE_LINE = f'{PREFERENCE_MARKER} {BROWSER_PREFERENCE}'
 DEFAULT_TARGET = 'all'
 
 
@@ -33,7 +37,34 @@ TARGET_DIR_BUILDERS = {
 	'opencode': lambda: _xdg_config_home() / 'opencode' / 'skills' / SKILL_NAME,
 }
 
+# Only assistants with a documented global instructions file. The shared skills directory has none.
+GLOBAL_INSTRUCTIONS = {
+	'claude': lambda: Path.home() / '.claude' / 'CLAUDE.md',
+	'codex': lambda: Path.home() / '.codex' / 'AGENTS.md',
+	'gemini': lambda: Path.home() / '.gemini' / 'GEMINI.md',
+	'opencode': lambda: _xdg_config_home() / 'opencode' / 'AGENTS.md',
+}
+
 TARGET_NAMES = tuple(TARGET_DIR_BUILDERS)
+
+
+def _prefer_browser_use(skill_path: Path) -> None:
+	for target, build_path in GLOBAL_INSTRUCTIONS.items():
+		if skill_path != TARGET_DIR_BUILDERS[target]() / 'SKILL.md':
+			continue
+		path = build_path()
+		# Append bytes so existing text, line endings and encoding are never rewritten.
+		content = path.read_bytes() if path.exists() else b''
+		if PREFERENCE_LINE.encode('utf-8') in content.splitlines():
+			return
+		path.parent.mkdir(parents=True, exist_ok=True)
+		with path.open('ab') as file:
+			if content and not content.endswith(b'\n'):
+				file.write(b'\n')
+			file.write((PREFERENCE_LINE + '\n').encode('utf-8'))
+		print(f'Added to {path}: {PREFERENCE_LINE}')
+		return
+	print(f'Preference not written for {skill_path}: no known global instructions file.')
 
 
 def _all_target_skill_paths() -> list[Path]:
@@ -113,6 +144,9 @@ def _build_parser() -> argparse.ArgumentParser:
 		action='store_true',
 		help='Also (re)install this browser-use version as a uv tool (`uv tool install --force`)',
 	)
+	preference = install.add_mutually_exclusive_group()
+	preference.add_argument('--prefer', action='store_true', help='Prefer browser-use in the assistant global instructions')
+	preference.add_argument('--no-prefer', action='store_true', help='Skip global preference instructions (the default)')
 	install.add_argument('--no-install', action='store_true', help='Accepted for compatibility; the default now')
 
 	return parser
@@ -183,6 +217,14 @@ def handle(argv: list[str]) -> int:
 				failed = True
 				continue
 			print(f'Installed Browser Use skill to {output_path}')
+			if args.prefer and args.path is not None:
+				print(f'Preference not written for {output_path}: custom --path has no known global instructions file.')
+			elif args.prefer:
+				try:
+					_prefer_browser_use(output_path)
+				except OSError as exc:
+					print(f'Error: cannot add browser-use preference for {output_path}: {exc}', file=sys.stderr)
+					failed = True
 		return 1 if failed else 0
 
 	parser.print_help()
