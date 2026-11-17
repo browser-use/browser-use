@@ -335,3 +335,63 @@ async def test_gallery_requires_token_for_html_and_websocket(chrome):
 				async with connect(base.replace('http:', 'ws:') + 'events' + query):
 					pytest.fail('Unauthenticated viewer connected')
 			assert error.value.response.status_code == 403
+
+
+async def test_gallery_keyboard_enlarge_returns_focus_and_respects_reduced_motion(chrome):
+	async with Gallery(chrome['ws']) as gallery, connect(chrome['ws']) as browser:
+		cdp = CDP(browser)
+		target = (await cdp.call('Target.createTarget', url='about:blank'))['targetId']
+		try:
+			session = (await cdp.call('Target.attachToTarget', targetId=target, flatten=True))['sessionId']
+			await cdp.call('Emulation.setDeviceMetricsOverride', session, width=390, height=844, deviceScaleFactor=1, mobile=True)
+			await cdp.call('Page.navigate', session, url=gallery.url)
+			async with asyncio.timeout(10):
+				while True:
+					ready = await cdp.call('Runtime.evaluate', session, expression='typeof openTile === "function"')
+					if ready['result'].get('value'):
+						break
+					await asyncio.sleep(0.05)
+			await cdp.call(
+				'Runtime.evaluate',
+				session,
+				expression="""(() => {
+					const receive = socket.onmessage;
+					socket.onmessage = null;
+					receive({data:JSON.stringify({tabs:[{id:'keyboard', title:'A very long title '.repeat(30), url:'https://example.com/path'}]})});
+					tiles.get('keyboard').focus();
+				})()""",
+			)
+			await cdp.call('Input.dispatchKeyEvent', session, type='keyDown', key='Enter', code='Enter', windowsVirtualKeyCode=13)
+			await cdp.call('Input.dispatchKeyEvent', session, type='keyUp', key='Enter', code='Enter', windowsVirtualKeyCode=13)
+			# Escape during opening must reverse the current animation and restore focus.
+			await cdp.call(
+				'Input.dispatchKeyEvent', session, type='keyDown', key='Escape', code='Escape', windowsVirtualKeyCode=27
+			)
+			async with asyncio.timeout(5):
+				while True:
+					closed = await cdp.call('Runtime.evaluate', session, expression='!detail.open')
+					if closed['result'].get('value'):
+						break
+					await asyncio.sleep(0.05)
+			await cdp.call(
+				'Emulation.setEmulatedMedia', session, features=[{'name': 'prefers-reduced-motion', 'value': 'reduce'}]
+			)
+			result = await cdp.call(
+				'Runtime.evaluate',
+				session,
+				expression="""(() => {
+					const tile = tiles.get('keyboard');
+					const focused = document.activeElement === tile;
+					openTile('keyboard');
+					const staticOpen = detail.open && raf === 0 && panel.style.transform === 'none';
+					closeDetail();
+					const frame = tile.querySelector('.preview').getBoundingClientRect();
+					return [focused, staticOpen, !detail.open, document.activeElement === tile,
+						document.documentElement.scrollWidth === innerWidth, Math.abs(frame.width / frame.height - 1.6) < .01,
+						tile.querySelector('img').getAttribute('src'), tile.getAttribute('aria-label').includes('loading preview')];
+				})()""",
+				returnByValue=True,
+			)
+			assert result['result']['value'] == [True, True, True, True, True, True, None, True]
+		finally:
+			await cdp.call('Target.closeTarget', targetId=target)
