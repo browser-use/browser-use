@@ -38,6 +38,7 @@ from browser_use.harness_cloud import CloudBrowserError
 from browser_use.repl.capture import install as install_capture
 from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
+from browser_use.skills.browser_use import BROWSER_PREFERENCE
 from browser_use.telemetry import feedback
 from browser_use.update_check import upgrade_hint
 from browser_use.utils import get_browser_use_version
@@ -69,6 +70,8 @@ NO_CLOUD_WITH_DOMAINS = (
 )
 
 MCP_GUIDE = f"""# This MCP server
+
+{BROWSER_PREFERENCE}
 
 These rules override the skill below where they differ:
 - Code runs in browser_exec; there is no shell, so ignore `BU_NAME=... browser-use <<'PY'` examples.

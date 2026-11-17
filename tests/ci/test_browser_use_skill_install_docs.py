@@ -440,3 +440,65 @@ def test_install_cli_keeps_the_python_the_cli_runs_on(monkeypatch, tmp_path):
 		install._install_browser_use_tool()
 	installs = [c for c in calls if c[:2] == ['tool', 'install']]
 	assert len(installs) == 1 and installs[0][2:4] == ['--python', '3.13'], installs
+
+
+@pytest.mark.parametrize(
+	'target,relative',
+	[
+		('claude', '.claude/CLAUDE.md'),
+		('codex', '.codex/AGENTS.md'),
+		('gemini', '.gemini/GEMINI.md'),
+		('opencode', '.config/opencode/AGENTS.md'),
+	],
+)
+def test_skill_install_preference_is_opt_in_and_idempotent(monkeypatch, tmp_path, capsys, target, relative):
+	from browser_use.skills import install
+
+	monkeypatch.setenv('HOME', str(tmp_path))
+	monkeypatch.setenv('USERPROFILE', str(tmp_path))
+	monkeypatch.delenv('XDG_CONFIG_HOME', raising=False)
+	path = tmp_path / relative
+	args = ['install', '--target', target]
+	assert install.handle(args) == 0
+	assert not path.exists()
+	assert install.handle([*args, '--no-prefer']) == 0
+	assert not path.exists()
+	assert install.handle([*args, '--prefer']) == 0
+	assert path.read_bytes() == (install.PREFERENCE_LINE + '\n').encode()
+	assert install.PREFERENCE_LINE in capsys.readouterr().out
+	original = b'# My instructions\r\nKeep this caf\xc3\xa9'
+	path.write_bytes(original)
+	assert install.handle([*args, '--prefer']) == 0
+	expected = original + ('\n' + install.PREFERENCE_LINE + '\n').encode()
+	assert path.read_bytes() == expected
+	assert install.handle([*args, '--prefer']) == 0
+	assert path.read_bytes() == expected
+	assert install.handle([*args, '--no-prefer']) == 0
+	assert path.read_bytes() == expected
+
+
+def test_skill_install_preference_only_updates_successful_known_targets(monkeypatch, tmp_path):
+	from browser_use.skills import install
+
+	monkeypatch.setattr(install.Path, 'home', lambda: tmp_path)
+	monkeypatch.delenv('XDG_CONFIG_HOME', raising=False)
+	for target in ('claude', 'codex', 'cursor', 'gemini', 'opencode'):
+		install.TARGET_DIR_BUILDERS[target]().parent.mkdir(parents=True)
+	blocked = install.TARGET_DIR_BUILDERS['claude']() / 'SKILL.md'
+	blocked.parent.mkdir()
+	assert install.handle(['install', '--target', 'codex', '--path', str(tmp_path / 'custom'), '--prefer']) == 0
+	assert not (tmp_path / '.codex/AGENTS.md').exists()
+	blocked.write_text('blocked')
+	monkeypatch.setattr(install, '_load_skill_text_from_package', lambda: 'skill')
+	original_write = install.Path.write_text
+
+	def write(path, *args, **kwargs):
+		if path == blocked:
+			raise PermissionError('blocked')
+		return original_write(path, *args, **kwargs)
+
+	monkeypatch.setattr(install.Path, 'write_text', write)
+	assert install.handle(['install', '--prefer']) == 1
+	assert not (tmp_path / '.claude/CLAUDE.md').exists()
+	assert (tmp_path / '.codex/AGENTS.md').is_file()
+	assert not (tmp_path / '.cursor/AGENTS.md').exists()
