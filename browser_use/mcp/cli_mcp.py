@@ -634,6 +634,7 @@ class CLIMCPServer:
 			ns['http_get'] = _local_http_get(rules)
 			if self._browser is not None and (self._browser.block_uploads or self._browser.block_downloads):
 				from browser_use.remote_upload import uploader
+				from browser_use.repl.worker import _download_navigation_result
 
 				browser = self._browser
 				ns['upload_file'] = uploader(ns['cdp'], lambda: False, blocked=lambda: browser.block_uploads)
@@ -648,10 +649,20 @@ class CLIMCPServer:
 						raise PermissionError('Uploads are blocked (block_uploads=True)')
 					if browser.block_downloads and method == 'Browser.setDownloadBehavior' and kwargs.get('behavior') != 'deny':
 						raise PermissionError('Downloads are blocked (block_downloads=True)')
-					return original_cdp(method, *args, **kwargs)
+					result = original_cdp(method, *args, **kwargs)
+					if method == 'Page.navigate':
+						return _download_navigation_result(result, blocked=browser.block_downloads)
+					return result
 
 				ns['cdp'] = guarded_cdp
 				if browser.block_downloads:
+					original_goto = ns['goto_url']
+
+					@functools.wraps(original_goto)
+					def guarded_goto(*args, **kwargs):
+						return _download_navigation_result(original_goto(*args, **kwargs), blocked=True)
+
+					ns['goto_url'] = guarded_goto
 					ns['http_get'] = _local_http_get(rules, block_downloads=True)
 				for name in harness_cloud.CLOUD_ADMIN:
 					ns[name] = functools.partial(_refuse_file_guard_cloud, name)

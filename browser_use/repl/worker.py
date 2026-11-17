@@ -443,6 +443,13 @@ def http_get(url, headers=None, timeout=20.0):
 	return _http_get(url, headers, timeout, urllib.request.urlopen)
 
 
+def _download_navigation_result(result, *, blocked: bool):
+	"""Translate Chrome's aborted download navigation consistently for worker and MCP helpers."""
+	if blocked and isinstance(result, dict) and 'ERR_ABORTED' in result.get('errorText', ''):
+		raise PermissionError('Download navigation refused (block_downloads=True)')
+	return result
+
+
 def _http_get(url, headers, timeout, urlopen, *, block_downloads: bool = False):
 	"""http_get through urlopen. Not on http_get itself: the agent calls that, and passing its own opener skipped the
 	redirect check (--cli-mcp passes its checked opener here)."""
@@ -698,8 +705,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			result = raw_cdp(method, session_id, **params)
 			if method == 'Page.navigate' and isinstance(result, dict) and result.get('errorText'):
 				stats.nav_failed(result['errorText'])
-				if os.environ.get('BU_BLOCK_DOWNLOADS') == '1' and 'ERR_ABORTED' in result['errorText']:
-					raise PermissionError('Download navigation refused (block_downloads=True)')
+				_download_navigation_result(result, blocked=os.environ.get('BU_BLOCK_DOWNLOADS') == '1')
 			if highlight:
 				highlight.after(method, session_id, params)
 			# Browser._touched_tabs: the agent's tabs are the ones it created or attached to (switch_tab), even one it

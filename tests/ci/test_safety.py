@@ -1,8 +1,11 @@
 """Opt-in file guards and audit evidence, using only local Chrome and HTTP."""
 
+import base64
+import html
 import http.server
 import json
 import threading
+import urllib.parse
 
 import pytest
 from conftest import script
@@ -218,5 +221,65 @@ async def test_cdp_url_browser_applies_file_flags(chrome, site, tmp_path):
 		assert browser._guard is not None
 		with pytest.raises(PermissionError, match='block_downloads=True'):
 			await browser.download_files(tmp_path)
+	finally:
+		await browser.stop()
+
+
+@pytest.mark.parametrize('secret', ['a', 'ab', 'abc', '<&', 'long-secret'])
+def test_audit_redacts_all_encodings_for_every_secret_length(tmp_path, secret):
+	forms = {
+		secret,
+		secret.lower(),
+		secret.upper(),
+		secret[::-1],
+		base64.b64encode(secret.encode()).decode(),
+		base64.b64encode(secret.encode()).decode().rstrip('='),
+		base64.urlsafe_b64encode(secret.encode()).decode(),
+		secret.encode().hex(),
+		secret.encode().hex().upper(),
+		urllib.parse.quote(secret, safe=''),
+		urllib.parse.quote_plus(secret),
+		json.dumps(secret)[1:-1],
+		repr(secret)[1:-1],
+		html.escape(secret),
+	}
+	log = tmp_path / 'audit.jsonl'
+	audit = AuditLog(log, {'x': secret})
+	for form in forms:
+		audit.write('action', text=form)
+	for record in read_audit(log):
+		assert all(form not in record['text'] for form in forms)
+
+
+@pytest.mark.parametrize('secret', ['a', 'REDACTED', 'abc', '[***]'])
+def test_audit_preserves_schema_and_redacts_values_once(tmp_path, secret):
+	log = tmp_path / 'audit.jsonl'
+	audit = AuditLog(log, {'x': secret})
+	audit.write('action', secret, text=secret + 'ction', nested={secret: [secret, {secret: secret}]})
+	record = read_audit(log)[0]
+	assert set(record) == {'ts', 'event', 'target_id', 'text', 'nested'}
+	assert record['event'] == 'action'
+	marker = record['target_id']
+	assert secret not in marker
+	assert record['text'] == marker + 'ction'
+	assert record['nested'] == {secret: [marker, {secret: marker}]}
+
+
+async def test_mcp_download_navigation_raises_permission_error(chrome, daemon, site, monkeypatch):
+	from browser_harness import helpers
+
+	monkeypatch.setattr(helpers, 'NAME', daemon['BU_NAME'])
+	from browser_use.mcp.cli_mcp import CLIMCPServer
+
+	browser = Browser(cdp_url=chrome['http'], block_downloads=True)
+	await browser.start()
+	server = CLIMCPServer(block_downloads=True)
+	server._browser = browser
+	try:
+		ns = server._ensure_namespace()
+		assert ns['goto_url'](site).get('errorText') is None
+		for navigate in (lambda url: ns['goto_url'](url), lambda url: ns['cdp']('Page.navigate', url=url)):
+			with pytest.raises(PermissionError, match=r'Download navigation refused \(block_downloads=True\)'):
+				navigate(site + '/download')
 	finally:
 		await browser.stop()

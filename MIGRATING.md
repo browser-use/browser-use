@@ -188,7 +188,7 @@ The 0.x `accept_downloads` option still raises `TypeError`; replace `accept_down
 Downloads are denied with `Browser.setDownloadBehavior(behavior='deny')` on the domain guard's own browser-wide CDP
 connection. Browser Use does not override that denial when setting its workspace download directory. `download_files`
 refuses cloud file copies; `http_get` refuses attachment and non-text/JSON/XML/JavaScript responses before reading
-the body. Direct download navigations refuse with `PermissionError`. Ordinary browser downloads started by clicks,
+the body. Direct download navigations refuse with `PermissionError` in both worker and MCP helpers. Ordinary browser downloads started by clicks,
 redirects, scripts, and new tabs are denied by Chrome; a click itself may still succeed.
 
 Uploads: `upload_file`, the shared local/remote upload implementation, and the worker's
@@ -212,7 +212,8 @@ attempts, including failed helper calls. Read-only helpers are also recorded, wi
 The harness recorder's URL credential scrubbing and action detail/password masking functions are reused. Password
 fields are checked before filling; `type_secret` and accessibility typing actions always mask their text. All
 `sensitive_data` values and their known encoded forms are redacted before writing, including short values inside
-other text. Raw Python source, arbitrary `js`/CDP arguments, and page contents are not included. Browser events are
+other text. Only string values are redacted; JSON keys and fixed event/schema names are preserved.
+Redaction runs once, with a marker that contains no known secret form (or an empty replacement if needed). Raw Python source, arbitrary `js`/CDP arguments, and page contents are not included. Browser events are
 observed on the guard connection, so helper-bypassing page navigations and completed downloads are included. Existing
 pages before the guard connects and events during a connection gap cannot be reconstructed. Auditing observes page download events without
 changing an existing download behavior or destination. Audit write errors propagate; browser event write failures
