@@ -2865,6 +2865,46 @@ class BrowserSession(BaseModel):
 		except Exception as e:
 			self.logger.warning(f'Failed to remove highlights: {e}')
 
+	@staticmethod
+	def _rect_from_quad(quad: list[float]) -> DOMRect | None:
+		"""Convert a DOM.getContentQuads/CDP quad into a DOMRect, or None when the quad has no area.
+
+		Chromium returns quads with zero width or height for some elements, for example an inline
+		element that starts with a line break. Such quads have no usable geometry. The same applies to
+		a quad whose four points are collinear even though its bounding box looks non-empty.
+		"""
+		if len(quad) < 8:
+			return None
+
+		points = [(quad[i], quad[i + 1]) for i in range(0, 8, 2)]
+
+		x_coords = [x for x, _ in points]
+		y_coords = [y for _, y in points]
+
+		min_x = min(x_coords)
+		min_y = min(y_coords)
+		max_x = max(x_coords)
+		max_y = max(y_coords)
+
+		width = max_x - min_x
+		height = max_y - min_y
+
+		if width <= 0 or height <= 0:
+			return None
+
+		# Extents are not enough: a quad rotated onto a single line has a positive bounding box while
+		# all four points are collinear. The shoelace area catches that shape, so an off-axis
+		# degenerate quad does not get treated as usable geometry.
+		shoelace = 0.0
+		for index, (x1, y1) in enumerate(points):
+			x2, y2 = points[(index + 1) % len(points)]
+			shoelace += x1 * y2 - x2 * y1
+
+		if abs(shoelace) == 0:
+			return None
+
+		return DOMRect(x=min_x, y=min_y, width=width, height=height)
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_element_coordinates')
 	async def get_element_coordinates(self, backend_node_id: int, cdp_session: CDPSession) -> DOMRect | None:
 		"""Get element coordinates for a backend node ID using multiple methods.
@@ -2888,8 +2928,12 @@ class BrowserSession(BaseModel):
 				params={'backendNodeId': backend_node_id}, session_id=session_id
 			)
 			if 'quads' in content_quads_result and content_quads_result['quads']:
-				quads = content_quads_result['quads']
-				self.logger.debug(f'Got {len(quads)} quads from DOM.getContentQuads')
+				all_quads = content_quads_result['quads']
+				quads = [quad for quad in all_quads if self._rect_from_quad(quad) is not None]
+				if quads:
+					self.logger.debug(f'Got {len(quads)} usable quads from DOM.getContentQuads')
+				else:
+					self.logger.debug(f'All {len(all_quads)} quads from DOM.getContentQuads are degenerate')
 			else:
 				self.logger.debug(f'No quads found from DOM.getContentQuads {content_quads_result}')
 		except Exception as e:
@@ -2903,7 +2947,7 @@ class BrowserSession(BaseModel):
 				)
 				if 'model' in box_model and 'content' in box_model['model']:
 					content_quad = box_model['model']['content']
-					if len(content_quad) >= 8:
+					if len(content_quad) >= 8 and self._rect_from_quad(content_quad) is not None:
 						# Convert box model format to quad format
 						quads = [
 							[
@@ -2958,24 +3002,11 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'JavaScript getBoundingClientRect failed: {e}')
 
 		# Convert quads to bounding rectangle if we have them
-		if quads:
-			# Use the first quad (most relevant for the element)
-			quad = quads[0]
-			if len(quad) >= 8:
-				# Calculate bounding rect from quad points
-				x_coords = [quad[i] for i in range(0, 8, 2)]
-				y_coords = [quad[i] for i in range(1, 8, 2)]
-
-				min_x = min(x_coords)
-				min_y = min(y_coords)
-				max_x = max(x_coords)
-				max_y = max(y_coords)
-
-				width = max_x - min_x
-				height = max_y - min_y
-
-				if width > 0 and height > 0:
-					return DOMRect(x=min_x, y=min_y, width=width, height=height)
+		# Use the first quad with a positive area: earlier quads can be degenerate (zero-width line breaks)
+		for quad in quads:
+			rect = self._rect_from_quad(quad)
+			if rect is not None:
+				return rect
 
 		return None
 
