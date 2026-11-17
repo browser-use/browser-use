@@ -374,7 +374,7 @@ def _refusing(fn: Any, rules: DomainRules) -> Any:
 	return checked
 
 
-def _local_http_get(rules: DomainRules | None) -> Any:
+def _local_http_get(rules: DomainRules | None, *, block_downloads: bool = False) -> Any:
 	"""The agent's http_get (repl/worker.py): plain HTTP from this machine, every redirect hop checked against rules.
 	browser-harness's sent the URL and headers (Authorization, cookies) to the fetch-use proxy whenever
 	BROWSER_USE_API_KEY was set, and followed a redirect from an allowed host to any host. Its own opener, not
@@ -388,7 +388,7 @@ def _local_http_get(rules: DomainRules | None) -> Any:
 	opener = worker.redirect_checking_opener(check)
 
 	def http_get(url: str, headers: dict | None = None, timeout: float = 20.0) -> str | bytes:
-		return worker._http_get(url, headers, timeout, opener.open)
+		return worker._http_get(url, headers, timeout, opener.open, block_downloads=block_downloads)
 
 	http_get.__doc__ = worker.http_get.__doc__
 	return _refusing(http_get, rules) if rules else http_get
@@ -396,6 +396,12 @@ def _local_http_get(rules: DomainRules | None) -> Any:
 
 def _refuse_cloud(name: str, *args: Any, **kwargs: Any) -> Any:
 	raise PermissionError(NO_CLOUD_WITH_DOMAINS.format(name=name))
+
+
+def _refuse_file_guard_cloud(name: str, *args: Any, **kwargs: Any) -> Any:
+	raise PermissionError(
+		f'{name}() is off: this server has file guards on its own Chromium; switching to an unguarded cloud browser would bypass them.'
+	)
 
 
 def _harness_skill_text() -> str:
@@ -413,7 +419,7 @@ class CLIMCPServer:
 		# allowed_domains / prohibited_domains (cli._mcp_browser_options); --cli-mcp: the user's Chrome, or a Chromium
 		# of its own where none can be used (_no_chrome_here)
 		self._own_browser = own_browser
-		self._browser = Browser('chromium', **browser_options) if own_browser else None
+		self._browser = Browser('chromium', **browser_options) if own_browser or browser_options else None
 		self._fallback: str | None = None  # why --cli-mcp runs its own Chromium instead of the user's Chrome
 		self._own_started = False  # the own Chromium started once: later failures are its own, not "no browser"
 		self._install_tried = False
@@ -626,6 +632,29 @@ class CLIMCPServer:
 				for name in harness_cloud.CLOUD_ADMIN:  # a cloud browser has no Guard: it would go anywhere
 					ns[name] = functools.partial(_refuse_cloud, name)
 			ns['http_get'] = _local_http_get(rules)
+			if self._browser is not None and (self._browser.block_uploads or self._browser.block_downloads):
+				from browser_use.remote_upload import uploader
+
+				browser = self._browser
+				ns['upload_file'] = uploader(ns['cdp'], lambda: False, blocked=lambda: browser.block_uploads)
+				original_cdp = ns['cdp']
+
+				def guarded_cdp(method, *args, **kwargs):
+					if browser.block_uploads and (
+						method == 'DOM.setFileInputFiles'
+						or method == 'Page.setInterceptFileChooserDialog'
+						and not kwargs.get('enabled')
+					):
+						raise PermissionError('Uploads are blocked (block_uploads=True)')
+					if browser.block_downloads and method == 'Browser.setDownloadBehavior' and kwargs.get('behavior') != 'deny':
+						raise PermissionError('Downloads are blocked (block_downloads=True)')
+					return original_cdp(method, *args, **kwargs)
+
+				ns['cdp'] = guarded_cdp
+				if browser.block_downloads:
+					ns['http_get'] = _local_http_get(rules, block_downloads=True)
+				for name in harness_cloud.CLOUD_ADMIN:
+					ns[name] = functools.partial(_refuse_file_guard_cloud, name)
 			self._namespace = ns
 		return self._namespace
 
@@ -847,7 +876,7 @@ class CLIMCPServer:
 			return base64.b64encode(f.read()).decode()
 
 	def _instructions(self) -> str:
-		if self._own_browser:
+		if self._own_browser or self._browser is not None and (self._browser.block_uploads or self._browser.block_downloads):
 			local = "its own Chromium (a temp profile, not the user's Chrome)"
 		else:
 			local = (

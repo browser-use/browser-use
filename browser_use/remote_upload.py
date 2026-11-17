@@ -53,7 +53,7 @@ SET = """function (key, meta) {
 }"""
 
 
-def set_files(cdp, object_id: str, path, remote: bool) -> int:
+def set_files(cdp, object_id: str, path, remote: bool, *, blocked: bool = False) -> int:
 	"""Set local file(s) on the file input object_id; returns how many it holds. A remote browser cannot read a local
 	path: Browser Use cloud rejects it ('Files must exist in the downloads directory'), another host's Chrome sets empty
 	or missing files. There, and whenever the input does not then hold files of the local sizes (Browser(cdp_url=) to a
@@ -61,6 +61,8 @@ def set_files(cdp, object_id: str, path, remote: bool) -> int:
 	at a time. cdp(method, **params) runs on the element's session."""
 	import mimetypes
 
+	if blocked or os.environ.get('BU_BLOCK_UPLOADS') == '1':
+		raise PermissionError('Uploads are blocked (block_uploads=True)')
 	paths = local_paths(path)
 
 	def call(fn: str, *args) -> Any:
@@ -97,12 +99,14 @@ def set_files(cdp, object_id: str, path, remote: bool) -> int:
 			call('function (key) { delete this.ownerDocument.defaultView[key] }', key)
 
 
-def uploader(cdp, remote: Callable[[], bool]):
+def uploader(cdp, remote: Callable[[], bool], *, blocked: Callable[[], bool] = lambda: False):
 	"""upload_file(selector, path) on the attached tab; remote(): whether the browser is a cloud browser."""
 
 	def upload_file(selector, path):
 		"""Set local file(s) on a file input. path: a file path or a list of them (relative to the working directory).
 		On a remote browser the bytes go through the page."""
+		if blocked() or os.environ.get('BU_BLOCK_UPLOADS') == '1':
+			raise PermissionError('Uploads are blocked (block_uploads=True)')
 		el = cdp('Runtime.evaluate', expression=find(selector))['result']
 		if 'objectId' not in el:
 			raise RuntimeError(f'no element for {selector}')

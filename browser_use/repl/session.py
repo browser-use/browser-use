@@ -316,6 +316,7 @@ class Repl:
 		env: dict[str, str] | None = None,
 		mode: str | None = 'default',
 		secrets: Secrets | None = None,
+		audit_log: Path | None = None,
 		reattach: Callable[[], Awaitable[Any]] | None = None,
 		after_cell: Callable[[], Awaitable[tuple[list[str], int]]] | None = None,
 		search: web.WebSearch | None = None,
@@ -324,6 +325,7 @@ class Repl:
 		feedback: Callable[[dict], str] | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
+		self.audit_log = audit_log
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
 		self.feedback = feedback
@@ -427,6 +429,8 @@ class Repl:
 				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
 			self.reader, self.writer = connected.result()
 			init = {'secrets': self.secrets, 'search': self.search is not None, 'downloads': self.downloads is not None}
+			if self.audit_log is not None:
+				init['audit_log'] = str(self.audit_log)
 			self.writer.write(json.dumps(init).encode() + b'\n')
 			await self.writer.drain()
 			if not await asyncio.wait_for(self.reader.readline(), 60):
