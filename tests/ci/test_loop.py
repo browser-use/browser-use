@@ -1248,8 +1248,8 @@ async def test_markdown_links_decode_workspace_files_and_reject_paths_outside_wo
 	outside.write_text('a\n1\n')
 
 	valid = (
-		'Saved [dup](report%20%281%29.csv), [parens](report%20(1).csv), [nested](report((1)).csv), '
-		'[angle](<report (1).csv>), [angle-titled](<report (1).csv> "Summary"), '
+		'Saved [dup](report%20%281%29.csv), [parens](report%20(1).csv), [escaped-parens](report%20\\(1\\).csv), '
+		'[nested](report((1)).csv), [angle](<report (1).csv>), [angle-titled](<report (1).csv> "Summary"), '
 		f'[query](page.html?tab=1#top), [titled](page.html "Summary") and [abs](<{(workspace / "page.html").as_posix()}>).'
 	)
 	model, seen = script(('finish', {'result': valid, 'success': True}))
@@ -1265,12 +1265,14 @@ async def test_markdown_links_decode_workspace_files_and_reject_paths_outside_wo
 
 	for bad in (
 		'Saved [escaped](../outside.csv)',
+		'Saved [backslash-escaped](\\..\\../outside.csv)',
 		'Saved [encoded-escaped](%2e%2e/outside.csv)',
 		'Saved `../outside.csv`',
 		f'Saved [abs](<{outside.as_posix()}>)',
 		'Saved [angle](<missing (1).csv>)',
 		'Saved [angle-titled](<missing.csv> "Summary")',
 		'Saved [nested](missing((1)).csv)',
+		'Saved [escaped-parens](missing\\(1\\).csv)',
 		'Saved [parens](missing%20(1).csv)',
 		'Saved [titled](missing.csv "Summary")',
 	):

@@ -117,6 +117,7 @@ MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK at
 STREAM_TIMEOUT_S = 930
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
+MD_ESCAPE = re.compile(r'\\([!"#$%&\'()*+,\-./:;<=>?@\[\\\]^_`{|}~])')
 NON_FILE_LINK = re.compile(r'^(?:[a-z][\w+.-]*:(?![\\/])|[a-z][\w+.-]+:|[#?]|//)', re.I)
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
 
@@ -317,7 +318,7 @@ def _markdown_links(text: str) -> list[str]:
 		if k >= n or text[k] != ')':
 			i = pos + 2
 			continue
-		links.append(dest)
+		links.append(MD_ESCAPE.sub(r'\1', dest))
 		i = k + 1
 	return links
 
