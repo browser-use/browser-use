@@ -18,8 +18,10 @@ class Rect:
 	y2: float
 
 	def __post_init__(self):
+		# A dataclass ignores ``__post_init__`` return values, so an inverted rectangle used to slip
+		# through silently and corrupt occlusion math. Fail loudly instead.
 		if not (self.x1 <= self.x2 and self.y1 <= self.y2):
-			return False
+			raise ValueError(f'Invalid rect: x1={self.x1}, y1={self.y1}, x2={self.x2}, y2={self.y2}')
 
 	# --- fast relations ----------------------------------------------------
 	def area(self) -> float:
@@ -193,16 +195,25 @@ class PaintOrderRemover:
 				if not node.original_node.snapshot_node or not node.original_node.snapshot_node.bounds:
 					continue  # shouldn't happen by how we filter them out in the first place
 
+				bounds = node.original_node.snapshot_node.bounds
+
 				rect = Rect(
-					x1=node.original_node.snapshot_node.bounds.x,
-					y1=node.original_node.snapshot_node.bounds.y,
-					x2=node.original_node.snapshot_node.bounds.x + node.original_node.snapshot_node.bounds.width,
-					y2=node.original_node.snapshot_node.bounds.y + node.original_node.snapshot_node.bounds.height,
+					x1=bounds.x,
+					y1=bounds.y,
+					x2=bounds.x + bounds.width,
+					y2=bounds.y + bounds.height,
 				)
 				context = self._document_context(node)
 
 				if rect_unions[context].contains(rect):
 					node.ignored_by_paint_order = True
+
+				# Collapsed elements have no area, so they must never join the union — two collapsed
+				# siblings at the same point would otherwise occlude each other. They can still be
+				# covered by a real element, so this check stays below `contains` and only skips the
+				# insertion.
+				if bounds.width <= 0 or bounds.height <= 0:
+					continue
 
 				# don't add to the nodes if opacity is less then 0.95 or background-color is transparent
 				if (
