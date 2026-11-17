@@ -18,7 +18,9 @@ import uuid
 from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Annotated, Any, cast
+from urllib.parse import unquote
 
 import httpx2
 from genai_prices import calc_price
@@ -115,7 +117,8 @@ MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK at
 STREAM_TIMEOUT_S = 930
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
-LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
+LINK = re.compile(r'\]\(\s*(?:<([^>\r\n]+)>|((?:[^()\s]+|\([^()\s]*\))+)(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?)\s*\)')
+NON_FILE_LINK = re.compile(r'^(?:[a-z][\w+.-]*:(?![\\/])|[a-z][\w+.-]+:|[#?]|//)', re.I)
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
 
 
@@ -242,6 +245,31 @@ def check_split_delivery(ctx: RunContext[Session]) -> None:
 	)
 
 
+def _strings(v: Any) -> list[str]:
+	if isinstance(v, str):
+		return [v]
+	if isinstance(v, dict):
+		return [s for x in v.values() for s in _strings(x)]
+	if isinstance(v, list):
+		return [s for x in v for s in _strings(x)]
+	return []
+
+
+def _in_workspace(workspace: Path, target: str, *, unquote_url: bool) -> bool:
+	base = target.split('#', 1)[0].split('?', 1)[0] if unquote_url else target
+	for name in dict.fromkeys((base, unquote(base))) if unquote_url else (base,):
+		if not name:
+			continue
+		for folder in (workspace, workspace / 'downloads'):
+			try:
+				root, resolved = folder.resolve(), (folder / name).resolve()
+			except (OSError, RuntimeError, ValueError):
+				continue
+			if resolved.is_relative_to(root) and resolved.exists():
+				return True
+	return False
+
+
 def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	"""One-shot repair: a placeholder or links to unwritten files. Not on the run's last request (the repair after the
 	delivery-only turn): nothing can follow it, and the refused result was lost (status max_steps, ''). There the
@@ -251,18 +279,20 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	if s.checked_delivery:
 		return
 	problem = None  # (what is wrong, the retry's stats cause)
+	is_str = isinstance(value, str)
+	data = None if is_str else json.loads(text)
 	# '...', '' (a one-character answer like '7' is fine); a structured result with no value in it: Sonnet 5.5 sent
 	# finish({"authors": []}, success=False) with 34 authors in the REPL
-	if not re.search(r'[^\W_]', text) or (not isinstance(value, str) and _holds_nothing(json.loads(text))):
+	if not re.search(r'[^\W_]', text) or (not is_str and _holds_nothing(data)):
 		problem = (f'The result {text[:20]!r} is a placeholder, not the answer.', 'delivery_placeholder')
 	else:
+		haystack = text if is_str else '\n'.join(_strings(data))
+		targets = [(a or b, True) for a, b in LINK.findall(haystack)] + [(f, False) for f in FILE.findall(haystack)]
 		missing = sorted(
 			{
 				t
-				for t in LINK.findall(text) + FILE.findall(text)
-				if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
-				# downloads land in workspace/downloads; an answer names them by file name
-				and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
+				for t, is_link in targets
+				if not NON_FILE_LINK.match(t) and not _in_workspace(s.repl.workspace, t, unquote_url=is_link)
 			}
 		)
 		if missing:
