@@ -6,12 +6,13 @@ import json
 import os
 import re
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
 from browser_harness.recorder import _scrub_url
 
-from browser_use.repl.session import Secrets, secret_forms
+from browser_use.repl.session import Secrets, scoped_secrets, secret_forms
 
 
 class AuditLog:
@@ -19,9 +20,18 @@ class AuditLog:
 		self.path = Path(path).expanduser().resolve()
 		self.path.parent.mkdir(parents=True, exist_ok=True)
 		forms = [form for form, _ in secret_forms(secrets or {}, include_short_encodings=True)]
-		self.pattern = re.compile('|'.join(map(re.escape, forms))) if forms else None
+		patterns = [re.escape(form) for form in forms]
+		for _, value, _ in scoped_secrets(secrets or {}):
+			if not value:
+				continue
+			patterns.append(f'(?i:{value.encode().hex()})')
+			for encoded in (urllib.parse.quote(value, safe=''), urllib.parse.quote_plus(value)):
+				# Only the hex digits of percent escapes are case-insensitive; literal URL text is not.
+				parts = re.split(r'(%[0-9A-Fa-f]{2})', encoded)
+				patterns.append(''.join(f'(?i:{part})' if part.startswith('%') else re.escape(part) for part in parts))
+		self.pattern = re.compile('|'.join(patterns)) if patterns else None
 		# A marker must not itself contain a secret (for example, REDACTED).
-		self.marker = next((m for m in ('[REDACTED]', '[***]', '') if not self.pattern or not self.pattern.search(m)), '')
+		self.marker = next((m for m in ('[REDACTED]', '[***]') if not self.pattern or not self.pattern.search(m)), None)
 		# Fail before starting a browser if the destination is unwritable.
 		with self.path.open('a', encoding='utf-8'):
 			pass
@@ -30,7 +40,14 @@ class AuditLog:
 		def clean(value: Any) -> Any:
 			if isinstance(value, str):
 				value = _scrub_url(value)
-				return self.pattern.sub(lambda _: self.marker, value) if self.pattern else value
+				if not self.pattern:
+					return value
+				marker = self.marker
+				if marker is None:
+					return None
+				value = self.pattern.sub(lambda _: marker, value)
+				# Substitution can join surrounding text into another secret form.
+				return marker if self.pattern.search(value) else value
 			if isinstance(value, dict):
 				return {k: clean(v) for k, v in value.items()}
 			if isinstance(value, (list, tuple)):

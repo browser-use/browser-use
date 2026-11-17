@@ -213,7 +213,11 @@ The harness recorder's URL credential scrubbing and action detail/password maski
 fields are checked before filling; `type_secret` and accessibility typing actions always mask their text. All
 `sensitive_data` values and their known encoded forms are redacted before writing, including short values inside
 other text. Only string values are redacted; JSON keys and fixed event/schema names are preserved.
-Redaction runs once, with a marker that contains no known secret form (or an empty replacement if needed). Raw Python source, arbitrary `js`/CDP arguments, and page contents are not included. Browser events are
+Percent escapes and hex encodings match regardless of hex digit case; other forms match literally (including the
+known lower- and upper-case forms of the value). After substitution, the entire string is checked again. If any
+known secret form remains, the whole value becomes a constant marker containing no known secret form. If neither
+`[REDACTED]` nor `[***]` is safe, string values become JSON null. No redacted string value contains a known secret
+form. JSON keys and event names remain untouched. Raw Python source, arbitrary `js`/CDP arguments, and page contents are not included. Browser events are
 observed on the guard connection, so helper-bypassing page navigations and completed downloads are included. Existing
 pages before the guard connects and events during a connection gap cannot be reconstructed. Auditing observes page download events without
 changing an existing download behavior or destination. Audit write errors propagate; browser event write failures

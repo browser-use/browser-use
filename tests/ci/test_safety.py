@@ -283,3 +283,31 @@ async def test_mcp_download_navigation_raises_permission_error(chrome, daemon, s
 				navigate(site + '/download')
 	finally:
 		await browser.stop()
+
+
+@pytest.mark.parametrize(
+	('secrets', 'text'),
+	[
+		({'s': 'REDACTED', 't': '['}, 'R[EDACTED'),
+		({'s': 'x[REDACTED]y', 't': '!'}, 'x!y'),
+		({'s': '[', 't': '*'}, 'before [ * after'),
+	],
+)
+def test_audit_falls_back_for_unsafe_markers_and_substitution_results(tmp_path, secrets, text):
+	log = tmp_path / 'audit.jsonl'
+	audit = AuditLog(log, secrets)
+	audit.write('action', text=text, nested={text: [text]})
+	record = read_audit(log)[0]
+	assert record['event'] == 'action'
+	assert record['text'] is None or record['text'] in ('[REDACTED]', '[***]')
+	assert record['nested'] == {text: [record['text']]}
+	if record['text'] is not None:
+		assert all(secret not in record['text'] for secret in secrets.values())
+
+
+@pytest.mark.parametrize('text', ['%c3%bf', '%C3%bF', 'c3bF'])
+def test_audit_matches_case_insensitive_encodings(tmp_path, text):
+	log = tmp_path / 'audit.jsonl'
+	audit = AuditLog(log, {'s': 'ÿ'})
+	audit.write('action', text=text)
+	assert read_audit(log)[0]['text'] == '[REDACTED]'
