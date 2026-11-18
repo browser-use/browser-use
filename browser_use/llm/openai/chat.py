@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
 
 import httpx
-from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI, DefaultAsyncHttpxClient, RateLimitError, Timeout
 from openai.types.chat import ChatCompletionContentPartTextParam
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
@@ -59,7 +59,7 @@ class ChatOpenAI(BaseChatModel):
 	max_retries: int = 5  # Increase default retries for automation reliability
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
-	http_client: httpx.AsyncClient | None = None
+	http_client: httpx.AsyncClient | DefaultAsyncHttpxClient | None = None
 	_strict_response_validation: bool = False
 	max_completion_tokens: int | None = 4096
 	reasoning_models: list[ChatModel | str] | None = field(
@@ -88,9 +88,9 @@ class ChatOpenAI(BaseChatModel):
 			'api_key': self.api_key,
 			'organization': self.organization,
 			'project': self.project,
-			'base_url': self.base_url,
-			'websocket_base_url': self.websocket_base_url,
-			'timeout': self.timeout,
+			'base_url': str(self.base_url) if self.base_url is not None else None,
+			'websocket_base_url': str(self.websocket_base_url) if self.websocket_base_url is not None else None,
+			'timeout': Timeout(**self.timeout.as_dict()) if isinstance(self.timeout, httpx.Timeout) else self.timeout,
 			'max_retries': self.max_retries,
 			'default_headers': self.default_headers,
 			'default_query': self.default_query,

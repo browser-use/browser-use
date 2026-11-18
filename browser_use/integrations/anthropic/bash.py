@@ -52,6 +52,8 @@ async def run_bash(
 	output_dir: str | Path,
 	timeout_seconds: float = 120,
 	max_output_bytes: int = 50_000,
+	python_executable: str | Path | None = None,
+	home_dir: str | Path | None = None,
 ) -> str:
 	"""Run Bash with a stripped environment, bounded output, and a hard timeout."""
 	if os.name != 'posix':
@@ -62,6 +64,14 @@ async def run_bash(
 		raise ValueError('max_output_bytes must be positive')
 
 	root, tmp = await asyncio.to_thread(_prepare_output_dir, output_dir)
+	home = Path(home_dir).expanduser().absolute() if home_dir is not None else root
+	await asyncio.to_thread(home.mkdir, parents=True, exist_ok=True)
+	path = '/usr/local/bin:/usr/bin:/bin'
+	if python_executable is not None:
+		python = Path(python_executable).expanduser().absolute()
+		if not python.is_file() or not os.access(python, os.X_OK):
+			raise ValueError('python_executable must name an executable file')
+		path = f'{python.parent}:{path}'
 	protocol = _BashOutput(max_output_bytes)
 	transport, _ = await asyncio.get_running_loop().subprocess_exec(
 		lambda: protocol,
@@ -72,10 +82,10 @@ async def run_bash(
 		command,
 		cwd=root,
 		env={
-			'HOME': str(root),
+			'HOME': str(home),
 			'LANG': 'C.UTF-8',
 			'LC_ALL': 'C.UTF-8',
-			'PATH': '/usr/local/bin:/usr/bin:/bin',
+			'PATH': path,
 			'PYTHONNOUSERSITE': '1',
 			'TMPDIR': str(tmp),
 		},

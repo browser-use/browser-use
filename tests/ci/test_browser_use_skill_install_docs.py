@@ -131,7 +131,7 @@ def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 	expected = (
 		'---\n'
 		'name: browser-use\n'
-		'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work."\n'
+		'description: "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), Playwright, Puppeteer or any CDP client."\n'
 		'homepage: https://browser-use.com\n'
 		'metadata:\n'
 		'  {\n'

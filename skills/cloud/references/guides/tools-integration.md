@@ -182,7 +182,7 @@ const browser = await puppeteer.connect({
 });
 ```
 
-Browser auto-starts on connect, auto-stops on disconnect. Pricing: $0.05/hour.
+Browser auto-starts on connect, auto-stops on disconnect. Pricing: $0.02/hour.
 
 ---
 

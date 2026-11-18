@@ -22,13 +22,13 @@ from urllib.parse import urlsplit
 from cdp_use import CDPClient
 from PIL import Image
 
+from anthropic.tools import ToolError
 from anthropic.tools.browser import (
 	BetaAsyncAbstractBrowserToolset20260801,
 	BetaBrowserNavigateResult,
-	BetaBrowserScreenshotResult,
-	BrowserState,
+	BetaBrowserState,
+	BetaScreenshotResult,
 	TabMissingError,
-	ToolError,
 )
 from browser_use.actor.page import Page
 from browser_use.browser.events import (
@@ -196,7 +196,7 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			sid = self._observer_sessions.pop(tab, None)
 			if sid:
 				self._session_tabs.pop(sid, None)
-		return BrowserState(tabs=tabs, state_changes=changes)
+		return BetaBrowserState(tabs=tabs, state_changes=changes)
 
 	def _spawn(self, coro):
 		task = asyncio.create_task(coro)
@@ -654,7 +654,7 @@ class BrowserUse(BetaAsyncAbstractBrowserToolset20260801):
 			)
 		out = BytesIO()
 		image.save(out, format='PNG')
-		return BetaBrowserScreenshotResult(data=base64.b64encode(out.getvalue()).decode())
+		return BetaScreenshotResult(data=base64.b64encode(out.getvalue()).decode())
 
 	async def screenshot(self, context, input):
 		return self._image(await self._screenshot(await self._page(input.tab_id)))
