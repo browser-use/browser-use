@@ -64,7 +64,7 @@ wheels = [
 [[package]]
 name = "browser-harness"
 version = "0.1.14"
-source = { git = "https://github.com/browser-use/browser-harness?rev=d2c60647dd4b1cc01f6bdfe2874fa57d3a7c70ed#d2c60647dd4b1cc01f6bdfe2874fa57d3a7c70ed" }
+source = { git = "https://github.com/browser-use/browser-harness?rev=d449c6fe82694e4074e03fc34db53f69c278a2d1#d449c6fe82694e4074e03fc34db53f69c278a2d1" }
 dependencies = [
     { name = "cdp-use" },
     { name = "fetch-use" },
@@ -104,7 +104,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "browser-harness", git = "https://github.com/browser-use/browser-harness?rev=d2c60647dd4b1cc01f6bdfe2874fa57d3a7c70ed" },
+    { name = "browser-harness", git = "https://github.com/browser-use/browser-harness?rev=d449c6fe82694e4074e03fc34db53f69c278a2d1" },
     { name = "browser-use", extras = ["anthropic", "google"], marker = "extra == 'all'" },
     { name = "genai-prices", specifier = "==0.2.1" },
     { name = "google-genai", specifier = "==2.34.0" },
