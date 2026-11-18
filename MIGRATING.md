@@ -15,19 +15,19 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 
 | | 0.x | 1.0 |
 |---|---|---|
-| Model (`llm=None`) | required | `bu-fast` on the Browser Use gateway (`gpt-6-luna`, medium reasoning; `bu-ultrafast` is the same model at low reasoning on the priority tier) |
+| Model (`llm=None`) | required | `bu-4.0` (BU 4.0, high reasoning, $1.80/$9.00 per 1M input/output tokens) on the Browser Use gateway; also `bu-4.0-mini` and `bu-4.0-pro`. `bu-fast` (`gpt-6-luna`, medium reasoning, $0.12/$0.60) and `bu-ultrafast` (the same model at low reasoning on the priority tier) still work |
 | Browser (`Browser()`) | local Chromium | Browser Use Cloud browser (`Browser('chromium')` / `local=True` for a local one) |
 | Key | per provider | one Browser Use key: `browser-use login` (stored in `~/.config/browser-harness/auth.json`, shared with the CLI, the MCP server and browser-harness) or `BROWSER_USE_API_KEY` (wins when set). A `.env` in the working directory is read on import, as in 0.x |
 | Python | >= 3.11 | >= 3.11 |
 | Tasks with localhost / private IPs | worked | a cloud browser cannot reach them: one warning, use `Browser('chromium')` |
 | Cloud proxy | the API's default, `us` | `us` (`cloud_proxy_country_code=None` turns it off) |
-| Cloud live view | | off (`live_view=True` prints and opens it) |
+| Cloud live view | | prints the link to stderr; `live_view=True` also opens it, `live_view=False` hides it |
 
 ## Agent(...) arguments
 
 Kept: works as in 0.x. `use_vision=False` is kept: no screenshot reaches the model. The 0.x tuning knobs 1.0 has no
 use for (`use_vision=True` / `'auto'`, `vision_detail_level`,
-`llm_screenshot_size`, `max_actions_per_step`, `flash_mode`, `use_thinking`, `use_judge`, `max_failures`,
+`llm_screenshot_size`, `max_actions_per_step`, `flash_mode`, `use_thinking`, `max_failures`,
 `final_response_after_failure`, `calculate_cost`, `highlight_elements`: use `highlight_actions`) log one warning each and are ignored. Every other 0.x argument raises
 `TypeError` naming it in `Agent(...)` itself (listed in [Removed in 1.0](#removed-in-10)); an argument 0.x never had says
 it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=...)`).
@@ -35,13 +35,15 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | 0.x argument | 1.0 |
 |---|---|
 | `task` | kept |
-| `llm` | kept: `ChatBrowserUse`, `ChatOpenAI`, `ChatAnthropic`, `ChatGoogle`, a Pydantic AI model string or Model. Default `bu-fast` |
+| `llm` | kept: `ChatBrowserUse`, `ChatOpenAI`, `ChatAnthropic`, `ChatGoogle`, a Pydantic AI model string or Model. Default `bu-4.0` |
 | `browser`, `browser_session` | kept: take a `Browser(...)` |
 | `tools`, `controller` | kept: take `Tools()` (see below) |
 | `output_model_schema` | kept: `result.structured_output` |
 | `sensitive_data` | kept: `{'name': 'value'}` types anywhere; domain-scoped `{'https://site.com' or '*.site.com': {'name': 'value'}}` types only on matching pages (0.x patterns: no scheme = https only). The model types values with `type_secret('name')`; a name ending in `bu_2fa_code` holds a TOTP seed and types the current 6-digit code, as in 0.x; the 0.x `<secret>name</secret>` placeholder is not replaced: a cell that sends it (or `<secret:name>`) to the page raises naming `type_secret('name')` and sends nothing; values are replaced with `<secret:name>` in cell output, checkpoints, tool results, the task and the result. Not a sandbox: see [Trust model](#trust-model-for-secrets) for exactly what is redacted |
 | `extend_system_message` | kept |
+| `use_judge`, `ground_truth` | kept as `judge` and `judge_context` (below) |
 | everything else 0.x took | removed: [Removed in 1.0](#removed-in-10) |
+| new: `judge`, `judge_context` | `judge=True` (the default): after each run that took a step, one request to the agent's own model, at low effort, judges the trace (120k characters of text, secrets redacted) against the task; with vision on (`use_vision=False` sends text only) it also sends the last 4 distinct images of the run, the final page included, as they are (not redacted). A model that rejects images is asked once more with the text alone. `result.judgement` holds `success`, `failure_reason`, `description`, `prompt_injection_detected`, `bot_block_or_captcha_detected` and `gotchas` (short, general lessons about the sites for the next agent, also on a success: what the agent had to retry or work around); its tokens and cost are added to `result.usage` and `result.cost_usd`. A judge that fails logs a warning and leaves `result.judgement` `None`. `judge_context` is your criteria or expected answer, which the judge puts first. With usage stats on, `agent_event` carries the judgement, each text scrubbed as error messages are. `judge=False` sends no judge request |
 | new: `reasoning`, `mode`, `workspace`, `web_search`, `max_context_chars`, `highlight_actions` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway a bu-* alias's own effort, a listed OpenAI model 'medium'; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'` (the default on `bu-fast` and `bu-ultrafast`; `mode='default'` opts out); `workspace` holds the agent's files (default: a new temp dir `browser-use-*`, kept after the run: it holds page text, screenshots and cell output, so delete it when done, or pass your own `workspace=`); `web_search=True` gives the agent `search()` (Browser Use web search on the gateway host, `POST /api/v4/search`, with the gateway model's key or the Browser Use key; billed per search; each charge the response reports (`browser_use.charge_usd`) is added to `result.cost_usd`, a response without one adds nothing, and an unknown model cost stays `None`) off by default; `True` raises without a Browser Use key or with `allowed_domains`. Off, the system prompt is unchanged; `max_context_chars`: past 75% of this many characters of conversation the agent compacts its history into a summary checkpoint (default 4 per token of the model's context window, as Browser Use Pi, or 240k when pydantic-ai does not know the window; unused where the provider compacts server-side: OpenAI Responses, the gateway); `highlight_actions=False` turns off the orange corner brackets around what the agent clicks or types into (on by default) |
 
 ## Agent methods
@@ -62,8 +64,8 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | `final_result()`, `is_done()`, `structured_output`, `total_duration_seconds()`, `number_of_steps()` | kept |
 | `errors()`, `has_errors()` | changed: only the error that ended the run (`result.error`). 0.x listed one entry per step; cell errors the agent recovered from are now in `result.messages` |
 | `is_successful()` | kept: `None` when the run did not complete, else the agent's verdict (`result.success`). It is the agent's own claim. The verdict in `finish(result, success)` is optional (0.x `done` defaulted it to `True`): `None` when the model gave none or answered in plain text instead of calling `finish`, so a missing verdict never reads as success. `is_done()` only says the run completed. For the 0.x default, use `r.is_done() and r.success is not False` |
-| `history`, `urls()`, `screenshots()`, `screenshot_paths()`, `action_names()`, `action_history()`, `action_results()`, `model_thoughts()`, `model_outputs()`, `model_actions()`, `model_actions_filtered()`, `extracted_content()`, `agent_steps()`, `last_action()`, `save_to_file()`, `load_from_file()`, `get_structured_output()`, `add_item()`, `judgement()`, `is_judged()`, `is_validated()`, `load_from_dict()`, `save_as_playwright_script()`, `input_token_usage()` (`result.usage['input']`) | removed (`AttributeError`): there are no per-step actions. Use `result.messages`, `result.status`, `result.partial` and the files in `agent.workspace` |
-| new | `status` (`completed`, `max_steps`, `timeout`, `error`; a run that reaches `max_steps` or the timeout gets one forced delivery turn and still returns `completed`, with `success=False` when the agent reports the task unfinished; `max_steps` and `timeout` mean nothing was delivered: read `partial`), `success`, `partial` (last `checkpoint(..., partial=True)`; a plain `checkpoint()` is scratch and does not set it, so to ask for one name the flag in the task: "after each page, save the titles with checkpoint('titles.json', titles, partial=True)"), `usage`, `cost_usd` (model and web search charges only: the cloud browser and its proxy are billed apart, see `browserCost` and `proxyCost` in `GET /api/v4/browsers/{browser.id}`), `messages` |
+| `history`, `urls()`, `screenshots()`, `screenshot_paths()`, `action_names()`, `action_history()`, `action_results()`, `model_thoughts()`, `model_outputs()`, `model_actions()`, `model_actions_filtered()`, `extracted_content()`, `agent_steps()`, `last_action()`, `save_to_file()`, `load_from_file()`, `get_structured_output()`, `add_item()`, `is_judged()`, `is_validated()` (`result.judgement`), `load_from_dict()`, `save_as_playwright_script()`, `input_token_usage()` (`result.usage['input']`) | removed (`AttributeError`): there are no per-step actions. Use `result.messages`, `result.status`, `result.partial` and the files in `agent.workspace` |
+| new | `status` (`completed`, `max_steps`, `timeout`, `error`; a run that reaches `max_steps` or the timeout gets one forced delivery turn and still returns `completed`, with `success=False` when the agent reports the task unfinished; `max_steps` and `timeout` mean nothing was delivered: read `partial`), `success`, `partial` (last `checkpoint(..., partial=True)`; a plain `checkpoint()` is scratch and does not set it, so to ask for one name the flag in the task: "after each page, save the titles with checkpoint('titles.json', titles, partial=True)"), `judgement` (the judge's verdict, labels and gotchas; `None` with `judge=False`), `usage`, `cost_usd` (model, judge and web search charges only: the cloud browser and its proxy are billed apart, see `browserCost` and `proxyCost` in `GET /api/v4/browsers/{browser.id}`), `messages` |
 
 ## Browser(...)
 
@@ -120,7 +122,7 @@ at module level.
 
 | 0.x | 1.0 |
 |---|---|
-| `ChatBrowserUse(model=...)` | kept: `bu-fast` (default), `bu-ultrafast`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. The 0.x gateway models `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` are rejected: keep `browser-use<1.0` for them, or use `bu-fast`. The 0.x gateway also served other vendors (`'anthropic/claude-sonnet-4-6'`, `'google/gemini-3-pro'`): the preflight error names `ChatAnthropic(...)` / `ChatGoogle(...)` with your own key. `'openai/gpt-5.5'` is sent as `gpt-5.5`. Before the browser starts, the agent reads the gateway's model list (free): a gateway that is not there, a rejected key or a model it does not list ends the run with `result.error` and no browser created. Gateway errors (400/401/402/403/404) come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged. Another gateway URL: `ChatBrowserUse(base_url=...)` (0.x's `BROWSER_USE_LLM_URL` is not read) |
+| `ChatBrowserUse(model=...)` | kept: `bu-4.0` (default), `bu-4.0-mini`, `bu-4.0-pro`, `bu-fast`, `bu-ultrafast`, `bu-smart` or a listed OpenAI model on the new gateway, over the stateless Responses API with server-side compaction. The 0.x gateway models `bu-2-0`, `bu-2-0-mini-preview`, `bu-1-0` and `bu-latest` are rejected: keep `browser-use<1.0` for them, or use `bu-fast`. The 0.x gateway also served other vendors (`'anthropic/claude-sonnet-4-6'`, `'google/gemini-3-pro'`): the preflight error names `ChatAnthropic(...)` / `ChatGoogle(...)` with your own key. `'openai/gpt-5.5'` is sent as `gpt-5.5`. Before the browser starts, the agent reads the gateway's model list (free): a gateway that is not there, a rejected key or a model it does not list ends the run with `result.error` and no browser created. Gateway errors (400/401/402/403/404) come back as one actionable line in `result.error`; `result.cost_usd` is what the gateway charged. Another gateway URL: `ChatBrowserUse(base_url=...)` (0.x's `BROWSER_USE_LLM_URL` is not read) |
 | `ChatOpenAI(model, api_key, base_url, temperature, reasoning_effort)` | kept. api.openai.com uses the Responses API; the gateway URL (`https://api.browser-use.com/api/v4/llm/v1`) is served as `ChatBrowserUse` (key: `api_key`, else a `bu_` key in `OPENAI_API_KEY`, else the Browser Use key); any other `base_url` uses plain chat completions. Other 0.x arguments raise `TypeError` |
 | `ChatAnthropic(model, api_key)`, `ChatGoogle(model, api_key)` | kept, built in (no extra needed). Other 0.x arguments raise `TypeError` naming the answer: `ChatAnthropic(temperature=...)`: delete it (Anthropic's API answers 400 to `temperature` on Claude 4.x models); the rest: a Pydantic AI model with `settings=`, e.g. `GoogleModel('gemini-flash-latest', settings={'temperature': 0.5})` (`from pydantic_ai.models.google import GoogleModel`) or `AnthropicModel('claude-...', settings={'max_tokens': 8000})` |
 | LangChain chat models (`langchain_openai.ChatOpenAI`, `langchain_anthropic.ChatAnthropic`, ...) | not supported: `Agent(llm=...)` raises `TypeError`. Use `from browser_use import ChatOpenAI` (same `model=`), or a Pydantic AI model string like `'openai:gpt-4o'` |
@@ -157,7 +159,7 @@ Each raises the one error above (the tuning knobs marked "ignored" warn instead;
 | step callbacks: `register_new_step_callback`, `register_done_callback`, `register_external_agent_status_raise_error_callback`, `register_should_stop_callback`, `run(on_step_start=...)`, `run(on_step_end=...)` | removed | live: each step logs one INFO line (`step N: <first line of the cell> -> <error>`) to `logging.getLogger('browser_use')`, after a `Task: ... (workspace ...)` line and before `completed in N steps`; add a `logging.Handler` to it to stream progress to an MCP client or web UI (`BROWSER_USE_LOGGING_LEVEL=warning` silences it). After the run: `result.messages`; the result `run()` returns; to stop early, cancel the task awaiting `run()` or pass `run(timeout=...)` |
 | `agent.pause()`, `resume()`, `stop()`, `step()`, `take_step()`, `multi_act()` | removed | `task = asyncio.create_task(agent.run())`, then `task.cancel()` (from another thread: `loop.call_soon_threadsafe(task.cancel)`); `run()` raises `CancelledError` and the browser stops. For a partial result, bound the run: `run(timeout=..., max_steps=...)` |
 | history replay: `save_history()`, `load_and_rerun()`, `rerun_history()`, `detect_variables()`, `AgentHistoryList.save_to_file()` / `load_from_file()` | removed | `result.messages` holds the transcript; run the task again |
-| judge: `use_judge` (ignored), `judge_llm`, `ground_truth`, `AgentHistoryList.judgement()` / `is_judged()` / `is_validated()` | removed | `result.success`, the agent's own verdict |
+| judge: `judge_llm`, `AgentHistoryList.judgement()` / `is_judged()` / `is_validated()` | removed | the judge uses the agent's own `llm`; `result.judgement` (`use_judge` and `ground_truth` are kept as `judge` and `judge_context`) |
 | `generate_gif`, `demo_mode` | removed | none (`live_view=True` shows a cloud browser live) |
 | planner and vision tuning: `use_vision=True` / `'auto'` (ignored; `False` is kept), `vision_detail_level` (ignored), `llm_screenshot_size` (ignored), `sample_images`, `enable_planning`, `planning_replan_on_stall`, `planning_exploration_limit`, `planner_llm`, `planner_interval`, `is_planner_reasoning`, `extend_planner_system_message`, `use_vision_for_planner`, `max_actions_per_step` (ignored), `flash_mode` (ignored) | removed | the agent takes screenshots when it needs them; each step is one Python cell; `mode='ultrafast'` |
 | other 0.x loop tuning: `loop_detection_window`, `loop_detection_enabled`, `message_compaction`, `max_history_items`, `include_attributes`, `max_clickable_elements_length`, `include_recent_events`, `include_tool_call_examples`, `display_files_in_done_text`, `injected_agent_state`, `source`, `task_id`, `enable_signal_handler`, `_url_shortening_limit`, `max_failures` (ignored), `final_response_after_failure` (ignored) | removed | failed cells are retried by the model within `max_steps` |
@@ -256,7 +258,9 @@ Domain-scoped `sensitive_data` still limits where each secret is typed, independ
 
 Every 0.x module path (0.1 to 0.13) 1.0 does not have, and every public name of a 0.x module 1.0 kept, raises the
 removed error naming its replacement (`ModuleNotFoundError` for a module, `ImportError` for a name; both are
-`ImportError`, so `except ImportError` fallbacks still work). Import from the top level: `from browser_use import Agent, Browser, Tools,
+`ImportError`, so `except ImportError` fallbacks still work). Read as an attribute (`browser_use.BrowserSession`), the
+same text is an `AttributeError`, so `hasattr()` and `getattr(module, name, default)` feature detection takes its
+fallback. Import from the top level: `from browser_use import Agent, Browser, Tools,
 ActionResult, ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle`.
 
 | 0.x | 1.0 |
@@ -274,7 +278,8 @@ ActionResult, ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle`.
 | `CodeAgent`, `browser_use.code_use` | `Agent(...)`: the 1.0 agent writes Python itself |
 | top-level `ActionModel`, `DomService`, `SystemPrompt` | `@tools.action(...)` on a plain function; the agent reads pages with Python; `Agent(extend_system_message=...)` |
 | `browser_use.skill_cli` | the `browser-use` CLI (Python piped to browser-harness) and `browser-use --cli-mcp` |
-| `browser_use.agent.prompts`, `.message_manager`, `.memory`, `.judge`, `.gif`, `.variable_detector` | removed: the 0.x loop internals. `Agent(extend_system_message=...)` adds to the fixed prompt; `result.success` is the agent's verdict |
+| `browser_use.agent.prompts`, `.message_manager`, `.memory`, `.gif`, `.variable_detector` | removed: the 0.x loop internals. `Agent(extend_system_message=...)` adds to the fixed prompt; `result.success` is the agent's verdict |
+| `browser_use.agent.judge`: `JudgementResult`, `SimpleJudgeResult` | `result.judgement`, a `browser_use.agent.judge.Judgement` |
 | `browser_use.observability` (`observe`, `observe_debug`, Laminar) | see [Observability](#observability) |
 | `browser_use.mcp.client` (`MCPClient`), `browser_use.mcp.controller` | call the MCP server from a plain `@tools.action` function |
 | `browser_use.mcp.server` (`BrowserUseServer`) | `browser-use --cli-mcp` (see [CLI and MCP](#cli-and-mcp)) |
@@ -302,9 +307,16 @@ MCP tool that opens the browser to approve and stores the same key. The old `bro
 `browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
 `--cli-mcp` tools (`browser_exec`, `browser_screenshot`). Calls to the old tool names return the removed error with the
 `browser_exec` alternative; switch those clients to `--cli-mcp`. Locally `--mcp` still runs its own Chromium on a temp
-profile, as 0.x did, while `--cli-mcp` drives your own Chrome with your logins. `--mcp` (and `python -m browser_use.mcp`)
+profile, as 0.x did, while `--cli-mcp` drives your own Chrome (or Brave, Arc, Edge) with your logins. Where that cannot
+work (Linux with no display, or no Chromium-family browser installed) `--cli-mcp` 1.0.1 also runs its own Chromium for
+the rest of that server process. Both install Playwright's Chromium in the first `browser_exec` call when none is there
+and the machine has no display (as root on Linux also its system libraries, with `apt-get install libatomic1`). The first
+`browser_exec` result that attaches a local browser names it in a second text block, after the code's output (a
+cloud browser's `start_remote_daemon()` result names it itself). `http_get()` in the CLI and
+`--cli-mcp` is plain HTTP from this machine, as in the Agent: it no longer goes through the fetch-use proxy when
+`BROWSER_USE_API_KEY` is set (URLs and headers stay local; localhost and intranet URLs work). `--mcp` (and `python -m browser_use.mcp`)
 keeps the `allowed_domains` / `prohibited_domains` of the default `browser_profile` in the 0.x `config.json` and
-`BROWSER_USE_ALLOWED_DOMAINS`; a configured proxy (`proxy`, `BROWSER_USE_PROXY_*`) exits 2 instead of being dropped. `browser-use init` templates were removed.
+`BROWSER_USE_ALLOWED_DOMAINS` (with either set, `start_remote_daemon()` is off: a cloud browser would open any site); a configured proxy (`proxy`, `BROWSER_USE_PROXY_*`) exits 2 instead of being dropped. `browser-use init` templates were removed.
 
 The `bu` and `browser` command aliases were removed (`uv tool install` aborts when another tool already owns a name):
 run `browser-use` or `browseruse`. Extras: `browser-use[cli]`, `[mcp]`, `[anthropic]`, `[google]` and `[all]` still
@@ -330,6 +342,9 @@ The REPL worker runs model-written Python as your user. 1.0 limits what it can s
   password a proxy URL holds). Variables whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH`
   are not in its environment. That is all the allowlist does: see the last bullets below for how the worker can still
   reach your keys.
+- It gets its own browser-harness agent workspace (`workspace/.browser-use/agent-workspace`): the global
+  `agent_helpers.py` and domain skills (`~/.config/browser-harness/agent-workspace`, or `BH_AGENT_WORKSPACE` when set)
+  are not loaded into it, including one a cell of an earlier run wrote there. The CLI and `--cli-mcp` still load them.
 - `search()` (`web_search`) and `downloads()` ask the parent over the control channel; the parent sends the request,
   so the Browser Use key never enters the worker.
 - `sensitive_data` values are sent to the worker over its control channel. The model is told only their names and
@@ -351,7 +366,12 @@ longer word or number; `Agent` warns about such values):
 - results and retry messages of your own `Tools` actions
 - the task, follow-up tasks (`add_new_task`) and `extend_system_message`, before the model sees them
 - `result.final_result()`, `result.output` / `result.structured_output` (field by field), `result.partial`,
-  `result.error`, and the error `Agent.run` logs. Telemetry never sends these texts at all
+  `result.error`, and the error `Agent.run` logs
+- anonymized usage telemetry: model, steps, cost, timing, helper names, the URLs visited in the agent's own tabs
+  (without ports, query strings or path tokens such as a reset or invite link's), error messages (only the class of an
+  error the model's own code raised: its message quotes the page) and the final result, also with emails, API keys, bearer
+  tokens, `password=...` values and runs of 6+ digits (phone, card, account numbers, one-time codes) replaced. Never
+  the task text, typed text, code or secrets. `ANONYMIZED_TELEMETRY=false` turns it off
 - `result.messages`: the model's text, thinking and tool-call arguments, and the retry messages that quote them back (a follow-up task continues the unredacted
   transcript, since providers reject edited signed thinking; screenshots in it stay unredacted)
 

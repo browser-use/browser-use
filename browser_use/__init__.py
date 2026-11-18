@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 	from browser_use.agent import Agent, AgentHistoryList
 	from browser_use.browser import Browser
 	from browser_use.llm import ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
+	from browser_use.telemetry.feedback import feedback
 	from browser_use.tools import ActionResult, Controller, Tools
 
 _LAZY_IMPORTS = {
@@ -36,6 +37,7 @@ _LAZY_IMPORTS = {
 	'ChatOpenAI': 'browser_use.llm',
 	'ChatAnthropic': 'browser_use.llm',
 	'ChatGoogle': 'browser_use.llm',
+	'feedback': 'browser_use.telemetry.feedback',
 }
 _BEDROCK = "llm='bedrock:<model id>' (pip install 'pydantic-ai-slim[bedrock]'; AWS credentials and AWS_DEFAULT_REGION)."
 _LLM_REMOVED = {  # each 0.x provider class -> its Pydantic AI model string, or ChatOpenAI for an OpenAI-compatible server
@@ -80,13 +82,10 @@ def __getattr__(name: str):
 		from browser_use.utils import get_browser_use_version
 
 		return get_browser_use_version()
-	if name in _REMOVED:
-		from browser_use.exceptions import removed
-
-		raise ImportError(removed(f'browser_use.{name}', _REMOVED[name]))
 	from browser_use.legacy import removed_name
 
-	raise removed_name(__name__, name)  # from browser_use import dom (a 0.x module): the removed error naming the 1.0 answer
+	# BrowserSession, ChatGroq; from browser_use import dom (a 0.x module): the removed error naming the 1.0 answer
+	raise removed_name(__name__, name, _REMOVED)
 
 
 __all__ = [
@@ -100,4 +99,5 @@ __all__ = [
 	'ChatOpenAI',
 	'ChatAnthropic',
 	'ChatGoogle',
+	'feedback',
 ]
