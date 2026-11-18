@@ -292,7 +292,9 @@ async def test_a_solve_that_starts_between_cells_is_in_the_next_output_despite_a
 	fake, env = cloud
 	repl = Repl(tmp_path, env)
 	try:
-		assert (await repl.call('exec', '1', 30))['error'] is None  # worker up, reading events
+		# worker up, reading events, on its own tab: browser-harness 0.1.14 gives each owner only its own tabs' events,
+		# so the busy page's session S1 must be the worker's tab
+		assert (await repl.call('exec', "cdp('Runtime.evaluate', expression='1')", 30))['error'] is None
 		fake.emit(*started())
 		for i in range(2000):
 			fake.emit('Network.dataReceived', {'requestId': str(i), 'dataLength': 1}, 'S1')
