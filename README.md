@@ -106,7 +106,7 @@ Install browser-use with `uv tool install browser-use==1.0.6`, run `browser-use 
 
 > **browser-use 1.0.** The agent writes Python against raw CDP in a persistent REPL, on [Pydantic AI](https://ai.pydantic.dev). Coming from 0.x? Read [MIGRATING.md](https://github.com/browser-use/browser-use/blob/main/MIGRATING.md).
 
-Python 3.11 or newer. With uv, or pip in a venv:
+Python 3.11 or newer. Get an API key at [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-quickstart-api-key), then install with uv, or pip in a venv:
 
 ```bash
 uv init --python 3.12 my-agent && cd my-agent

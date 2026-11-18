@@ -64,7 +64,7 @@ from pydantic_core import PydanticSerializationError, to_json, to_jsonable_pytho
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
-from browser_use.llm import model_ref, skip_responses_transform
+from browser_use.llm import gateway_llm, model_ref, skip_responses_transform
 from browser_use.logging_config import printable
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SECRET_PLACEHOLDER, redact_forms, secret_forms
@@ -114,6 +114,10 @@ MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK at
 # all cut bu-smart turns that were still streaming and asked again; the gateway billed every cut attempt in full, and
 # cost_usd counted none of them (staging: 5 cuts, $1.84 billed, cost_usd $0.0074).
 STREAM_TIMEOUT_S = 930
+# The Browser Use gateway holds credit for a call's worst case (its whole input plus max_output_tokens) before running
+# it: bu-pi's 32768 made a small balance refuse calls it could pay for. Agent turns (code, delivery) stay far below 16k;
+# one that reaches it ends as a 'length' finish, which the loop recovers from as it did at 32k.
+GATEWAY_MAX_TOKENS = 16_384
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
@@ -1144,7 +1148,7 @@ def build_agent(
 			'openai_reasoning_effort': reasoning_effort,
 			'openai_reasoning_summary': 'auto',
 			'openai_reasoning_context': 'auto',  # bu-pi sends no context; Pydantic AI would send all_turns
-			'max_tokens': 32_768,
+			'max_tokens': GATEWAY_MAX_TOKENS if gateway_llm(model) else 32_768,
 		}
 		if reasoning_effort is None:
 			del settings['openai_reasoning_effort']
