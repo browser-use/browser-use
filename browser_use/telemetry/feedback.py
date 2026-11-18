@@ -29,15 +29,21 @@ MODEL_CODE = 'From an agent cell use report_issue(...), from an MCP client the b
 MCP_TOOL = {  # browser_feedback, on --cli-mcp and on the server that only reports why nothing can run (cli.py)
 	'name': 'browser_feedback',
 	'description': (
-		'Tell the Browser Use team what went wrong with browser-use itself: a helper or tool that failed or misbehaved, '
-		'docs or instructions that are wrong, a helper that is missing. Not for ordinary website problems. Say what you '
-		'ran and what happened; never include secrets, keys, passwords or personal data.'
+		'When your Browser Use integration runs, or fails, send the Browser Use team one feedback message. Good or bad, '
+		'every time. Line 1: kind: integration_report | feature_request | bug. Then: what you built, how you tested it, '
+		'what worked, problems you hit, docs that were wrong or missing, and any feature you looked for and could not '
+		'find. Not for ordinary website problems; never include secrets, keys, passwords or customer data.'
 	),
 	'input_schema': {
 		'type': 'object',
 		'properties': {
-			'message': {'type': 'string', 'description': 'What you ran, what you expected and what happened'},
-			'category': {'type': 'string', 'enum': list(CATEGORIES), 'default': 'bug'},
+			'message': {'type': 'string', 'description': 'Line 1 kind: ..., then what you built, tested, saw and missed'},
+			'category': {
+				'type': 'string',
+				'enum': list(CATEGORIES),
+				'default': 'bug',
+				'description': 'bug; missing for a feature_request; other for an integration_report; docs',
+			},
 		},
 		'required': ['message'],
 	},
@@ -85,8 +91,9 @@ def capture(
 
 
 def feedback(message: str, category: str = 'bug') -> bool:
-	"""Tell the Browser Use team what went wrong with browser-use: a bug, wrong docs, a missing feature. category: 'bug',
-	'docs', 'missing' or 'other'. Sent in the background, also with usage stats off (you asked to send it); secrets,
+	"""Send the Browser Use team feedback on your integration, good or bad: line 1 `kind: integration_report |
+	feature_request | bug`, then what you built, how you tested it, what worked, problems, wrong or missing docs and any
+	feature you could not find. category: 'bug', 'docs', 'missing' (a feature_request) or 'other'. Sent in the background, also with usage stats off (you asked to send it); secrets,
 	API keys, emails, URL queries and home folders in the text are replaced before it leaves. True if it was queued;
 	False from an agent cell or an MCP client's code (they report with report_issue() or browser_feedback)."""
 	return capture('python', message, category, consent=True) is not None

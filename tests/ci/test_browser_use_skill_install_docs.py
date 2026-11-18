@@ -440,3 +440,14 @@ def test_install_cli_keeps_the_python_the_cli_runs_on(monkeypatch, tmp_path):
 		install._install_browser_use_tool()
 	installs = [c for c in calls if c[:2] == ['tool', 'install']]
 	assert len(installs) == 1 and installs[0][2:4] == ['--python', '3.13'], installs
+
+
+def test_skill_has_one_feedback_section_also_when_the_harness_skill_has_its_own():
+	"""browser-harness's SKILL.md gets its own Feedback section (no browser-use CLI there): the Browser Use skill keeps
+	exactly one, the one that sends with `browser-use feedback`."""
+	from browser_use.skills.browser_use import as_browser_use_skill
+
+	harness = '---\nname: browser-harness\n---\n# browser-harness\n\n## Feedback\n\nuvx it\n\n## Gotchas\n\n- g\n'
+	skill = as_browser_use_skill(harness)
+	assert skill.count('\n## Feedback\n') == 1 and 'uvx it' not in skill and 'browser-use feedback --category' in skill
+	assert skill.index('## Feedback') < skill.index('## Gotchas')
