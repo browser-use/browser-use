@@ -92,7 +92,7 @@ remote debugging on, Google Chrome first. When several are on and none is Google
 
 Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` naming it, and every other 0.x `BrowserSession` / `BrowserContext` method or attribute (0.1 to 0.13: `get_current_page`, `navigate_to`, `get_tabs`, `take_screenshot`, `get_state_summary`, `get_or_create_cdp_session`, `new_context`, `cookies`, ...) raises `AttributeError` naming the 1.0 answer: the agent drives pages in Python (browser-harness helpers and raw CDP).
 
-In the agent REPL, `list_tabs()` excludes Chrome extension pages by default. Use `list_tabs(include_extensions=True)` to list them; a previously selected extension tab can still be restored after reconnect.
+In the agent REPL, `list_tabs()` excludes Chrome extension pages by default. Use `list_tabs(include_extensions=True)` to list them; the tab the agent is attached to stays listed even when it is an extension page, and it is still restored after a reconnect.
 
 What to do instead for the options:
 

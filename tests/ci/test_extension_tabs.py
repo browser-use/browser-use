@@ -25,6 +25,27 @@ async def test_extension_pages_are_hidden_from_agent_tabs_unless_requested(tmp_p
 		await repl.close()
 
 
+async def test_attached_extension_page_stays_in_agent_tabs(tmp_path):
+	"""A tab the agent attached to on purpose is still listed, whatever its URL."""
+	repl = Repl(tmp_path)
+	try:
+		code = (
+			'import sys\n'
+			"sys.modules['__main__'].AGENT_TAB['id'] = 'extension'\n"
+			'import browser_harness.helpers as h\n'
+			"h.cdp = lambda method: {'targetInfos': ["
+			"{'type':'page','targetId':'page','url':'https://example.com'}, "
+			"{'type':'page','targetId':'extension','url':'chrome-extension://example/sidepanel.html'}, "
+			"{'type':'page','targetId':'other','url':'chrome-extension://other/page.html'}]}\n"
+			"print([tab['targetId'] for tab in list_tabs()])"
+		)
+		result = await repl.call('exec', code, 30)
+		assert result['error'] is None, result
+		assert result['output'].strip() == "['page', 'extension']"
+	finally:
+		await repl.close()
+
+
 def test_reconnect_restores_an_explicit_extension_tab(monkeypatch):
 	"""A tab the agent explicitly selected is restored by ID even when its URL is an extension page."""
 	from browser_harness import helpers

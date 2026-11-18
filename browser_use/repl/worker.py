@@ -711,11 +711,18 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	exec('from browser_harness.helpers import *', ns)
 
 	def list_tabs(include_chrome=True, *, include_extensions=False):
-		"""List tabs without extension pages unless they are explicitly requested."""
+		"""List tabs without extension pages unless they are explicitly requested.
+
+		The tab the agent is attached to stays listed even when it is an extension page, so a page the agent chose on
+		purpose does not vanish from its own tab list."""
 		tabs = helpers.list_tabs(include_chrome=include_chrome)
 		if include_extensions:
 			return tabs
-		return [tab for tab in tabs if not tab.get('url', '').startswith('chrome-extension://')]
+		return [
+			tab
+			for tab in tabs
+			if tab.get('targetId') == AGENT_TAB['id'] or not tab.get('url', '').startswith('chrome-extension://')
+		]
 
 	ns['list_tabs'] = list_tabs
 
