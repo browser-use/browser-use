@@ -179,7 +179,13 @@ async def judge_run(
 				try:
 					run = await judge.run(content if shots else text)  # text alone: as before, without images
 				except ModelHTTPError as e:  # a text-only model rejects the images: judge the trace alone
-					if not (shots and 400 <= e.status_code < 500 and 'image' in f'{e.message} {e.body}'.lower()):
+					if not (
+						shots
+						and 400 <= e.status_code < 500
+						and e.status_code != 429
+						and 'image' in f'{e.message} {e.body}'.lower()
+					):
+						# a 429's body names its x-ratelimit-limit-input-images header: a rate limit, not images rejected
 						raise
 					logger.info(f'The model rejected the screenshots ({e.status_code}): judging the run from the text alone')
 					run = await judge.run(text)
