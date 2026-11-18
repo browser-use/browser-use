@@ -43,6 +43,7 @@ from browser_use.exceptions import BrowserConfigError, removed
 from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
 
 logger = logging.getLogger(__name__)
+BLANK_OR_INTERNAL = ('about:', 'chrome:', 'chrome-', 'devtools:', 'edge:', 'brave:')  # not a page the caller prepared
 load_env()  # 0.x read .env on import; credentials below resolve from it
 
 CLOUD_API = 'https://api.browser-use.com/api/v4'
@@ -824,6 +825,26 @@ class Browser:
 		except Exception:  # - no daemon, a gone browser or tab, a timeout: the judge goes without
 			return None
 
+	def _attach_open_page(self) -> None:
+		"""Browser(cdp_url=): the daemon attaches a new blank tab of its own, so an agent sent to work on the page its
+		caller prepared (Playwright, another tool) saw about:blank and gave up.
+		Exactly one open page: attach it and close the blank tab. Several: the agent picks with list_tabs()."""
+		if not self.name:
+			return
+		try:
+			own = _daemon_request(self.name, {'meta': 'current_tab'}, timeout=5).get('targetId')
+			pages = [
+				t['targetId']
+				for t in _daemon_cdp(self.name, 'Target.getTargets')['targetInfos']
+				if t['type'] == 'page' and t['targetId'] != own and not t['url'].startswith(BLANK_OR_INTERNAL)
+			]
+		except Exception as e:  # - the tab list could not be read: the run starts on the daemon's tab, as before
+			logger.debug('Could not list the open pages: %s', e)
+			return
+		if len(pages) == 1:
+			self._agent_tab = pages[0]  # a daemon started again attaches it too
+			self._attach_agent_tab()
+
 	def _attach_agent_tab(self) -> None:
 		"""A daemon started again attaches a new blank tab of its own, so the next run saw about:blank, the agent's page
 		and form state out of reach. Attach the agent's tab instead and close that blank one."""
@@ -942,6 +963,8 @@ class Browser:
 				self._local.watch(self.name, daemon_pid)
 				await asyncio.to_thread(self._close_launch_tab)
 			else:
+				if self.cdp_url:
+					await asyncio.to_thread(self._attach_open_page)
 				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, (self.id or '') if self.use_cloud else '')
 			if self.domains:
 				self._guard = Guard(ws, self.domains)
