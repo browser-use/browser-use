@@ -1,5 +1,7 @@
 """The judge: one request to the agent's own model after each run (Agent(judge=False) turns it off)."""
 
+import json
+
 import pytest
 from conftest import script
 from pydantic import ValidationError
@@ -57,14 +59,16 @@ def agent(model, tmp_path, **kwargs):
 
 
 async def test_each_run_is_judged_once_by_the_agents_own_model(fake_browser, tmp_path):
-	model, seen = script(FINISH, ('final_result', VERDICT))
+	"""One more turn of the run: its messages and instructions go first, so the provider reads them from its cache."""
+	model, seen = script(FINISH, json.dumps(VERDICT))
 	r = await agent(model, tmp_path).run()
 	assert len(seen) == 2  # the run's one request and the judge's
 	assert r.judgement == Judgement(**VERDICT)
 	assert r.usage['requests'] == 2
-	judge_request = seen[1][0]
-	assert JUDGE_PROMPT in judge_request.instructions
-	assert '<task>\nfind the price\n</task>' in str(judge_request.parts[0].content)
+	run_request, judge_request = seen[0][-1], seen[1][-1]
+	assert seen[1][: len(seen[0]) - 1] == seen[0][:-1] and judge_request.instructions == run_request.instructions
+	assert JUDGE_PROMPT in judge_request.parts[-1].content[0]
+	assert '<task>\nfind the price\n</task>' in judge_request.parts[-1].content[0]
 
 
 @pytest.mark.parametrize('off', [{'judge': False}, {'use_judge': False}])
@@ -76,18 +80,18 @@ async def test_judge_false_sends_no_judge_request(off, fake_browser, tmp_path):
 
 async def test_a_failed_judge_leaves_the_run_as_it_was_and_is_still_counted(fake_browser, tmp_path):
 	"""A judge answer that does not fit the schema is not retried (one judge request); its tokens are still counted."""
-	model, seen = script(FINISH, ('final_result', {'success': 'maybe'}))
+	model, seen = script(FINISH, '{"success": "maybe"}', ('final_result', {'success': 'maybe'}))
 	r = await agent(model, tmp_path).run()
-	assert (r.status, r.text, r.judgement, len(seen), r.usage['requests']) == ('completed', 'done', None, 2, 2)
+	assert (r.status, r.text, r.judgement, len(seen), r.usage['requests']) == ('completed', 'done', None, 3, 3)
 
 
 async def test_the_judge_request_is_bounded(fake_browser, tmp_path):
 	from browser_use.agent.judge import MAX_PART_CHARS, MAX_TASK_CHARS, MAX_TRACE_CHARS
 
-	model, seen = script(FINISH, ('final_result', VERDICT))
+	model, seen = script(FINISH, json.dumps(VERDICT))
 	huge = 'word ' * 200_000
 	await Agent(huge, model, browser=Browser(local=True), workspace=tmp_path, judge_context=huge).run()
-	assert len(str(seen[1][0].parts[0].content)) < MAX_TRACE_CHARS + 2 * MAX_TASK_CHARS + 2 * MAX_PART_CHARS + 1000
+	assert len(str(seen[1][-1].parts[-1].content)) < MAX_TRACE_CHARS + 2 * MAX_TASK_CHARS + 2 * MAX_PART_CHARS + 1000
 
 
 async def test_a_responses_model_is_judged_streamed_at_low_effort(monkeypatch):
@@ -166,7 +170,7 @@ def test_the_prompt_forbids_personal_data_and_secrets():
 async def test_secrets_never_reach_the_judge_or_its_answer(fake_browser, tmp_path):
 	secret = 'hunter2-Zq9x'
 	leaky = {**VERDICT, 'gotchas': [f'The password {secret} works']}
-	model, seen = script(FINISH, ('final_result', leaky))
+	model, seen = script(FINISH, json.dumps(leaky))
 	r = await Agent(
 		f'log in with {secret}', model, browser=Browser(local=True), workspace=tmp_path, sensitive_data={'pw': secret}
 	).run()
@@ -177,7 +181,7 @@ async def test_secrets_never_reach_the_judge_or_its_answer(fake_browser, tmp_pat
 async def test_the_whole_judgement_is_sent_scrubbed_when_telemetry_is_on(sent, fake_browser, tmp_path):
 	leaky = {**VERDICT, 'gotchas': ['Write to jane.doe@example.com for access', 'Wait 2 s after search']}
 	leaky['description'] = 'It found that the price is 10 on the page.'  # judge_context, never sent
-	model, _ = script(FINISH, ('final_result', leaky))
+	model, _ = script(FINISH, json.dumps(leaky))
 	await agent(model, tmp_path, judge_context='the price is 10').run()
 	(event,) = sent
 	assert (event['judge'], event['judge_context']) == (True, True)
@@ -195,7 +199,7 @@ async def test_with_telemetry_off_nothing_is_sent(sent, fake_browser, tmp_path, 
 	import browser_use.telemetry.service as telemetry
 
 	monkeypatch.setattr(telemetry.telemetry, 'enabled', False)
-	model, _ = script(FINISH, ('final_result', VERDICT))
+	model, _ = script(FINISH, json.dumps(VERDICT))
 	r = await agent(model, tmp_path).run()
 	assert r.judgement and sent == []
 
@@ -298,24 +302,24 @@ async def test_the_final_page_is_taken_through_the_daemon_and_never_fails_the_ru
 		return {'result': {'data': base64.b64encode(b'jpeg').decode()}}
 
 	monkeypatch.setattr(browser_module, '_daemon_request', daemon)
-	model, seen = script(FINISH, ('final_result', VERDICT))
+	model, seen = script(FINISH, json.dumps(VERDICT))
 	result = await agent(model, tmp_path).run()
 	assert result.judgement is not None and asked == ['Runtime.evaluate', 'Page.captureScreenshot']
-	assert seen[1][0].parts[0].content[-1].data == b'jpeg'
+	assert seen[1][-1].parts[-1].content[-1].data == b'jpeg'
 
 	def gone(name, request, timeout=30):
 		raise ConnectionError('no daemon')
 
 	monkeypatch.setattr(browser_module, '_daemon_request', gone)
-	model, seen = script(FINISH, ('final_result', VERDICT))
+	model, seen = script(FINISH, json.dumps(VERDICT))
 	assert (await agent(model, tmp_path).run()).judgement is not None
-	assert isinstance(seen[1][0].parts[0].content, str)  # no final page: the text alone
+	assert len(seen[1][-1].parts[-1].content) == 1  # no final page: the text alone
 
 	asked.clear()
 	monkeypatch.setattr(browser_module, '_daemon_request', daemon)
 	model, seen = script(FINISH)
 	await agent(model, tmp_path, judge=False).run()
-	model, seen = script(FINISH, ('final_result', VERDICT))
+	model, seen = script(FINISH, json.dumps(VERDICT))
 	await agent(model, tmp_path, use_vision=False).run()
 	assert asked == []  # judge=False or use_vision=False: no capture
 

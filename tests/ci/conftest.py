@@ -13,7 +13,7 @@ import warnings
 from pathlib import Path
 
 import pytest
-from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 os.environ['ANONYMIZED_TELEMETRY'] = 'false'
@@ -123,7 +123,7 @@ def shared_runtime_dir(monkeypatch):
 
 
 def script(*turns):
-	"""FunctionModel playing tool calls in order. Each turn: (tool, args) or a list of them. Records requests."""
+	"""FunctionModel playing tool calls in order. Each turn: (tool, args), a list of them, or text. Records requests."""
 	seen = []
 
 	def fn(messages, info: AgentInfo):
@@ -131,6 +131,8 @@ def script(*turns):
 		if len(seen) > len(turns):
 			raise AssertionError(f'unexpected model call {len(seen)}; last {messages[-1]!r}'[:4000])
 		turn = turns[len(seen) - 1]
+		if isinstance(turn, str):
+			return ModelResponse(parts=[TextPart(turn)])
 		calls = turn if isinstance(turn, list) else [turn]
 		return ModelResponse(parts=[ToolCallPart(name, args) for name, args in calls])
 
