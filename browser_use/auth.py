@@ -2,11 +2,83 @@
 
 import os
 import re
+import sys
+import threading
 import urllib.parse
+from pathlib import Path
 
 from browser_use.exceptions import MissingAPIKeyError
 
 KEYS_URL = 'https://cloud.browser-use.com/settings?tab=api-keys'
+_login_lock = threading.Lock()
+_login_attempted = False
+_reported_key_sources: set[str] = set()
+_key_sources_lock = threading.Lock()
+
+
+def record_auth_event(stage: str, *, method: str = '', automatic: bool = False) -> None:
+	"""Record login progress without credentials or account identifiers."""
+	try:
+		from browser_use.telemetry.service import telemetry
+		from browser_use.telemetry.stats import is_internal
+		from browser_use.telemetry.views import AuthEvent
+		from browser_use.utils import get_browser_use_version
+
+		telemetry().capture(AuthEvent(get_browser_use_version(), stage, method, automatic, is_internal()))
+	except Exception:
+		pass
+
+
+def _can_open_login() -> bool:
+	from browser_use.cli import _stdin_is_terminal
+
+	return (
+		sys.stdin is not None
+		and _stdin_is_terminal()
+		and 'ipykernel' not in sys.modules
+		and os.getenv('BROWSER_USE_AUTO_LOGIN', 'true').strip().lower() not in ('0', 'false', 'no', 'off')
+		and not (os.getenv('CI') or os.getenv('GITHUB_ACTIONS'))
+		and bool(
+			sys.platform in ('darwin', 'win32')
+			or (
+				os.getenv('XDG_CURRENT_DESKTOP')
+				and os.getenv('XDG_SESSION_TYPE') in ('x11', 'wayland')
+				and (os.getenv('DISPLAY') or os.getenv('WAYLAND_DISPLAY'))
+			)
+		)
+	)
+
+
+def _available_key(key: str, source: str, what: str) -> str:
+	key = clean_api_key(key, source, what)
+	with _key_sources_lock:
+		report = source not in _reported_key_sources
+		if report:
+			_reported_key_sources.add(source)
+	if report:
+		record_auth_event('key_available', method='env' if source == 'BROWSER_USE_API_KEY' else 'stored')
+	return key
+
+
+def _login_for_key(what: str) -> str:
+	global _login_attempted
+	with _login_lock:
+		from browser_harness.auth import stored_auth_record
+
+		if key := (stored_auth_record() or {}).get('api_key'):
+			return _available_key(str(key), 'the key browser-use login stored', what)
+		if _login_attempted:
+			raise MissingAPIKeyError(what)
+		_login_attempted = True
+		from browser_use.cli import _run_login_command
+
+		print('Browser Use needs a key. Opening sign-in; approve access to continue this run.', file=sys.stderr, flush=True)
+		code = _run_login_command([], automatic=True)
+		if code != 0:
+			raise MissingAPIKeyError(what)
+		if key := (stored_auth_record() or {}).get('api_key'):
+			return _available_key(str(key), 'the key browser-use login stored', what)
+		raise MissingAPIKeyError(what)
 
 
 def clean_api_key(key: str, source: str, what: str = 'Browser Use Cloud') -> str:
@@ -22,21 +94,49 @@ def clean_api_key(key: str, source: str, what: str = 'Browser Use Cloud') -> str
 	return key
 
 
-def browser_use_api_key(what: str = 'Browser Use Cloud') -> str:
+def harness_dir_setting(path: object) -> str:
+	"""The setting that chose browser-harness dir path: BH_CONFIG_DIR, BH_RUNTIME_DIR, BH_TMP_DIR or BH_AGENT_WORKSPACE
+	when set to it or a dir around it (each overrides BH_HOME for its dir), else BH_HOME."""
+	try:
+		failed = Path(str(path)).expanduser().resolve() if path else None
+	except (OSError, RuntimeError, ValueError):  # it only picks the hint: an unresolvable path keeps the BH_HOME one
+		failed = None
+	for name in ('BH_CONFIG_DIR', 'BH_RUNTIME_DIR', 'BH_TMP_DIR', 'BH_AGENT_WORKSPACE'):
+		if failed is None or not (raw := os.environ.get(name)):
+			continue
+		try:
+			base = Path(raw).expanduser().resolve()
+		except (OSError, RuntimeError, ValueError):  # a malformed override ('~nouser/x', a NUL): skip it
+			continue
+		if failed.is_relative_to(base) or base.is_relative_to(failed):
+			return name
+	return 'BH_HOME'
+
+
+def browser_use_api_key(what: str = 'Browser Use Cloud', *, auto_login: bool = False) -> str:
 	key = os.environ.get('BROWSER_USE_API_KEY')
 	if key and key.strip():
-		return clean_api_key(key, 'BROWSER_USE_API_KEY', what)
+		return _available_key(key, 'BROWSER_USE_API_KEY', what)
 	from browser_harness.auth import AuthError, stored_auth_record
 
 	try:
 		record = stored_auth_record() or {}
 	except (AuthError, AttributeError):  # not valid JSON, or JSON that is not an object (a list): say the store is bad
 		raise MissingAPIKeyError(what, corrupt_store_message()) from None
+	except OSError as e:  # an unwritable HOME: browser-harness creates its config dir to look for the stored key
+		raise MissingAPIKeyError(
+			what,
+			f'Set BROWSER_USE_API_KEY, or set {harness_dir_setting(e.filename)} to a writable dir only this user can write '
+			f'to: the dir of the key `browser-use login` stores, {e.filename or ""}, cannot be created ({e.strerror or e}).',
+		) from None
 	if not record.get('api_key'):
+		record_auth_event('missing_key', automatic=auto_login)
+		if auto_login and _can_open_login():
+			return _login_for_key(what)
 		raise MissingAPIKeyError(what)
 	# Scopes are the server's to judge: a key it rejects (an older login's v3 browser-only key) gets a 403 that the
 	# cloud and gateway errors turn into "run `browser-use login` again".
-	return clean_api_key(str(record['api_key']), 'the key `browser-use login` stored', what)
+	return _available_key(str(record['api_key']), 'the key browser-use login stored', what)
 
 
 def cloud_error_text(status: int, detail: str) -> str:

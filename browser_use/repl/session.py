@@ -306,8 +306,9 @@ class Repl:
 	daemon again after a cell lost it (Browser.start). after_cell: runs after each cell, outside the worker; returns
 	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell). search: defines
 	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
-	worker, answered here (Browser.list_downloads). highlight_actions: orange corner brackets around what the agent
-	clicks or types into (repl/highlight.py)."""
+	worker, answered here (Browser.list_downloads). feedback: answers report_issue() with the confirmation the cell
+	gets (telemetry/feedback.RunReports); without it nothing is sent. highlight_actions: orange corner brackets around
+	what the agent clicks or types into (repl/highlight.py)."""
 
 	def __init__(
 		self,
@@ -320,10 +321,12 @@ class Repl:
 		search: web.WebSearch | None = None,
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		highlight_actions: bool = False,
+		feedback: Callable[[dict], str] | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
+		self.feedback = feedback
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
 		# which a keep_alive Agent outlives (asyncio.run per run); killed after that loop closed, the worker was never
@@ -376,10 +379,14 @@ class Repl:
 		# A naive call never reaches another browser (the user's own Chrome): a `browser-harness` CLI call reuses this run's
 		# daemon or fails, and any daemon a cell starts dials a dead port instead of discovering a local Chrome.
 		env.update(BH_REQUIRE_EXISTING_DAEMON='1', BU_CDP_WS='ws://127.0.0.1:9/browser-use-owns-the-browser')
+		# browser-harness runs <agent workspace>/agent_helpers.py on import and reads its domain-skills: never the user's
+		# global one (~/.config/browser-harness/agent-workspace), which a prompt-injected run could plant for later runs
+		env['BH_AGENT_WORKSPACE'] = str(self.state / 'agent-workspace')
 		env['BU_REPL_PARENT_PID'] = str(os.getpid())  # the worker exits when we die (worker._watch_parent)
 		# A browser-harness CLI call from a cell would send its piped code and output (page text) as cli_event, and the
 		# allowlisted env drops ANONYMIZED_TELEMETRY. The run is already counted (agent_event).
 		env['BH_TELEMETRY'] = '0'
+		env['BU_MODEL_CODE'] = '1'  # the model's code: its browser_use.feedback() is not the user's consent (feedback.py)
 		env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # page text is Unicode; Windows defaults to cp1252
 		if self.mode == 'ultrafast':
 			env['BU_MODE'] = 'ultrafast'
@@ -451,11 +458,10 @@ class Repl:
 				await asyncio.wait_for(_exited(proc), 5)
 
 	async def call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
-		# Ultrafast prints the page state after the cell's code, so its cells may run up to 10 s past the timeout.
 		if self._lock_loop is not (loop := asyncio.get_running_loop()):  # reused from a new loop (asyncio.run per run)
 			self.lock, self._lock_loop = asyncio.Lock(), loop
 		async with self.lock:
-			r = await self._call(op, code, timeout + (10 if self.mode == 'ultrafast' else 0))
+			r = await self._call(op, code, timeout)
 			if r.get('error_type') == 'BrowserConnectionLost' and self.reattach is not None:
 				try:
 					env = await self.reattach()
@@ -482,7 +488,7 @@ class Repl:
 				if blocks:
 					events = r.setdefault('stats', {}).setdefault('events', {})
 					events['domain_blocked'] = events.get('domain_blocked', 0) + blocks
-		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value')}}
+		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value', 'error_message')}}
 
 	async def _search(self, args: Any) -> dict[str, Any]:
 		"""{'value': the search result} or {'error': the message search() raises in the cell}."""
@@ -506,6 +512,15 @@ class Repl:
 		except Exception as e:  # - the API failed or timed out: the cell's error says what
 			return {'error': f'downloads() failed: {type(e).__name__}: {e}'}
 
+	def _feedback(self, args: Any) -> dict[str, Any]:
+		"""{'value': what report_issue() returns}: it never fails the cell."""
+		if self.feedback is None or not isinstance(args, dict):
+			return {'value': 'Feedback is not available here: nothing was sent.'}
+		try:
+			return {'value': self.feedback(args)}
+		except Exception as e:  # - a report that could not be queued
+			return {'value': f'Feedback failed ({type(e).__name__}): nothing was sent.'}
+
 	async def _call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		try:  # one cleanup boundary: a cancel during startup, the send or the wait never leaves a half-used worker
 			# A worker started on another (finished) event loop cannot be driven from this one: replace it.
@@ -523,8 +538,11 @@ class Repl:
 						if not line:
 							raise ConnectionError('worker exited')
 						msg = json.loads(line)
-						if msg.get('type') in ('search', 'downloads'):  # the cell called one: answered while it waits
-							answer = await (self._search(msg.get('args')) if msg['type'] == 'search' else self._downloads())
+						if msg.get('type') in ('search', 'downloads', 'feedback'):  # the cell called one: answered while it waits
+							if msg['type'] == 'feedback':
+								answer = self._feedback(msg.get('args'))
+							else:
+								answer = await (self._search(msg.get('args')) if msg['type'] == 'search' else self._downloads())
 							self.writer.write(json.dumps(answer).encode() + b'\n')
 							await self.writer.drain()
 							continue
@@ -543,6 +561,7 @@ class Repl:
 					'value': None,
 					'error': f'{RESTARTED.format(why=why)} Actions may already have happened; inspect before retrying.',
 					'error_type': 'CellTimeout' if isinstance(e, TimeoutError) else 'WorkerExited',
+					'error_message': f'{"CellTimeout" if isinstance(e, TimeoutError) else "WorkerExited"}: {why}',
 				}
 		except asyncio.CancelledError:  # the whole run was cancelled or timed out: the cell may still be running
 			await self.close()
