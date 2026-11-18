@@ -191,19 +191,15 @@ async def judge_run(
 	return Judgement.model_validate(redact(run.output.model_dump(), secrets)), run.all_messages()
 
 
-def _settings(agent: Agent[Any, Any]) -> dict:
-	"""The run's settings at low effort, without the per-request ones (deadlines, forced tool choice, compaction)."""
-	settings = {k: v for k, v in (agent.model_settings or {}).items() if k not in DROPPED}
-	for key in EFFORT_KEYS:
-		if settings.get(key) and settings[key] != 'none':
-			settings[key] = 'low'
-	if (
-		isinstance(agent.model, OpenAIResponsesModel)
-		and 'openai_reasoning_effort' not in settings
-		and reasoning_supported(agent.model)
-	):
-		settings['openai_reasoning_effort'] = 'low'
-	return settings
+# The run's own settings for the judge's turn: OpenAI reasoning models put the reasoning effort at the start of the prompt
+# and the cache setting places the breakpoints, so a judge turn at low effort or without them read nothing of the run's
+# prefix from the cache. Only per-request settings go: the delivery turn's forced tool choice, server-side compaction
+# and the deadlines.
+CACHED_DROPPED = ('tool_choice', 'openai_context_management', 'request_timeout', 'first_event_timeout')
+
+
+def _cached_settings(agent: Agent[Any, Any]) -> dict:
+	return {k: v for k, v in (agent.model_settings or {}).items() if k not in CACHED_DROPPED}
 
 
 CACHED_ASK = (
@@ -247,7 +243,7 @@ async def judge_cached(
 			response = await model_request(
 				cast(Any, model),
 				messages,
-				model_settings=cast(Any, _settings(agent)),
+				model_settings=cast(Any, _cached_settings(agent)),
 				model_request_parameters=replace(params, allow_text_output=True),
 			)
 	except Exception as e:  # the class and HTTP status only: a provider's message can quote what it was sent
