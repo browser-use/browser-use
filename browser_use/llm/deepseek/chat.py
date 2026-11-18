@@ -13,6 +13,7 @@ from openai import (
 	APITimeoutError,
 	AsyncOpenAI,
 	RateLimitError,
+	Timeout,
 )
 from pydantic import BaseModel
 
@@ -61,8 +62,8 @@ class ChatDeepSeek(BaseChatModel):
 
 		return AsyncOpenAI(
 			api_key=api_key,
-			base_url=self.base_url,
-			timeout=self.timeout,
+			base_url=str(self.base_url) if self.base_url is not None else None,
+			timeout=Timeout(**self.timeout.as_dict()) if isinstance(self.timeout, httpx.Timeout) else self.timeout,
 			**(self.client_params or {}),
 		)
 

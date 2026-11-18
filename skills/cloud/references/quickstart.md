@@ -134,12 +134,15 @@ Typical task: 10 steps = ~$0.03 (with Browser Use LLM)
 - Execution: $0.02 (PAYG), $0.01 (Business)
 
 ### Proxies
-- PAYG: $10/GB, Business: $5/GB, Scaleup: $4/GB
+- Managed residential proxy: $5/GB
+- Direct connection or your own proxy: $0.20/GB
 
-### Tiers
-- **Business**: 25% off per-step, 50% off skills/proxy
-- **Scaleup**: 50% off per-step, 60% off proxy
+### Plans
+- Pay as you go, no subscription. Concurrency grows with lifetime spend (10 to 1,000 sessions).
+- Legacy Business and Scaleup subscriptions keep their discounted rates.
 - **Enterprise**: Contact for ZDR, compliance, on-prem
+
+Current prices: https://browser-use.com/pricing.md
 
 ---
 

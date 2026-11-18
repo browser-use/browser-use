@@ -12,6 +12,7 @@ from openai import (
 	APITimeoutError,
 	AsyncOpenAI,
 	RateLimitError,
+	Timeout,
 )
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
@@ -58,8 +59,8 @@ class ChatCerebras(BaseChatModel):
 
 		return AsyncOpenAI(
 			api_key=api_key,
-			base_url=self.base_url,
-			timeout=self.timeout,
+			base_url=str(self.base_url) if self.base_url is not None else None,
+			timeout=Timeout(**self.timeout.as_dict()) if isinstance(self.timeout, httpx.Timeout) else self.timeout,
 			**(self.client_params or {}),
 		)
 
