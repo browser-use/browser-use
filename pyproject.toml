@@ -22,7 +22,7 @@ dependencies = [
     "google-genai==2.34.0",
     "genai-prices==0.2.1",
     "idna==3.20",
-    "pillow==12.3.0",
+    "pillow==13.0.0",
     "python-dotenv==1.2.4",
     "uuid7==0.1.0",
     "mcp==2.3.0",
@@ -135,3 +135,8 @@ dev = [
     "pyright==1.1.408",
     "pyyaml==6.0.3",  # tests/ci/test_workflows.py reads the workflow files
 ]
+
+# Temporary, until browser-harness 0.1.14 is on PyPI: uv installs it from the release candidate
+# (browser-harness#1031 + #1033). Delete this block and run `uv lock` once 0.1.14 is published.
+[tool.uv.sources]
+browser-harness = { git = "https://github.com/browser-use/browser-harness", rev = "cef94341409c2c3053b78ade566f2ebc920ae405" }
