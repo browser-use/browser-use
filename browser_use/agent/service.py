@@ -28,8 +28,8 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_run
-from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run, usage_and_cost
+from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_cached, judge_run
+from browser_use.agent.loop import Session, _projected, build_agent, model_kind, reasoning_supported, run, usage_and_cost
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.auth import browser_use_api_key
@@ -326,6 +326,7 @@ class Agent:
 		self.judge, self.judge_context = judge, judge_context or None
 		self._judge_cost: float | None = None  # the last run's judge cost (telemetry)
 		self._final_page: BinaryContent | None = None  # the last run's final page, for the judge
+		self._judge_prefix: tuple[list, Any] = ([], None)  # the last run's sent messages and tool definitions, for the judge
 		self._search: WebSearch | None = None  # set by _build when search() is on
 		# As given, made absolute, symlinks kept: on macOS resolve() turned tempfile's /var/... into /private/var/..., and
 		# result.downloads[0].relative_to(workspace) raised ValueError. Default: made on first use (workspace).
@@ -544,6 +545,8 @@ class Agent:
 				explain_error=self._gateway.explain_error if self._gateway else None,
 			)
 			self._history = session.messages  # raw: result.messages has secrets redacted
+			# the judge's turn resends what the run's last request sent, so the provider reads it from its prompt cache
+			self._judge_prefix = (_projected(session, session.messages), session.request_params)
 			# the judge sees the page as the run left it, before the browser stops
 			judged = self.judge and self.use_vision and result.steps
 			self._final_page = None
@@ -606,7 +609,15 @@ class Agent:
 			return
 		task, context = (redact(t, self.sensitive_data) for t in (self.task, self.judge_context))
 		final, self._final_page = self._final_page, None
-		judgement, messages = await judge_run(self._agent, task, result, context, self.sensitive_data, final)
+		judgement, messages = None, []
+		history, params = self._judge_prefix
+		if history and params is not None:
+			judgement, messages = await judge_cached(
+				self._agent, history, params, task, result, context, self.sensitive_data, final
+			)
+		if judgement is None:  # a tool call, no schema-shaped answer or an error: the separate judge, as before
+			judgement, separate = await judge_run(self._agent, task, result, context, self.sensitive_data, final)
+			messages = [*messages, *separate]
 		if not messages:
 			return
 		usage, cost = usage_and_cost(messages, self._model_ref)
