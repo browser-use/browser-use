@@ -16,9 +16,13 @@ it is stopped, so a later process (the next CLI call) knows it too.
 """
 
 import ast
+import ipaddress
 import os
+import socket
 import time
 import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -136,6 +140,7 @@ def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[
 
 			require_debug_port_unless_attached(name)  # never the 127.0.0.1:9222 guess (local.py)
 			return admin.ensure_daemon(wait=wait, name=name, env=env)
+		require_cdp_url_listening(name, env)
 		# BU_CDP_URL / BU_CDP_WS: browser-harness takes no spawn lock there, so concurrent cold CLI calls each started
 		# a daemon under one name and orphaned all but one. One spawn at a time (its own lock file: a stale daemon's
 		# restart inside ensure_daemon takes browser-harness's).
@@ -151,6 +156,75 @@ def ensure_daemon(wait: float | None = None, name: str | None = None, env: dict[
 		f'Cloud browser {name!r} has ended (cloud timeout, stopped, or its daemon died). It was not replaced with your '
 		f'local Chrome. Start a new one: start_remote_daemon({name!r})'
 	)
+
+
+CDP_REFUSED_GRACE_S = 3.0  # a Chrome started just before this call opens its port within that
+
+
+def require_cdp_url_listening(name: str, env: dict[str, str] | None = None) -> None:
+	"""BU_CDP_URL (and no BU_CDP_WS, which wins) whose host refuses connections: nothing listens on that port, yet
+	browser-harness retried it for 30 s on every call and then failed. Raise at once with both ways out, unless daemon
+	name is still healthy (browser-harness then reuses it and never reads BU_CDP_URL). A port that is no number never
+	works: raise at once too. A timeout, DNS, an HTTP error, or a proxy urllib uses for a host off this machine stays
+	browser-harness's to retry and report."""
+	merged = {**os.environ, **(env or {})}
+	url = merged.get('BU_CDP_URL')
+	if not url or merged.get('BU_CDP_WS'):
+		return
+	dedicated = '--user-data-dir=<a dir of its own>'
+	try:
+		u = urllib.parse.urlsplit(url)
+		shown = f'{u.scheme}://{u.netloc.rpartition("@")[2]}'  # never the user:password@, path or query (a token)
+		port = u.port
+	except ValueError:
+		scheme, sep, rest = url.partition('://')
+		shown = scheme + sep + rest.split('/')[0].split('?')[0].rpartition('@')[2]
+		raise RuntimeError(
+			f'BU_CDP_URL={shown} is not a valid http://HOST:PORT URL. Set it to http://127.0.0.1:PORT where PORT is the number a Chrome '
+			f'started with --remote-debugging-port=PORT {dedicated} listens on{_WAYS_OUT}'
+		) from None
+	host = u.hostname
+	if not host:
+		return
+	if port is None:  # urllib dials the scheme's port; a remote https endpoint can serve DevTools there
+		port = 443 if u.scheme in ('https', 'wss') else 80
+		fix = (
+			f'It names no port, so {port} was tried. Set it to http://127.0.0.1:PORT of a Chrome started with '
+			f'--remote-debugging-port=PORT {dedicated}'
+		)
+	else:
+		fix = f'Start Chrome with --remote-debugging-port={port} {dedicated}'
+	if urllib.request.getproxies().get(u.scheme) and not _loopback(host) and not urllib.request.proxy_bypass(host):
+		return  # browser-harness's urllib reaches it through that proxy, not directly
+	deadline, checked = time.monotonic() + CDP_REFUSED_GRACE_S, False
+	while True:
+		try:
+			socket.create_connection((host, port), timeout=5).close()  # Windows takes ~2 s to report a refusal
+			return
+		except ConnectionRefusedError:
+			if not checked and admin.daemon_alive(name) and daemon_healthy(name):
+				return
+			checked = True
+			if time.monotonic() >= deadline:
+				break
+			time.sleep(0.25)
+		except OSError:
+			return
+	raise RuntimeError(f'BU_CDP_URL={shown} refused the connection: no browser listens on {host}:{port}. {fix}{_WAYS_OUT}')
+
+
+_WAYS_OUT = (
+	', or unset BU_CDP_URL and browser-use finds a browser itself (your Chrome with remote debugging on; --cli-mcp falls '
+	"back to its own Chromium). For an MCP server, change it in the server's env in the MCP config, then restart the "
+	'server.'
+)
+
+
+def _loopback(host: str) -> bool:
+	try:
+		return host == 'localhost' or ipaddress.ip_address(host).is_loopback
+	except ValueError:
+		return False
 
 
 def start(name: str, profile_name: str | None, create_kwargs: dict[str, Any], namespace: dict[str, Any] | None) -> dict:

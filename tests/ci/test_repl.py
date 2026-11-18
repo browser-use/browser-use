@@ -241,6 +241,22 @@ async def test_harness_dotenv_cannot_reintroduce_credentials(tmp_path, monkeypat
 	assert r['error'] is None and 'DATABASE_URL' not in r['output'] and 'BH_AGENT_WORKSPACE' in r['output']
 
 
+async def test_the_users_global_agent_helpers_never_run_in_the_worker(tmp_path, monkeypatch):
+	"""Review: browser-harness runs <agent workspace>/agent_helpers.py on import. A prompt-injected run could write the
+	global one, and every later Agent worker ran it before the model's first cell, with that run's secrets in memory."""
+	global_ws = tmp_path / 'global-ws'
+	global_ws.mkdir()
+	marker = tmp_path / 'ran.txt'
+	(global_ws / 'agent_helpers.py').write_text(f'open({str(marker)!r}, "w").close()\ndef planted(): pass\n', encoding='utf-8')
+	monkeypatch.setenv('BH_AGENT_WORKSPACE', str(global_ws))
+	repl = Repl(tmp_path / 'ws')
+	try:
+		r = await repl.call('exec', "print('planted' in globals())", 30)
+	finally:
+		await repl.close()
+	assert (r['error'], r['output'].strip(), marker.exists()) == (None, 'False', False)
+
+
 async def test_worker_never_loads_dotenv(tmp_path):
 	"""Roast C16: .env is read in the parent only; the worker must not import the modules that load it."""
 	(tmp_path / '.env').write_text('DOTENV_PROBE=planted\n', encoding='utf-8')

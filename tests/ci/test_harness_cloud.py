@@ -634,6 +634,20 @@ async def test_mcp_exec_reports_failures_and_a_cancelled_call_never_bleeds_into_
 	assert (text, failed) == ('MINE\n', False)
 
 
+def test_a_failing_cell_shows_its_own_frames_and_names_the_helpers_for_an_unknown_name(monkeypatch):
+	"""Daytona 1.0.1: every failing cell's traceback began with this server's exec() frame, and click_element(3) (a 0.x
+	action) said only NameError, where the piped CLI names the 1.0 helpers."""
+	from browser_use.mcp.cli_mcp import CLIMCPServer
+
+	server = CLIMCPServer()
+	monkeypatch.setattr(server, '_ensure_daemon', lambda code: None)
+	text, failed = server._execute('click_element(3)')
+	assert failed and 'cli_mcp.py' not in text and 'File "<string>", line 1' in text, text
+	assert "'click_element' is not defined here" in text and 'new_tab(url)' in text and 'page_info()' in text, text
+	text, failed = server._execute('import json\njson.loads("{")')
+	assert failed and 'cli_mcp.py' not in text and 'JSONDecodeError' in text and 'not defined here' not in text, text
+
+
 async def test_mcp_a_cancelled_call_lets_go_of_the_lock_and_a_queued_one_never_runs():
 	"""C23: a hung cell (find /, a wait that never returns) kept the lock after the client cancelled it, so every later
 	call timed out and a cloud browser could not even be stopped. The MCP SDK cancels through an AnyIO cancel scope.
@@ -685,14 +699,388 @@ async def test_mcp_a_local_browser_that_cannot_attach_is_one_tool_error_naming_t
 	monkeypatch.setattr(harness_cloud, 'ensure_daemon', no_chrome)
 	reason = 'fatal: chrome-not-running: no supported Chromium-family browser is running -- start Chrome, then retry'
 	monkeypatch.setattr(admin, '_log_tail', lambda name=None: reason)
+	_desktop_with_chrome(monkeypatch)  # where the chrome://inspect setup works: the user's Chrome, never a fallback
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 	mcp = cli_mcp.CLIMCPServer()
 	handler = mcp.server._request_handlers['tools/call'].handler
-	for name, arguments in (('browser_exec', {'code': 'print(1 + 1)'}), ('browser_screenshot', {})):
-		r = await handler(None, types.CallToolRequestParams(name=name, arguments=arguments))
+	for key in ('', 'bu_test'):
+		if key:
+			monkeypatch.setenv('BROWSER_USE_API_KEY', key)
+		for name, arguments in (('browser_exec', {'code': 'print(1 + 1)'}), ('browser_screenshot', {})):
+			r = await handler(None, types.CallToolRequestParams(name=name, arguments=arguments))
+			text = r.content[0].text  # type: ignore[union-attr]
+			assert r.is_error and 'Traceback' not in text and len(text.strip().splitlines()) == 1, (name, text)
+			assert 'chrome-not-running: no supported Chromium-family browser is running' in text, (name, text)
+			# the way out when there is no local browser: start_remote_daemon() only with a key for it to use
+			assert ('start_remote_daemon()' in text) == bool(key) and ('BROWSER_USE_API_KEY' in text) != bool(key), text
+
+
+def _desktop_with_chrome(monkeypatch):
+	from browser_use.browser import local
+
+	monkeypatch.setattr(local, 'has_display', lambda: True)
+	monkeypatch.setenv('BH_CHROME_PATH', sys.executable)  # an installed browser, as far as find_binary can tell
+
+
+@pytest.fixture
+def headless_box(monkeypatch):
+	"""A server with no display and no attachable Chrome, where nothing may attach the user's Chrome. Every Browser
+	start is recorded and answered by start (default: a daemon named own-chromium)."""
+	from browser_harness import admin, helpers
+
+	from browser_use import Browser, harness_cloud
+	from browser_use.browser import local
+
+	monkeypatch.setattr(admin, 'NAME', admin.NAME)  # routing rebinds these: restore them for the next test
+	monkeypatch.setattr(helpers, 'NAME', helpers.NAME)
+	monkeypatch.setattr(local, 'has_display', lambda: False)
+	monkeypatch.setattr(local, 'live_debug_dirs', lambda: [])
+	monkeypatch.setattr(harness_cloud, 'ensure_daemon', lambda *a, **k: pytest.fail("attached the user's Chrome"))
+	monkeypatch.delenv('BU_CDP_URL', raising=False)
+	monkeypatch.delenv('BU_CDP_WS', raising=False)
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+	box = {'kinds': [], 'start': None}
+
+	async def start(self):
+		box['kinds'].append(self.kind)
+		if box['start']:
+			return await box['start']()
+		return {'BU_NAME': 'own-chromium'}
+
+	monkeypatch.setattr(Browser, 'start', start)
+	return box
+
+
+async def _exec(mcp, code: str) -> tuple[list[str], bool]:
+	"""A browser_exec call as the client sees it: the text of each content block, and is_error."""
+	from mcp import types
+
+	handler = mcp.server._request_handlers['tools/call'].handler
+	r = await handler(None, types.CallToolRequestParams(name='browser_exec', arguments={'code': code}))
+	return [c.text for c in r.content], r.is_error
+
+
+async def test_cli_mcp_on_a_headless_box_drives_its_own_chromium_and_says_so(headless_box):
+	"""1.0.1: 144 headless Linux devices got only "remote-debugging-setup: none of your browsers has remote debugging on
+	... start_remote_daemon()" from every browser_exec, with no Chrome to set up and no key for a cloud browser."""
+	from browser_use.mcp import cli_mcp
+
+	mcp = cli_mcp.CLIMCPServer()
+	(out, note), failed = await _exec(mcp, 'print(NAME)')
+	assert not failed and out == 'own-chromium\n' and headless_box['kinds'] == ['chromium'], (out, note)
+	assert 'own Chromium on a temp profile, not your Chrome (no display here' in note, note
+	assert await _exec(mcp, 'print(NAME)') == (['own-chromium\n'], False)  # said once
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='the fake uvx is a POSIX script')
+async def test_cli_mcp_with_no_browser_installed_installs_chromium_without_touching_stdout(
+	headless_box, tmp_path, monkeypatch, capfd
+):
+	"""A fresh server or container (python:3.12-slim) has no browser at all: the first call installs Playwright's
+	Chromium as `browser-use install` does, and its output never reaches stdout, the MCP channel."""
+	from browser_use.mcp import cli_mcp
+
+	uvx = tmp_path / 'uvx'
+	uvx.write_text(
+		f'#!{sys.executable}\nimport sys\nprint("Downloading Chromium")\nopen(sys.argv[0] + ".args", "w").write(" ".join(sys.argv[1:]))\n'
+	)
+	uvx.chmod(0o755)
+	monkeypatch.setenv('PATH', str(tmp_path))  # this uvx only: never the machine's apt-get, even as root
+	starts = []
+
+	async def start():
+		starts.append(1)
+		if len(starts) == 1:
+			raise RuntimeError('No Chrome, Chromium or Edge found (tried chromium on PATH). Install one ...')
+		return {'BU_NAME': 'own-chromium'}
+
+	headless_box['start'] = start
+	(out, note), failed = await _exec(cli_mcp.CLIMCPServer(), 'print(NAME)')
+	assert not failed and out == 'own-chromium\n' and "Installed Playwright's Chromium" in note, (out, note)
+	args = (tmp_path / 'uvx.args').read_text()
+	assert args.startswith('playwright install chromium --no-shell'), args
+	assert ('--with-deps' in args) == (sys.platform.startswith('linux') and os.geteuid() == 0), args  # system libraries
+	assert 'Downloading' not in capfd.readouterr().out  # the fd itself: a child process writes there, not sys.stdout
+
+
+async def test_with_no_browser_at_all_the_error_says_what_to_install_and_names_the_cloud_only_with_a_key(
+	headless_box, monkeypatch
+):
+	"""No Chrome, Chromium that cannot start, no key: one line saying what to do. start_remote_daemon() fails without a
+	key, so it is named only when there is one."""
+	from mcp import types
+
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setenv('PATH', '')  # no uvx to install Chromium with
+
+	async def start():
+		raise RuntimeError('No Chrome, Chromium or Edge found (tried chromium on PATH). Install one ...')
+
+	headless_box['start'] = start
+	for key in ('', 'bu_test'):
+		if key:
+			monkeypatch.setenv('BROWSER_USE_API_KEY', key)
+		handler = cli_mcp.CLIMCPServer().server._request_handlers['tools/call'].handler
+		r = await handler(None, types.CallToolRequestParams(name='browser_exec', arguments={'code': 'print(1)'}))
 		text = r.content[0].text  # type: ignore[union-attr]
-		assert r.is_error and 'Traceback' not in text and len(text.strip().splitlines()) == 1, (name, text)
-		assert 'chrome-not-running: no supported Chromium-family browser is running' in text, (name, text)
-		assert 'start_remote_daemon()' in text, (name, text)  # the way out when there is no local browser
+		assert r.is_error and len(text.strip().splitlines()) == 1 and text.startswith('Error: No browser to drive'), text
+		assert 'uvx (to install Chromium) is not on PATH' in text and 'Install Google Chrome or Chromium' in text, text
+		assert ('start_remote_daemon()' in text) == bool(key) and ('BROWSER_USE_API_KEY' in text) != bool(key), text
+
+
+async def test_cli_mcp_keeps_the_users_chrome_where_it_can_be_set_up(monkeypatch):
+	"""A desktop with Chrome installed keeps the chrome://inspect setup: driving the user's logged-in Chrome is the point
+	of --cli-mcp. Its first result says so, in a block of its own: a client that parses the code's output (JSON) broke
+	once per server start when the note came first in it."""
+	from browser_harness import admin, helpers
+
+	from browser_use import Browser, harness_cloud
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setattr(admin, 'NAME', admin.NAME)
+	monkeypatch.setattr(helpers, 'NAME', helpers.NAME)
+	_desktop_with_chrome(monkeypatch)
+	monkeypatch.delenv('BU_CDP_URL', raising=False)
+	monkeypatch.delenv('BU_CDP_WS', raising=False)
+	attached = []
+	monkeypatch.setattr(harness_cloud, 'ensure_daemon', lambda *a, **k: attached.append(1))
+	monkeypatch.setattr(Browser, 'start', lambda self: pytest.fail('started its own Chromium'))
+	mcp = cli_mcp.CLIMCPServer()
+	assert await _exec(mcp, 'print(1)') == (['1\n', 'Browser: your own Chrome (its tabs and logins).'], False)
+	assert await _exec(mcp, 'print(2)') == (['2\n'], False) and attached == [1, 1]
+
+
+def _setup_fails(monkeypatch, error: str = 'remote-debugging-setup: none of your browsers has remote debugging on (...)'):
+	"""A desktop with Chrome whose remote debugging is off: attaching it raises require_debug_port's setup error."""
+	from browser_harness import admin, daemon, helpers
+
+	from browser_use import harness_cloud
+
+	monkeypatch.setattr(admin, 'NAME', admin.NAME)
+	monkeypatch.setattr(helpers, 'NAME', helpers.NAME)
+	monkeypatch.setattr(daemon, 'remote_debugging_toggle_profiles', lambda: [])  # never this machine's Local State
+	_desktop_with_chrome(monkeypatch)
+	monkeypatch.delenv('BU_CDP_URL', raising=False)
+	monkeypatch.delenv('BU_CDP_WS', raising=False)
+	attempts = []
+
+	def ensure_daemon(*a, **k):
+		attempts.append(1)
+		raise RuntimeError(error)
+
+	monkeypatch.setattr(harness_cloud, 'ensure_daemon', ensure_daemon)
+	return attempts
+
+
+async def test_cli_mcp_with_remote_debugging_off_drives_its_own_chromium_and_says_how_to_get_chrome(monkeypatch):
+	"""1.0.0/1.0.1: ~390 Mac and Windows devices, and 72 of 101 Cursor-on-Linux ones, got only the chrome://inspect setup
+	error from every browser_exec and never ran a cell. The setup error now falls back to the server's own Chromium; the
+	note says how to switch to the user's Chrome. Once on it, it stays (the model's tabs live there)."""
+	from browser_use import Browser
+	from browser_use.mcp import cli_mcp
+
+	attempts = _setup_fails(monkeypatch)
+	kinds = []
+
+	async def start(self):
+		kinds.append(self.kind)
+		return {'BU_NAME': 'own-chromium'}
+
+	monkeypatch.setattr(Browser, 'start', start)
+	mcp = cli_mcp.CLIMCPServer()
+	(out, note), failed = await _exec(mcp, 'print(NAME)')
+	assert not failed and out == 'own-chromium\n' and kinds == ['chromium'], (out, note)
+	assert "this server's own Chromium on a temp profile, not your Chrome (your Chrome has remote debugging off" in note
+	assert 'chrome://inspect/#remote-debugging' in note and 'restart this MCP server' in note, note
+	assert await _exec(mcp, 'print(NAME)') == (['own-chromium\n'], False) and attempts == [1]
+
+
+async def test_a_setup_error_with_no_chromium_to_fall_back_on_keeps_the_setup_steps(monkeypatch):
+	"""Brave or Arc with remote debugging off: find_binary has no Chromium to launch, so the setup steps are the only way
+	and the error stays as 1.0.1 gave it (not "No browser to drive"). The next call tries the user's browser again.
+	Other attach errors never fall back."""
+	from browser_use import Browser
+	from browser_use.mcp import cli_mcp
+
+	attempts = _setup_fails(monkeypatch)
+
+	async def start(self):
+		raise RuntimeError('No Chrome, Chromium or Edge found (tried ...)')
+
+	monkeypatch.setattr(Browser, 'start', start)
+	mcp = cli_mcp.CLIMCPServer()
+	for n in (1, 2):
+		(out,), failed = await _exec(mcp, 'print(1)')
+		assert failed and out.startswith('Error: remote-debugging-setup: none of your browsers') and len(attempts) == n, out
+	_setup_fails(monkeypatch, "daemon default didn't come up")
+	monkeypatch.setattr(Browser, 'start', lambda self: pytest.fail('fell back on an error that is not the setup'))
+	(out,), failed = await _exec(cli_mcp.CLIMCPServer(), 'print(1)')
+	assert failed and "didn't come up" in out, out
+
+
+async def test_a_setup_error_with_the_toggle_on_never_falls_back(monkeypatch, tmp_path):
+	"""Review: remote debugging turned on but Chrome not up yet (a slow cold start, or closed while Edge runs) gives the
+	same setup error. Falling back there held the server on its own Chromium until a restart, with a note saying the
+	toggle was off. 1.0.1's error stays, and the next call attaches the user's Chrome."""
+	from browser_harness import daemon
+
+	from browser_use import Browser
+	from browser_use.mcp import cli_mcp
+
+	attempts = _setup_fails(monkeypatch)
+	monkeypatch.setattr(daemon, 'remote_debugging_toggle_profiles', lambda: [tmp_path])
+	monkeypatch.setattr(Browser, 'start', lambda self: pytest.fail('fell back with the toggle on'))
+	(out,), failed = await _exec(cli_mcp.CLIMCPServer(), 'print(1)')
+	assert failed and out.startswith('Error: remote-debugging-setup: none of your browsers') and attempts == [1], out
+
+
+def test_every_setup_fallback_note_says_to_restart_the_server():
+	"""Review: a left-over DevToolsActivePort also falls back, and its own "then run again" did nothing once the server
+	ran its own Chromium."""
+	from browser_use.mcp import cli_mcp
+
+	left = RuntimeError(
+		'remote-debugging-setup: /x/DevToolsActivePort is left from an earlier browser session and another process now '
+		'listens on its port 9222; browser-harness would attach to that process. Delete that file (Chrome writes a new one '
+		'when remote debugging starts), then run again.'
+	)
+	why = cli_mcp._setup_reason(left)
+	assert why.startswith('/x/DevToolsActivePort is left') and why.endswith('starts), then restart this MCP server'), why
+	assert cli_mcp._setup_reason(RuntimeError('remote-debugging-setup: none of your browsers ...')) == cli_mcp.CHROME_SETUP
+
+
+def test_browser_exec_code_writes_text_files_as_utf8_on_a_cp1252_locale(monkeypatch, tmp_path):
+	"""1.0.0: 15 devices' cells failed with UnicodeEncodeError, the model's own open(path, 'w').write(page_text) on
+	Windows (cp1252). The agent's worker runs with PYTHONUTF8=1; browser_exec code now gets the same default."""
+	import locale
+
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setattr(locale, 'getpreferredencoding', lambda do_setlocale=True: 'cp1252')
+	monkeypatch.setattr(cli_mcp.CLIMCPServer, '_ensure_daemon', lambda self, code: None)
+	path = tmp_path / 'out.txt'
+	code = f"open({str(path)!r}, 'w').write('\u00e9t\u00e9 \U0001f600')\nprint(open({str(path)!r}).read())\nprint(open({str(path)!r}, 'rb').read()[:4])"
+	out, failed = cli_mcp.CLIMCPServer()._execute(code)
+	assert not failed and out == "\u00e9t\u00e9 \U0001f600\nb'\\xc3\\xa9t\\xc3'\n", out
+	assert open(path, encoding='cp1252', errors='replace').read() != '\u00e9t\u00e9 \U0001f600'  # it really is UTF-8 on disk
+
+
+def test_cli_and_mcp_cdp_calls_wait_20_s_unless_the_caller_says_otherwise(monkeypatch):
+	"""browser-harness waits 5 s for any CDP answer; on --cli-mcp 5-8% of devices hit _IPCResponseTimeout on a click or a
+	navigation. capture.install (the CLI and --cli-mcp) gives every call the agent's 20 s; an explicit timeout stays."""
+	from browser_harness import helpers
+
+	from browser_use.repl import capture
+
+	sent = []
+	raw = lambda method, session_id=None, **params: sent.append((method, params.get('_response_timeout'))) or {}  # noqa: E731
+	monkeypatch.setattr(helpers, 'cdp', raw)
+	capture.install()
+	helpers.cdp('Input.dispatchMouseEvent', type='mousePressed', x=1, y=1)
+	helpers.cdp('Runtime.evaluate', expression='1', _response_timeout=2)
+	assert sent == [('Input.dispatchMouseEvent', 20.0), ('Runtime.evaluate', 2)]
+
+
+@pytest.mark.parametrize('opened_by', ['before', 'this call'])
+def test_cli_and_mcp_cdp_calls_on_a_page_a_dialog_froze_say_so(monkeypatch, opened_by):
+	"""Review: with 20 s and no dialog check, every js() or click on a page an alert() froze waited 20 s and ended in a
+	bare timeout. As in the agent's cdp(): 2 s once a dialog is known, and the timeout names the dialog. A timeout with
+	no dialog stays a timeout."""
+	from browser_harness import helpers
+
+	from browser_use.repl import capture
+
+	sent, dialog = [], {'type': 'confirm', 'message': 'Leave?'}
+	pending = [dialog] if opened_by == 'before' else [None, dialog]
+
+	def raw(method, session_id=None, **params):
+		sent.append(params['_response_timeout'])
+		raise TimeoutError
+
+	monkeypatch.setattr(helpers, 'cdp', raw)
+	monkeypatch.setattr(helpers, '_send', lambda req: {'dialog': pending.pop(0) if pending else None})
+	capture.install()
+	with pytest.raises(RuntimeError, match=r"A JavaScript confirm is open \('Leave\?'\).*Page.handleJavaScriptDialog"):
+		helpers.cdp('Runtime.evaluate', expression='1')
+	assert sent == ([2.0] if opened_by == 'before' else [20.0])
+	with pytest.raises(TimeoutError):
+		helpers.cdp('Runtime.evaluate', expression='1')
+
+
+@pytest.mark.parametrize('browser', ['brave', 'none', 'snap'])
+async def test_a_desktop_keeps_any_browser_it_can_set_up_and_never_installs_chromium(browser, tmp_path, monkeypatch):
+	"""1.0.1 review: on a desktop whose browser find_binary does not know (Brave, Arc, Dia, a Flatpak Chrome) --cli-mcp
+	fell back to its own Chromium and installed Playwright's (150 MB) inside one tool call. 1.0.0 set up the user's
+	browser there. A desktop with no browser at all gets the error naming `browser-use install`, never an install; one
+	with only Snap Chromium says so, not 'no Chrome is installed'."""
+	from browser_harness import admin, daemon, helpers
+
+	from browser_use import Browser, harness_cloud
+	from browser_use.browser import local
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setattr(admin, 'NAME', admin.NAME)
+	monkeypatch.setattr(helpers, 'NAME', helpers.NAME)
+	monkeypatch.setattr(local, 'has_display', lambda: True)
+	monkeypatch.setattr(local, 'live_debug_dirs', lambda: [])
+	monkeypatch.delenv('BU_CDP_URL', raising=False)
+	monkeypatch.delenv('BU_CDP_WS', raising=False)
+	brave = tmp_path / 'BraveSoftware/Brave-Browser'
+	monkeypatch.setattr(daemon, 'PROFILES', [tmp_path / 'google-chrome', brave])
+	if browser == 'brave':
+		brave.mkdir(parents=True)
+		(brave / 'Local State').write_text('{}')
+	snap = '/usr/bin/chromium-browser is Snap Chromium, which cannot open DevTools for a browser it did not start itself.'
+	missing = 'No Chrome, Chromium or Edge found (tried chromium on PATH). Install one ...'
+
+	def find_binary(*a, **k):
+		raise RuntimeError(snap if browser == 'snap' else missing)
+
+	async def start(self):
+		local.find_binary()  # what Browser('chromium').start() does first
+
+	monkeypatch.setattr(local, 'find_binary', find_binary)
+	monkeypatch.setattr(Browser, 'start', start)
+	monkeypatch.setattr(cli_mcp, '_install_chromium', lambda: pytest.fail('installed Chromium on a desktop'))
+	attached = []
+	monkeypatch.setattr(harness_cloud, 'ensure_daemon', lambda *a, **k: attached.append(1))
+	(text, *note), failed = await _exec(cli_mcp.CLIMCPServer(), 'print(1)')
+	if browser == 'brave':
+		assert (text, note, failed, attached) == ('1\n', ['Browser: your own Chrome (its tabs and logins).'], False, [1])
+		return
+	assert failed and not attached and text.startswith('Error: No browser to drive') and 'browser-use install' in text, text
+	why = 'only Snap Chromium is installed' if browser == 'snap' else 'no Chrome, Chromium or Edge is installed'
+	assert f'no Chrome to attach ({why}' in text, text
+
+
+@pytest.mark.chrome
+def test_cli_mcp_on_a_headless_box_opens_a_page_in_its_own_chromium(chrome_binary, monkeypatch):
+	"""End to end on a real Chromium: what a headless server's first browser_exec does."""
+	from browser_harness import admin, helpers
+
+	from browser_use import harness_cloud
+	from browser_use.browser import local
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setattr(admin, 'NAME', admin.NAME)
+	monkeypatch.setattr(helpers, 'NAME', helpers.NAME)
+	monkeypatch.setattr(local, 'has_display', lambda: False)
+	monkeypatch.setattr(local, 'live_debug_dirs', lambda: [])
+	monkeypatch.setattr(harness_cloud, 'ensure_daemon', lambda *a, **k: pytest.fail("attached the user's Chrome"))
+	monkeypatch.setenv('BH_CHROME_PATH', chrome_binary)
+	monkeypatch.delenv('BU_CDP_URL', raising=False)
+	mcp = cli_mcp.CLIMCPServer()
+	try:
+		out, failed = mcp._execute(
+			'new_tab("data:text/html,<title>own page</title>"); wait_for_load(); print(page_info()["title"])'
+		)
+		assert not failed and out == 'own page\n' and 'own Chromium' in (mcp._note or ''), (out, mcp._note)
+	finally:
+		if mcp._browser is not None:
+			import asyncio
+
+			asyncio.run(mcp._browser.stop())
 
 
 def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
@@ -742,6 +1130,7 @@ def test_mcp_stray_prints_never_reach_the_protocol_stream(tmp_path):
 def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(monkeypatch):
 	"""M31: with BU_CDP_URL, concurrent CLI cold starts raced (browser-harness takes no spawn lock in CDP mode) and
 	orphaned daemons."""
+	import socket
 	import threading
 	import time
 
@@ -749,7 +1138,8 @@ def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(mon
 
 	from browser_use import harness_cloud
 
-	monkeypatch.setenv('BU_CDP_URL', 'http://127.0.0.1:1')
+	listener = socket.create_server(('127.0.0.1', 0))  # a refused BU_CDP_URL now fails before the spawn lock
+	monkeypatch.setenv('BU_CDP_URL', f'http://127.0.0.1:{listener.getsockname()[1]}')
 	active, peak, lock = [0], [0], threading.Lock()
 
 	def ensure(wait=None, name=None, env=None):
@@ -767,6 +1157,7 @@ def test_concurrent_cold_starts_against_a_cdp_url_spawn_one_daemon_at_a_time(mon
 		t.start()
 	for t in threads:
 		t.join(10)
+	listener.close()
 	assert peak[0] == 1
 
 
@@ -842,3 +1233,56 @@ def test_mcp_with_allowed_domains_refuses_a_blocked_url_in_so_many_words():
 	):
 		out, failed = mcp._execute(code, connect=False)
 		assert failed and 'blocked: blocked.example.org is not in allowed_domains' in out, out
+
+
+def test_mcp_with_allowed_domains_has_no_cloud_browser_to_escape_them(monkeypatch):
+	"""Fable 1.0.0: a cloud browser has no domain Guard, so start_remote_daemon() under --mcp's allowed_domains let raw
+	cdp/js navigations, clicks and redirects open any site."""
+	from browser_harness import admin
+
+	from browser_use.mcp import cli_mcp
+
+	monkeypatch.setattr(admin, 'start_remote_daemon', lambda *a, **k: pytest.fail('started a cloud browser'))
+	mcp = cli_mcp.CLIMCPServer(own_browser=True, allowed_domains=['example.com'])
+	monkeypatch.setattr(mcp, '_attach', lambda: pytest.fail('attached a browser'))
+	for code in ('start_remote_daemon()', 'stop_remote_daemon()'):
+		out, failed = mcp._execute(code)
+		name = code.removesuffix('()')
+		assert failed and f"PermissionError: {name}() is off: this server's allowed_domains" in out, out
+	assert 'start_remote_daemon() is off' in mcp._instructions()
+
+
+def test_mcp_http_get_is_plain_http_from_this_machine_even_with_a_key(monkeypatch):
+	"""Fable 1.0.0: without domain rules, --cli-mcp kept browser-harness's http_get, which with BROWSER_USE_API_KEY set
+	sent the URL and its headers (Authorization, cookies) to the fetch-use proxy instead of fetching it here."""
+	import threading
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	import fetch_use
+
+	from browser_use.mcp import cli_mcp
+
+	seen = []
+
+	class Handler(BaseHTTPRequestHandler):
+		def do_GET(self):
+			seen.append(self.headers.get('Authorization'))
+			self.send_response(200)
+			self.end_headers()
+			self.wfile.write(b'local ok')
+
+		def log_message(self, *a):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'bu_test')
+	monkeypatch.setattr(fetch_use, 'fetch_sync', lambda *a, **k: pytest.fail('http_get went through fetch-use'))
+	url = f'http://127.0.0.1:{server.server_address[1]}/internal'
+	try:
+		for mcp in (cli_mcp.CLIMCPServer(), cli_mcp.CLIMCPServer(own_browser=True)):
+			out, failed = mcp._execute(f'print(http_get({url!r}, headers={{"Authorization": "Bearer t"}}))', connect=False)
+			assert (out, failed) == ('local ok\n', False)
+	finally:
+		server.shutdown()
+	assert seen == ['Bearer t', 'Bearer t']
