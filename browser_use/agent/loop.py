@@ -31,6 +31,7 @@ from pydantic_ai.exceptions import (
 	ModelConnectionError,
 	ModelContextWindowExceededError,
 	ModelRateLimitError,
+	ModelRequestRejectedError,
 	ModelRequestTimeout,
 	ModelServerError,
 	ModelUnavailableError,
@@ -144,6 +145,7 @@ class Session:
 	usage_after: int = 0  # Compaction: responses before this index were measured before the checkpoint
 	overflowed_step: int | None = None  # Compaction: the request step a context-window error forced a compaction in
 	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
+	unforced: bool = False  # the model rejected the forced delivery tool choice: delivery requests stay auto
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
 	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step
 
@@ -438,7 +440,7 @@ class BrowserLoop(AbstractCapability[Session]):
 				ctx.enqueue(DELIVER_NOW)
 		if s.finalizing:  # restrict this very request
 			settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
-			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
+			settings['tool_choice'] = UNFORCED if s.unforced else delivery_tool_choice(request_context.model, settings)
 			request_context.model_settings = cast(Any, settings)
 		return request_context
 
@@ -447,6 +449,8 @@ class BrowserLoop(AbstractCapability[Session]):
 		before the sleep and ran past the delivery turn's start (status timeout, no answer)."""
 		settings: dict[str, Any] = dict(request_context.model_settings or {})
 		_deadlines(ctx.deps, settings, request_context.model, MODEL_TIMEOUT_S)
+		if ctx.deps.finalizing and ctx.deps.unforced:  # each attempt starts from before_model_request's choice
+			settings['tool_choice'] = UNFORCED
 		request_context.model_settings = cast(Any, settings)
 		return request_context
 
@@ -464,6 +468,13 @@ class BrowserLoop(AbstractCapability[Session]):
 			s.rec.retry('model_timeout')
 			logger.warning(f'{error.model_name}: no answer within {error.timeout:.1f} s; asking again')
 			raise ModelRetry(f'The model request got no answer within {error.timeout:.1f} s.')
+		if s.finalizing and not s.unforced and isinstance(error, ModelRequestRejectedError) and _rejects_tool_choice(error):
+			# DeepSeek and Qwen with thinking, gpt-oss and vLLM reject a forced tool choice their profile does not flag:
+			# the run ended in an error with no delivery. Ask again with the choice left to the model, python withheld.
+			s.unforced = True
+			s.rec.retry('delivery_unforced')
+			logger.warning(f'{error.model_name} rejected the forced delivery tool choice; asking again without forcing it')
+			raise RetryModelRequest()
 		if s.provider_retried or not isinstance(error, ModelAPIError):
 			raise error
 		retries = (request_context.model_settings or {}).get('max_retries')  # the SDK's retries for this request, if set
@@ -1020,7 +1031,15 @@ def delivery_tool_choice(model: Any, settings: dict) -> Any:
 		thinks
 		and (not p.get('supports_forced_tool_choice_with_thinking', True) or p.get('forced_tool_choice_disables_thinking', False))
 	)
-	return DELIVERY_TOOLS if forcing else ToolOrOutput(function_tools=[])
+	return DELIVERY_TOOLS if forcing else UNFORCED
+
+
+UNFORCED = ToolOrOutput(function_tools=[])  # the delivery tools only, the model choosing whether to call one
+
+
+def _rejects_tool_choice(error: ModelRequestRejectedError) -> bool:
+	text = str(error).lower()
+	return 'tool_choice' in text or 'tool choice' in text
 
 
 def _is_image(c: Any) -> bool:
