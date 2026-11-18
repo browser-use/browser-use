@@ -36,7 +36,7 @@ body:
     attributes:
       label: Issue Description
       description: "Describe what's wrong or missing in the documentation"
-      placeholder: e.g. Docs should clarify whether BrowserSession(no_viewport=False) is supported when running in BrowserSession(headless=False) mode...
+      placeholder: e.g. Docs should clarify whether Browser('chromium', user_data_dir=...) keeps logins between runs...
     validations:
       required: true
 
@@ -48,8 +48,8 @@ body:
       placeholder: |
         e.g. The documentation could be improved by adding one more line here:
         ```diff
-        Use `BrowserSession(headless=False)` to open the browser window (aka headful mode).
-        + Viewports are not supported when headful, if `headless=False` it will force `no_viewport=True`.
+        Use `Browser('chromium', headless=False)` to open the browser window (aka headful mode).
+        + Leave `headless` unset to run headless only when there is no display.
         ```
     validations:
       required: false

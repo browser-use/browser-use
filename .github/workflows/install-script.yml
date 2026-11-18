@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - v1
     paths:
       - 'browser_use/cli.py'
       - 'browser_use/skills/**'
@@ -35,10 +36,12 @@ jobs:
     name: browser-use skill sync
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
 
+      # Compares against SKILL.md of the browser-harness version pyproject.toml pins (installed by uv run), never harness main.
       - name: Check generated Browser Use skill
-        run: python3 scripts/sync_browser_harness_skill.py --check
+        run: uv run --python 3.11 python scripts/sync_browser_harness_skill.py --check
 
   test-pip-install:
     name: uv pip install (${{ matrix.os }})
@@ -51,13 +54,11 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-      - name: Add uv to PATH
-        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: false
 
       - name: Create venv and install browser-use
         run: |
@@ -66,8 +67,8 @@ jobs:
 
       - name: Add venv to PATH
         run: |
-          echo "$PWD/.venv/bin" >> $GITHUB_PATH
-          echo "$PWD/.venv/Scripts" >> $GITHUB_PATH
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          echo "$PWD/.venv/Scripts" >> "$GITHUB_PATH"
 
       - name: Verify Browser Use CLI
         run: |
@@ -78,20 +79,16 @@ jobs:
       - name: Verify aliases
         run: |
           browseruse --help
-          bu --help
-          browser --help
 
   test-uvx-local-wheel:
     name: uvx browser-use from local wheel
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-      - name: Add uv to PATH
-        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: false
 
       - name: Build wheel from current branch
         run: |
@@ -112,11 +109,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-      - name: Add uv to PATH
-        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: false
 
       - name: Verify uvx Browser Use CLI
         run: |

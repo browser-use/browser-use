@@ -1,18 +1,8 @@
-"""MCP (Model Context Protocol) support for browser-use.
+"""MCP server for coding agents: `browser-use --cli-mcp` (browser-harness exec model)."""
 
-This module provides integration with MCP servers and clients for browser automation.
-"""
+from typing import TYPE_CHECKING
 
-from browser_use.mcp.client import MCPClient
-from browser_use.mcp.controller import MCPToolWrapper
+if not TYPE_CHECKING:  # pyright would accept any name imported from here
+	from browser_use.legacy import removed_names
 
-__all__ = ['MCPClient', 'MCPToolWrapper', 'BrowserUseServer']  # type: ignore
-
-
-def __getattr__(name):
-	"""Lazy import to avoid importing server module when only client is needed."""
-	if name == 'BrowserUseServer':
-		from browser_use.mcp.server import BrowserUseServer
-
-		return BrowserUseServer
-	raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+	__getattr__ = removed_names(__name__)  # a 0.x name raises the removed error naming its 1.0 answer
