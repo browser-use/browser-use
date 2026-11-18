@@ -1,5 +1,7 @@
 """Release workflows: which events build and push Docker images. Evaluates the job's `if:` expression in Python."""
 
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -117,3 +119,74 @@ def test_ci_test_tools_are_a_standard_dependency_group():
 	assert 'dev-dependencies' not in pyproject['tool'].get('uv', {})
 	dev = pyproject['dependency-groups']['dev']
 	assert any(req.startswith('pytest==') for req in dev) and any(req.startswith('pytest-asyncio==') for req in dev)
+
+
+def publish_steps() -> list[dict]:
+	return yaml.safe_load((WORKFLOWS / 'publish.yml').read_text())['jobs']['publish_to_pypi']['steps']
+
+
+@pytest.mark.skipif(sys.platform == 'win32' or shutil.which('bash') is None or shutil.which('git') is None, reason='bash + git')
+def test_publish_needs_the_pyproject_version_tag_on_the_checked_out_commit(tmp_path):
+	"""Fable 1.0.0: a dispatch with create_tag=false published whatever pyproject said, untagged, from any branch."""
+	steps = publish_steps()
+	check = next(i for i, step in enumerate(steps) if 'refs/tags/$version' in step.get('run', ''))
+	publish = next(i for i, step in enumerate(steps) if 'pypi-publish' in step.get('uses', ''))
+	assert 'if' not in steps[check] and check < publish
+
+	def git(*args: str, cwd: Path) -> str:
+		return subprocess.run(['git', *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+	origin, work = tmp_path / 'origin.git', tmp_path / 'work'
+	git('init', '-q', '--bare', str(origin), cwd=tmp_path)
+	git('init', '-q', str(work), cwd=tmp_path)
+	ident = ('-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'tag.gpgSign=false', '-c', 'commit.gpgSign=false')
+	(work / 'pyproject.toml').write_text('[project]\nversion = "1.0.1"\n')
+	git(*ident, 'add', '.', cwd=work)
+	git(*ident, 'commit', '-qm', 'one', cwd=work)
+	git('remote', 'add', 'origin', origin.as_uri(), cwd=work)
+
+	def run(event: str, release_tag: str = '') -> subprocess.CompletedProcess:
+		env = {**os.environ, 'EVENT_NAME': event, 'RELEASE_TAG': release_tag}
+		env['PATH'] = f'{Path(sys.executable).parent}{os.pathsep}{env["PATH"]}'  # python3 with tomllib, as on the runner (3.12)
+		return subprocess.run(['bash', '-c', steps[check]['run']], cwd=work, env=env, capture_output=True, text=True, timeout=60)
+
+	assert 'Tag 1.0.1 does not exist' in run('workflow_dispatch').stdout  # no tag anywhere
+	git(*ident, 'tag', '-a', '-m', '1.0.1', '1.0.1', cwd=work)  # annotated: compared by the commit it points at
+	git(*ident, 'commit', '-q', '--allow-empty', '-m', 'two', cwd=work)
+	git('push', '-q', 'origin', 'HEAD:refs/heads/main', 'refs/tags/1.0.1', cwd=work)
+	assert 'is not the checked-out commit' in run('workflow_dispatch').stdout  # tag on an older commit
+	git('reset', '-q', '--hard', 'HEAD~1', cwd=work)
+	assert run('workflow_dispatch').returncode == 0
+	assert run('release', release_tag='1.0.1').returncode == 0
+	assert 'does not match pyproject.toml version 1.0.1' in run('release', release_tag='1.0.0').stdout
+
+
+def test_publish_uploads_with_attestations_through_the_trusted_publisher():
+	"""PyPI's trusted publisher is publish.yml + environment `release` + OIDC: renaming either breaks the next release."""
+	job = yaml.safe_load((WORKFLOWS / 'publish.yml').read_text())['jobs']['publish_to_pypi']
+	assert job['environment'] == 'release' and job['permissions']['id-token'] == 'write'
+	upload = next(step for step in job['steps'] if 'pypi-publish' in step.get('uses', ''))
+	assert upload['uses'].startswith('pypa/gh-action-pypi-publish@') and upload.get('with', {}).get('attestations') is True
+	assert not any('uv publish' in step.get('run', '') for step in job['steps'])
+
+
+def test_every_workflow_pins_actions_to_a_commit_and_installs_uv_without_curl():
+	"""A moved tag (`@v4`, `@beta`) or a replaced install.sh runs someone else's code in CI, with secrets in claude.yml."""
+	files = sorted(WORKFLOWS.iterdir())
+	assert files and all(f.suffix in ('.yml', '.yaml') for f in files), files
+	for f in files:
+		text = f.read_text()
+		for ref in re.findall(r'uses:\s*(\S+)', text):
+			assert ref.startswith('./') or re.fullmatch(r'[\w.-]+/[\w./-]+@[0-9a-f]{40}', ref), f'{f.name}: {ref}'
+		assert not re.search(r'curl[^\n]*\|\s*(ba)?sh', text), f.name
+
+
+def test_claude_gets_no_provider_keys_or_arbitrary_python_and_fetch_on_untrusted_text():
+	"""Fable 1.0.0: five provider keys plus python/WebFetch tools on PR and issue text anyone can write."""
+	steps = yaml.safe_load((WORKFLOWS / 'claude.yml').read_text())['jobs']['claude']['steps']
+	step = next(s for s in steps if 'claude-code-action' in s.get('uses', ''))
+	assert 'secrets.' not in step['with']['claude_env']
+	tools = {line.strip() for line in step['with']['allowed_tools'].splitlines() if line.strip()}
+	assert tools == set(json.loads(step['with']['settings'])['permissions']['allow'])
+	for broad in ('WebFetch(*)', 'Bash(python:*)', 'Bash(uv:*)', 'Bash(.venv/bin/*:*)'):
+		assert broad not in tools

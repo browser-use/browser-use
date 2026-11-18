@@ -16,8 +16,8 @@ class MissingAPIKeyError(RuntimeError):
 
 
 class BrowserConfigError(ValueError):
-	"""A Browser option that names nothing (a Chrome or cloud profile), found as the browser starts, before any browser
-	runs or is billed: Agent.run() raises it as it raises other configuration errors."""
+	"""A Browser option that names nothing (a Chrome or cloud profile), or no writable browser-harness dir, found as the
+	browser starts, before any browser runs or is billed: Agent.run() raises it as it raises other configuration errors."""
 
 
 class BrowserConnectionLost(ConnectionError):
