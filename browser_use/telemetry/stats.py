@@ -346,15 +346,32 @@ def provider_name(provider: Any) -> str:
 	return name[:MAX_NAME] if isinstance(name, str) else 'other'
 
 
-def judged(judgement: dict | None, cost: float | None, clean: Callable[[str], str | None]) -> dict | None:
-	"""The judge's whole answer as agent_event sends it: its text fields scrubbed (clean, as error messages), at most
-	MAX_GOTCHAS gotchas, and what the judge cost. None when the run was not judged. BROWSER_USE_ZDR=1: the texts empty
-	(failure_reason None, description '', no gotchas) and texts_withheld True."""
+ZDR_HEADER = 'X-Browser-Use-Zero-Data-Retention'  # Browser Use Cloud: is this API key's project zero data retention
+_cloud_zdr = False  # a Browser Use Cloud reply in this process said true; never reset (any key's project counts)
+
+
+def note_zdr(headers: Any) -> None:
+	"""Remember a reply's ZDR header when it says true. Missing or false is unknown: BROWSER_USE_ZDR=1 still applies."""
+	global _cloud_zdr
+	value = headers.get(ZDR_HEADER) if headers is not None else None
+	if isinstance(value, str) and value.strip().lower() == 'true':
+		_cloud_zdr = True
+
+
+def zdr() -> bool:
+	"""Judgement texts are withheld: BROWSER_USE_ZDR=1, or Browser Use Cloud said the key's project is ZDR."""
 	from browser_use.config import CONFIG
 
+	return _cloud_zdr or CONFIG.BROWSER_USE_ZDR
+
+
+def judged(judgement: dict | None, cost: float | None, clean: Callable[[str], str | None]) -> dict | None:
+	"""The judge's whole answer as agent_event sends it: its text fields scrubbed (clean, as error messages), at most
+	MAX_GOTCHAS gotchas, and what the judge cost. None when the run was not judged. Withheld (zdr(): BROWSER_USE_ZDR=1
+	or a ZDR project): the texts empty (failure_reason None, description '', no gotchas) and texts_withheld True."""
 	if judgement is None:
 		return None
-	if CONFIG.BROWSER_USE_ZDR:
+	if zdr():
 		return {**judgement, 'failure_reason': None, 'description': '', 'gotchas': [], 'cost_usd': cost, 'texts_withheld': True}
 	return {
 		**judgement,

@@ -3,7 +3,8 @@ The Agent sends it after its judge (surface 'python', judge_source 'judge'), nex
 browser-use CLI's report_run() (surface 'cli') and --cli-mcp's browser_report_run tool (surface 'cli-mcp') send what the
 calling coding agent says about its own run (judge_source 'self'). It goes through the usage-stats sender (service.py)
 and is usage telemetry, never consent: nothing is sent with usage stats off or with BROWSER_USE_OFFLINE=1. With
-BROWSER_USE_ZDR=1 the texts are sent empty and texts_withheld is true (stats.judged). Texts are scrubbed (stats.scrub)
+BROWSER_USE_ZDR=1, or once Browser Use Cloud says the key's project is zero data retention (header
+X-Browser-Use-Zero-Data-Retention), the texts are sent empty and texts_withheld is true (stats.judged). Texts are scrubbed (stats.scrub)
 and cut to 300 chars, with at most 5 gotchas and 20 hostnames."""
 
 from __future__ import annotations

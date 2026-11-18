@@ -288,7 +288,7 @@ class LibraryJudgementEvent(BaseTelemetryEvent):
 	gotchas: list[str] = field(default_factory=list)
 	hosts: list[str] = field(default_factory=list)  # 20 at most
 	cost_usd: float | None = None  # the judge's
-	texts_withheld: bool = False  # BROWSER_USE_ZDR=1: failure_reason, description and gotchas sent empty
+	texts_withheld: bool = False  # BROWSER_USE_ZDR=1 or a ZDR project (stats.zdr): failure_reason, description, gotchas empty
 	is_internal: bool = False
 
 	name: str = 'library_judgement'
