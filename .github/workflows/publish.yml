@@ -56,7 +56,8 @@ jobs:
 
   publish_to_pypi:
     needs: tag_pre_release
-    # A failed tag step stops the publish; a skipped one (release event, create_tag=false) does not.
+    # A failed tag step stops the publish; a skipped one (release event, create_tag=false) does not. Either way the
+    # tag check below requires the pyproject version's tag on the checked-out commit.
     if: always() && needs.tag_pre_release.result != 'failure' && needs.tag_pre_release.result != 'cancelled' && (github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment: release
@@ -96,14 +97,25 @@ jobs:
           version: "0.12.9"
           enable-cache: true
           activate-environment: true
-      - name: Release tag matches the pyproject version
-        if: github.event_name == 'release'
+      # Release and dispatch alike: never publish a version whose tag is missing or on another commit.
+      - name: Tag equal to the pyproject version is this commit
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
+          set -euo pipefail
           version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-          if [ "$TAG" != "$version" ]; then
-            echo "::error::Release tag $TAG does not match pyproject.toml version $version"
+          if [ "$EVENT_NAME" = release ] && [ "$RELEASE_TAG" != "$version" ]; then
+            echo "::error::Release tag $RELEASE_TAG does not match pyproject.toml version $version"
+            exit 1
+          fi
+          if ! git fetch --no-tags --depth=1 origin "+refs/tags/$version:refs/tags/$version"; then
+            echo "::error::Tag $version does not exist; tag this commit (or dispatch with create_tag) first"
+            exit 1
+          fi
+          head=$(git rev-parse HEAD)
+          if [ "$(git rev-parse "refs/tags/$version^{commit}")" != "$head" ]; then
+            echo "::error::Tag $version is not the checked-out commit $head"
             exit 1
           fi
       - run: uv sync --locked --dev --all-extras
@@ -122,8 +134,10 @@ jobs:
           cd "$RUNNER_TEMP"
           /tmp/wheel-smoke/bin/python -c "import os, browser_use; from browser_use import Agent, Browser, ChatBrowserUse, Tools; assert not browser_use.__file__.startswith(os.environ['GITHUB_WORKSPACE']), browser_use.__file__"
 
-      # publish to PyPI
-      - run: uv publish --trusted-publishing always
+      # Trusted publishing (OIDC, environment release) with PEP 740 attestations for dist/*
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          attestations: true
       - name: Push to stable branch (if stable release)
         if: github.event_name == 'release' && !contains(github.ref_name, 'rc')
         run: |
