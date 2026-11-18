@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 class MissingAPIKeyError(RuntimeError):
 	"""No usable Browser Use API key for the default model or the default cloud browser."""
 
-	def __init__(self, what: str = 'Browser Use Cloud', reason: str | None = None):
+	def __init__(self, what: str = 'Browser Use Cloud', reason: str | None = None) -> None:
 		if reason:  # a key store that exists but cannot be read
 			super().__init__(f'{what} needs a Browser Use API key. {reason}')
 			return
