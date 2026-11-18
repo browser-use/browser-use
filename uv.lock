@@ -11,6 +11,9 @@ resolution-markers = [
 [options]
 exclude-newer = "2026-11-09T09:48:30Z"
 
+[options.exclude-newer-package]
+llm-agent-budget = "2026-11-18T04:10:00Z"
+
 [[package]]
 name = "annotated-types"
 version = "0.8.0"
@@ -85,6 +88,7 @@ dependencies = [
     { name = "genai-prices" },
     { name = "google-genai" },
     { name = "idna" },
+    { name = "llm-agent-budget" },
     { name = "mcp" },
     { name = "pillow" },
     { name = "pydantic" },
@@ -113,6 +117,7 @@ requires-dist = [
     { name = "genai-prices", specifier = "==0.2.1" },
     { name = "google-genai", specifier = "==2.34.0" },
     { name = "idna", specifier = "==3.20" },
+    { name = "llm-agent-budget", specifier = "==0.1.3" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "pillow", specifier = "==12.3.0" },
     { name = "pydantic", specifier = "==2.14.3" },
@@ -868,6 +873,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa6d1095e7cc5569bebf04342ee146178e2d36600708b/jsonschema_specifications-2025.9.1.tar.gz", hash = "sha256:b540987f239e745613c7a9176f3edb72b832a4ac465cf02712288397832b5e8d", size = 32855, upload-time = "2025-09-08T01:34:59.186Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437, upload-time = "2025-09-08T01:34:57.871Z" },
+]
+
+[[package]]
+name = "llm-agent-budget"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/00/87d590bf45ef841de32da9a39406b5c15d0095cadd7dac438e8fe63b558a/llm_agent_budget-0.1.3.tar.gz", hash = "sha256:1db517ea198327b3a08243ff78d521fc7fb2827309c5586e2c684c217360e837", size = 53191, upload-time = "2026-11-18T04:06:28.229Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/02/5fd756acdd3c5e6e62700424f4a47a228541eed623f05b297eccc29a0e45/llm_agent_budget-0.1.3-py3-none-any.whl", hash = "sha256:37ab5beba3dc2263198c1b1ad2f1522b8d011da48f37c33f7b4bd28f3591e2ee", size = 29025, upload-time = "2026-11-18T04:06:26.775Z" },
 ]
 
 [[package]]

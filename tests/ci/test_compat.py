@@ -796,12 +796,24 @@ async def test_finish_success_verdict_is_optional(tmp_path, call, expected):
 		{'max_steps': 2.5},
 		{'timeout': 0},
 		{'timeout': -5},
+		{'max_cost_usd': 0},
+		{'max_cost_usd': -1},
+		{'max_cost_usd': float('nan')},
+		{'max_cost_usd': True},
 	],
 )
 async def test_impossible_budgets_raise_before_any_browser(budget, no_browser):
 	"""agent-llm: run(max_steps=0) and run(timeout<=0) started (and billed) a browser, then ended in an error."""
-	with pytest.raises(ValueError, match='max_steps' if 'max_steps' in budget else 'timeout'):
+	with pytest.raises(ValueError, match=next(iter(budget))):
 		await Agent('t', script()[0], browser=Browser(local=True)).run(**budget)
+
+
+async def test_max_cost_usd_reaches_the_loop(fake_browser, tmp_path):
+	"""run(max_cost_usd=...) and run_sync() hand the cap to the run: a model without a known price delivers at once."""
+	cell, done = ('python', {'code': 'x = 1'}), ('finish', {'success': False, 'result': 'partial'})
+	model, seen = script(cell, done)
+	r = await Agent('t', model, browser=Browser(local=True), workspace=tmp_path, judge=False).run(max_cost_usd=0.5)
+	assert (r.status, r.output, len(seen)) == ('completed', 'partial', 2), r.error
 
 
 async def test_structured_final_result_is_the_models_json(tmp_path):
