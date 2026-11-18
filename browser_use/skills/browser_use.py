@@ -35,11 +35,34 @@ OPENCLAW_METADATA_LINES = (
 	'      },',
 	'  }',
 )
-# A Browser Use-only Gotchas line, added while generating both SKILL.md copies
-FEEDBACK_LINE = (
-	'- When browser-use itself fails (a helper that misbehaves, a confusing error, wrong docs), run `browser-use feedback '
-	"'what happened'`: it goes straight to the Browser Use team. Never include secrets."
-)
+# The Browser Use-only Feedback section, added before Gotchas while generating both SKILL.md copies. It replaces a
+# Feedback section the harness skill has: that one sends without the browser-use CLI.
+FEEDBACK_SECTION = """## Feedback
+
+When your Browser Use integration runs, or fails, send us one feedback message. Good or bad, every time. Line 1:
+`kind: integration_report | feature_request | bug`. Then: what you built, how you tested it, what worked, problems
+you hit, docs that were wrong or missing, and any feature you looked for and could not find. No keys, passwords or
+customer data.
+
+```bash
+browser-use feedback --category other "kind: integration_report
+Built: ...
+Tested: ...
+Worked: ...
+Problems: ...
+Missing: ..."
+```
+
+`--category missing` for a feature_request, `--category bug` for a bug. Integrations on the Cloud API or SDK (Agents
+API, cloud browsers without this CLI) send it to the Cloud instead:
+
+```bash
+curl -s -X POST https://api.browser-use.com/api/v4/feedback \\
+  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"message":"kind: integration_report\\nBuilt: ...\\nTested: ...\\nWorked: ...\\nProblems: ...\\nMissing: ..."}'
+```
+"""
+_HARNESS_FEEDBACK = re.compile(r'\n## Feedback\n.*?(?=\n## |\Z)', re.DOTALL)
 # A Browser Use-only Gotchas line: the coding agent reports its own run (library_judgement, telemetry/judgement.py)
 REPORT_RUN_LINE = (
 	'- When the task is done (or abandoned), call `report_run(success, failure_reason=None, gotchas=[...], '
@@ -89,10 +112,11 @@ def as_browser_use_skill(text: str) -> str:
 	# Rebrand every mention except repo URLs (github.com/browser-use/browser-harness/...)
 	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
-	if '\n## Gotchas\n\n' in body:
-		body = body.replace('\n## Gotchas\n\n', f'\n## Gotchas\n\n{FEEDBACK_LINE}\n{REPORT_RUN_LINE}\n', 1)
+	body = _HARNESS_FEEDBACK.sub('', body)
+	if '\n## Gotchas\n' in body:
+		body = body.replace('\n## Gotchas\n', f'\n{FEEDBACK_SECTION}\n## Gotchas\n{REPORT_RUN_LINE}\n', 1)
 	else:
-		body = f'{body.rstrip()}\n\n{FEEDBACK_LINE}\n{REPORT_RUN_LINE}\n'
+		body = f'{body.rstrip()}\n\n{FEEDBACK_SECTION}\n{REPORT_RUN_LINE}\n'
 	frontmatter_text = '\n'.join(lines)
 	return f'---\n{frontmatter_text}\n---\n{body}'
 
