@@ -285,11 +285,15 @@ def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path
 	r = run('-c', "from browser_use import Agent; Agent('x').run_sync()")
 	assert 'MissingAPIKeyError' in r.stderr and 'BROWSER_USE_API_KEY' in r.stderr and 'BH_HOME' in r.stderr, r.stderr
 	assert 'NotADirectoryError' not in r.stderr and 'PermissionError' not in r.stderr, r.stderr
-	# --cli-mcp exited before initialize: the agent saw only 'Connection closed'. It starts, and every call says why
+	# --cli-mcp exited before initialize: the agent saw only 'Connection closed'. It starts, and every call says why;
+	# browser_feedback still reports (here with usage stats off, conftest: so it says nothing was sent)
 	init = {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '1'}}
+	report = {'name': 'browser_feedback', 'arguments': {'message': 'browser-use --cli-mcp cannot start'}}
 	messages = [
 		{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': init},
 		{'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+		{'jsonrpc': '2.0', 'id': 3, 'method': 'tools/list', 'params': {}},
+		{'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': report},
 		{'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'browser_exec', 'arguments': {'code': '1'}}},
 	]
 	server = subprocess.Popen(
@@ -305,15 +309,19 @@ def test_an_unwritable_home_names_bh_home_instead_of_a_permission_error(tmp_path
 	try:  # stdin stays open until the call is answered: at EOF the server ends, cancelling a call in flight
 		server.stdin.write(''.join(json.dumps(m) + '\n' for m in messages))
 		server.stdin.flush()
-		reply: dict = {}
-		while reply.get('id') != 2:
+		replies: dict = {}
+		while not {2, 3, 4} <= replies.keys():
 			line = server.stdout.readline()
 			assert line, 'the server ended before it answered the call'
 			reply = json.loads(line)
+			replies[reply.get('id')] = reply
 	finally:
 		server.kill()
 		server.wait(10)
+	reply = replies[2]
 	assert reply['result']['isError'] and 'BH_HOME' in reply['result']['content'][0]['text'], reply
+	assert [t['name'] for t in replies[3]['result']['tools']] == ['browser_exec', 'browser_feedback']
+	assert not replies[4]['result']['isError'] and 'Feedback is off' in replies[4]['result']['content'][0]['text']
 
 
 def test_an_unwritable_harness_dir_names_the_setting_that_chose_it(tmp_path, monkeypatch):
@@ -440,19 +448,45 @@ def test_browser_harness_hints_name_commands_this_install_has(monkeypatch, capsy
 			'in another shell or click Allow to continue.', file=sys.stderr)  # fmt: skip
 		print('browser-harness: fatal: see ~/.config/browser-harness/tmp/bu-w.log', file=sys.stderr)
 		print('cell output names browser-harness', file=sys.stderr)
+		print('usage: browser-harness is the cell printing')
 
 	monkeypatch.setattr(run, 'main', harness_main)
 	monkeypatch.setattr(sys, 'argv', ['browser-use'])
 	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
-	stderr = sys.stderr
+	stdout, stderr = sys.stdout, sys.stderr
 	cli._run_browser_harness('print(1)')
-	assert sys.stderr is stderr
-	assert capsys.readouterr().err.splitlines() == [
+	assert (sys.stdout, sys.stderr) == (stdout, stderr)
+	captured = capsys.readouterr()
+	assert captured.err.splitlines() == [
 		'browser-use: Chrome is asking "Allow remote debugging?" — run `BU_NAME=w browser-use mac-approve` in another '
 		'shell or click Allow to continue.',
 		'browser-use: fatal: see ~/.config/browser-harness/tmp/bu-w.log',
 		'cell output names browser-harness',
 	]
+	assert captured.out == 'usage: browser-harness is the cell printing\n'
+
+
+def test_harness_subcommand_usage_names_browser_use(monkeypatch, capsys):
+	"""Live: `browser-use video` printed argparse's `usage: browser-harness video ...` and `browser-harness video: error:
+	...`, `recordings bogus` `usage: browser-harness recordings ...`: not on PATH for `uv tool install browser-use`. A
+	subcommand prints only browser-harness's own text, so all of it names browser-use; paths stay real."""
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	from browser_use import cli
+
+	for argv, code, stream, first in (
+		(['video'], 2, 'err', 'usage: browser-use video [-h] {init,review,export} ...'),
+		(['video', 'init'], 2, 'err', 'usage: browser-use video init [-h] [--require-explicit] recording'),
+		(['video', '--help'], 0, 'out', 'usage: browser-use video [-h] {init,review,export} ...'),
+		(['recordings', 'bogus'], 2, 'err', 'usage: browser-use recordings [--latest|enable|disable]'),
+	):
+		monkeypatch.setattr(sys, 'argv', ['browser-use', *argv])
+		with pytest.raises(SystemExit) as exited:
+			cli.main()
+		captured = capsys.readouterr()
+		text = getattr(captured, stream)
+		assert exited.value.code == code and text.splitlines()[0] == first, (argv, captured)
+		assert 'browser-harness' not in captured.out + captured.err, (argv, captured)
+	assert cli._as_browser_use_cli_text('see ~/.config/browser-harness/auth.json') == 'see ~/.config/browser-harness/auth.json'
 
 
 def test_mac_approve_names_browser_use(monkeypatch, capsys):

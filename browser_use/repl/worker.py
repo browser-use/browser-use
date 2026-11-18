@@ -1,10 +1,10 @@
 """Persistent Python REPL for one agent. Runs as a child process so a hung cell can be killed.
 
-Namespace = browser-harness helpers + screenshot/show_image/checkpoint/type_secret/solve_captcha (+ bu in ultrafast mode,
-see ax.py; + search when web search is on; + downloads for a cloud browser or a Chrome the Browser launched).
+Namespace = browser-harness helpers + screenshot/show_image/checkpoint/type_secret/solve_captcha/report_issue (+ bu in
+ultrafast mode, see ax.py; + search when web search is on; + downloads for a cloud browser or a Chrome the Browser launched).
 Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init line ({"secrets": [[name, value, domain|null], ...],
-"search": bool, "downloads": bool}), then one JSON line per message. search() and downloads() send {"type": "search" |
-"downloads", "args": {...}} mid-cell and read the parent's one-line answer. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
+"search": bool, "downloads": bool}), then one JSON line per message. search(), downloads() and report_issue() send
+{"type": "search" | "downloads" | "feedback", "args": {...}} mid-cell and read the parent's one-line answer. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
 partial output on disk.
 """
 
@@ -42,7 +42,7 @@ from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
 from browser_use.remote_upload import set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
-from browser_use.repl.capture import SCREENSHOT_TIMEOUT_S, capture
+from browser_use.repl.capture import CDP_TIMEOUT_S, SCREENSHOT_TIMEOUT_S, capture
 from browser_use.repl.highlight import Highlighter
 from browser_use.repl.network_idle import wait_for_network_idle
 from browser_use.repl.page_info import install as install_page_info
@@ -60,7 +60,6 @@ from browser_use.utils import TLSHandler, install_tls_opener, name_download
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
-CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
 DIALOG_PROBE_S = 2.0  # while the daemon saw a JS dialog open: how long a page call may take before it is blamed
 DIALOG_POLL_S = 0.25  # while a navigation runs: how often to ask whether a beforeunload prompt holds it
 # What a page frozen by an alert/confirm/prompt never answers (Page.handleJavaScriptDialog is what unfreezes it)
@@ -989,6 +988,24 @@ def _downloads(ask):
 	return downloads
 
 
+def _report_issue(ask):
+	"""report_issue() for the cell: the parent sends it (telemetry/feedback.py), scrubbed of the task, the secrets and
+	what the agent typed, this cell's typing included."""
+
+	def report_issue(message, category='bug'):
+		"""Tell the Browser Use team that browser-use itself got in your way: a helper that misbehaves, a wrong or missing
+		helper, a confusing error, instructions that are wrong. Not for ordinary website problems. Describe the failure,
+		not the task (the task's words are replaced before it is sent). category: 'bug', 'docs', 'missing' or 'other'.
+		At most 3 per run. -> a short confirmation."""
+		if not isinstance(message, str) or not message.strip():
+			raise ValueError('report_issue(message) needs text.')
+		with stats.lock:
+			typed = [*stats.typed, stats.keys]
+		return ask('feedback', {'message': message, 'category': str(category), 'typed': typed})
+
+	return report_issue
+
+
 def _write_atomic(path: Path, text: str) -> None:
 	path.parent.mkdir(parents=True, exist_ok=True)
 	tmp = path.with_name(path.name + '.tmp')
@@ -1141,6 +1158,7 @@ def main() -> None:
 		ns['search'] = _counted('search', _search(ask))
 	if init.get('downloads'):
 		ns['downloads'] = _counted('downloads', _downloads(ask))
+	ns['report_issue'] = _counted('report_issue', _report_issue(ask))
 	sys.path.append(os.getcwd())  # after the imports (-P kept it off sys.path[0]): modules the agent writes still import
 	loop = asyncio.new_event_loop()
 	asyncio.set_event_loop(loop)

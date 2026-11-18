@@ -30,6 +30,7 @@ Uploads: upload_file(selector, path) with the path of an existing file (the task
 Workspace helpers:
 - checkpoint(filename, value, partial=True) atomically saves JSON and publishes your latest partial result to the caller. Update it after useful progress, especially QA findings and extracted records. Partial values need not satisfy the final schema. They survive timeout or worker loss. Omit partial for ordinary scratch checkpoints. Save small successful batches, not only the final output.
 - show_image(path) sends an image file (png, jpeg, webp, gif) to you as a native image. Do not open file:// URLs.
+- report_issue(message) tells the Browser Use team when browser-use gets in your way: a helper or the browser misbehaves, an error or these instructions mislead you, or a helper you need is missing. Not for a website's own problems.
 Large output is truncated with a path to the captured text. Read files instead of repeating completed actions. Shell commands work through subprocess.
 
 A normal Python or CDP error preserves REPL state; a cell timeout or worker exit loses it. Browser mutations and files survive. A failed call may have partially executed: inspect, never replay uncertain actions automatically. CDP rejection does not prove an asynchronous page action stopped. Keep cells bounded and finish all mutations within the cell. Every call is a full model turn: do not spend one on a lone js(), page_info(), list_tabs() or screenshot() peek; read what you need in the same cell as the action or extraction that uses it.

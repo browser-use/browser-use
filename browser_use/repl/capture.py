@@ -3,6 +3,7 @@
 import functools
 from collections.abc import Callable
 
+CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
 SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
 HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
 
@@ -37,7 +38,10 @@ def capture(raw_cdp, current_tab, session_id=None, *, activate: bool | Callable[
 def install() -> None:
 	"""Route browser_harness.helpers.cdp's Page.captureScreenshot (capture_screenshot() uses it) through capture(), before
 	a namespace star-imports the helpers. The CLI and --cli-mcp called the bare helper: a background tab of a headless
-	Chromium stalled 10 s or timed out at 60 s (win-cli-5). Idempotent."""
+	Chromium stalled 10 s or timed out at 60 s (win-cli-5). Every other method waits CDP_TIMEOUT_S unless the caller
+	passes _response_timeout, as the agent's cdp() does: browser-harness's 5 s failed 5-8% of MCP devices on a click or
+	a navigation (_IPCResponseTimeout). A JS dialog freezes the page: while the daemon saw one open, a page call gets
+	DIALOG_PROBE_S, and a call that times out with one open says so, as the agent's cdp() does. Idempotent."""
 	from browser_harness import admin, helpers
 
 	raw_cdp = helpers.cdp
@@ -51,7 +55,28 @@ def install() -> None:
 	def cdp(method, session_id=None, **params):
 		if method == 'Page.captureScreenshot':
 			return capture(raw_cdp, helpers.current_tab, session_id, activate=on_cloud, **params)
-		return raw_cdp(method, session_id, **params)
+		from browser_use.repl.worker import DIALOG_PROBE_S, FROZEN_BY_DIALOG
+
+		def pending_dialog() -> dict | None:
+			if session_id is not None or not (method in FROZEN_BY_DIALOG or method.startswith('Input.')):
+				return None
+			try:
+				return helpers._send({'meta': 'pending_dialog'}).get('dialog')
+			except Exception:  # an older daemon, or none
+				return None
+
+		dialog = pending_dialog()
+		timeout = params.pop('_response_timeout', CDP_TIMEOUT_S)
+		try:
+			return raw_cdp(method, session_id, _response_timeout=min(timeout, DIALOG_PROBE_S) if dialog else timeout, **params)
+		except TimeoutError:
+			if not (dialog := dialog or pending_dialog()):
+				raise
+			raise RuntimeError(
+				f'A JavaScript {dialog.get("type") or "dialog"} is open ({str(dialog.get("message", ""))[:200]!r}): the '
+				'page is frozen until it is handled. Accept or dismiss it: cdp("Page.handleJavaScriptDialog", accept=True) '
+				'(or accept=False; promptText="..." for a prompt).'
+			) from None
 
 	cdp.__bu_hidden_capture__ = True  # type: ignore[attr-defined]
 	helpers.cdp = cdp
