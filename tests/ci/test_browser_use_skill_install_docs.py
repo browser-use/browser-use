@@ -453,5 +453,5 @@ def test_skill_has_one_feedback_section_also_when_the_harness_skill_has_its_own(
 	assert skill.index('## Feedback') < skill.index('## Gotchas')
 	feedback = skill.split('\n## Feedback\n', 1)[1].split('\n## Gotchas\n', 1)[0]
 	guidance = ' '.join(feedback.split('```bash', 1)[0].split())
-	assert "only with the user's authorization" in guidance
-	assert 'show them the proposed message and destination' in guidance
+	assert 'the user has explicitly authorized the report and its destination' in guidance
+	assert 'show the user the proposed message and destination and wait for their approval' in guidance

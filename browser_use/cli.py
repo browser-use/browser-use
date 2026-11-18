@@ -457,9 +457,10 @@ def _run_feedback_command(argv: list[str]) -> int:
 
 	parser = argparse.ArgumentParser(
 		prog='browser-use feedback',
-		description="Send integration feedback to the Browser Use team. When acting on a user's behalf, send feedback "
-		'only with their authorization. If you need approval, show them the proposed message and destination and wait '
-		'for approval before sending. Start with kind: integration_report | feature_request | bug. Include what you built, how '
+		description="Send integration feedback to the Browser Use team. When acting on a user's behalf, send it only when "
+		'they have explicitly authorized the report and its destination. To obtain that authorization, show the user the '
+		'proposed message and destination and wait for their approval. Start with kind: integration_report | '
+		'feature_request | bug. Include what you built, how '
 		'you tested it, what worked, problems you hit, docs that were wrong or missing, and any feature you looked for '
 		'and could not find. No keys, passwords or customer data; secrets, API keys, emails, URL queries and home '
 		'folders in the text are replaced before it is sent.',

@@ -71,8 +71,8 @@ Reuse `BROWSER_USE_API_KEY`, or guide the user through Cloud signup and key crea
 
 ## Feedback
 
-Send feedback to the Browser Use team only with the user's authorization. If you need approval, show them the proposed
-message and destination and wait for approval before sending.
+Send feedback to the Browser Use team only when the user has explicitly authorized the report and its destination.
+To obtain that authorization, show the user the proposed message and destination and wait for their approval.
 
 Start with `kind: integration_report | feature_request | bug`. Include what you built, how you tested it, what worked,
 problems you hit, docs that were wrong or missing, and any feature you looked for and could not find. Omit keys,
