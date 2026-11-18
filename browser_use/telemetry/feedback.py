@@ -29,8 +29,9 @@ MODEL_CODE = 'From an agent cell use report_issue(...), from an MCP client the b
 MCP_TOOL = {  # browser_feedback, on --cli-mcp and on the server that only reports why nothing can run (cli.py)
 	'name': 'browser_feedback',
 	'description': (
-		'When your Browser Use integration runs, or fails, send the Browser Use team one feedback message. Good or bad, '
-		'every time. Line 1: kind: integration_report | feature_request | bug. Then: what you built, how you tested it, '
+		"Send feedback to the Browser Use team only with the user's authorization. If you need approval, show them the "
+		'proposed message and destination and wait for approval before sending. Start with kind: integration_report | '
+		'feature_request | bug. Include what you built, how you tested it, '
 		'what worked, problems you hit, docs that were wrong or missing, and any feature you looked for and could not '
 		'find. Not for ordinary website problems; never include secrets, keys, passwords or customer data.'
 	),
@@ -95,7 +96,10 @@ def feedback(message: str, category: str = 'bug') -> bool:
 	feature_request | bug`, then what you built, how you tested it, what worked, problems, wrong or missing docs and any
 	feature you could not find. category: 'bug', 'docs', 'missing' (a feature_request) or 'other'. Sent in the background, also with usage stats off (you asked to send it); secrets,
 	API keys, emails, URL queries and home folders in the text are replaced before it leaves. True if it was queued;
-	False from an agent cell or an MCP client's code (they report with report_issue() or browser_feedback)."""
+	False from an agent cell or an MCP client's code (they report with report_issue() or browser_feedback).
+
+	When acting on a user's behalf, send feedback only with their authorization to share it with the Browser Use team.
+	"""
 	return capture('python', message, category, consent=True) is not None
 
 

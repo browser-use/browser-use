@@ -92,10 +92,12 @@ Do not leave an unused remote browser running.
 
 ## Feedback
 
-When your Browser Use integration runs, or fails, send us one feedback message. Good or bad, every time. Line 1:
-`kind: integration_report | feature_request | bug`. Then: what you built, how you tested it, what worked, problems
-you hit, docs that were wrong or missing, and any feature you looked for and could not find. No keys, passwords or
-customer data.
+Send feedback to the Browser Use team only with the user's authorization. If you need approval, show them the proposed
+message and destination and wait for approval before sending.
+
+Start with `kind: integration_report | feature_request | bug`. Include what you built, how you tested it, what worked,
+problems you hit, docs that were wrong or missing, and any feature you looked for and could not find. Omit keys,
+passwords and customer data.
 
 ```bash
 browser-use feedback --category other "kind: integration_report

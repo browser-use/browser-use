@@ -451,3 +451,7 @@ def test_skill_has_one_feedback_section_also_when_the_harness_skill_has_its_own(
 	skill = as_browser_use_skill(harness)
 	assert skill.count('\n## Feedback\n') == 1 and 'uvx it' not in skill and 'browser-use feedback --category' in skill
 	assert skill.index('## Feedback') < skill.index('## Gotchas')
+	feedback = skill.split('\n## Feedback\n', 1)[1].split('\n## Gotchas\n', 1)[0]
+	guidance = ' '.join(feedback.split('```bash', 1)[0].split())
+	assert "only with the user's authorization" in guidance
+	assert 'show them the proposed message and destination' in guidance

@@ -71,10 +71,12 @@ Reuse `BROWSER_USE_API_KEY`, or guide the user through Cloud signup and key crea
 
 ## Feedback
 
-When your Browser Use integration runs, or fails, send us one feedback message. Good or bad, every time. Line 1:
-`kind: integration_report | feature_request | bug`. Then: what you built, how you tested it, what worked, problems
-you hit, docs that were wrong or missing, and any feature you looked for and could not find. No keys, passwords or
-customer data.
+Send feedback to the Browser Use team only with the user's authorization. If you need approval, show them the proposed
+message and destination and wait for approval before sending.
+
+Start with `kind: integration_report | feature_request | bug`. Include what you built, how you tested it, what worked,
+problems you hit, docs that were wrong or missing, and any feature you looked for and could not find. Omit keys,
+passwords and customer data.
 
 `POST /api/v4/feedback` takes any valid key and returns `204`; `message` is 1-5000 characters, `403` on Zero Data
 Retention projects, `429` after 60 per project per hour.
