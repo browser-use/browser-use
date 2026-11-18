@@ -191,7 +191,7 @@ This [very hard benchmark](https://github.com/browser-use/benchmark) targets the
 
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
 
-Integrated Browser Use, or hit a bug? Tell us how it went: `browser-use feedback 'kind: integration_report ...'` (or `browser_use.feedback(...)`) sends it straight to the Browser Use team.
+You can send your own feedback to the Browser Use team with `browser-use feedback 'kind: integration_report ...'` or `browser_use.feedback(...)`. Agents must show the user the proposed message and destination and wait for explicit approval of both before sending feedback on the user's behalf.
 
 <br/>
 

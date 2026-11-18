@@ -75,6 +75,14 @@ def test_docs_install_browser_use_skill_from_package_alias():
 	assert 'raw.githubusercontent.com/browser-use/browser-harness/main/SKILL.md' not in readme
 
 
+def test_readme_feedback_requires_authorization_for_agents():
+	readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+	feedback = next(paragraph for paragraph in readme.split('\n\n') if '`browser_use.feedback(...)`' in paragraph)
+
+	assert 'send your own feedback' in feedback
+	assert 'show the user the proposed message and destination and wait for explicit approval of both' in feedback
+
+
 def test_cloud_v4_reference_scopes_workspace_file_listing():
 	api_v4 = (ROOT / 'skills' / 'cloud' / 'references' / 'api-v4.md').read_text(encoding='utf-8')
 
