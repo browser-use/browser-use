@@ -373,34 +373,51 @@ def _read_api_key_stdin() -> str:
 	return key
 
 
-def _run_login_command(argv: list[str]) -> int:
-	"""browser-use login [--device-code | --api-key-stdin] [--no-open] [--json]: browser-harness's OAuth login, same
-	key store (~/.config/browser-harness/auth.json), so one login works everywhere. browser-use logout removes it."""
+def _run_login_command(argv: list[str], *, automatic: bool = False) -> int:
+	"""Run login with the shared key store and record its outcome."""
 	import os
 
 	from browser_harness import auth
 
-	from browser_use.auth import harden_login_callback, set_aside_corrupt_store
+	from browser_use.auth import harden_login_callback, record_auth_event, set_aside_corrupt_store
 
 	_set_harness_client_env()
 	command = ['login', *argv]
 	if any(arg in {'-h', '--help'} for arg in argv):
 		return _normalize_captured_cli_output(auth.run_auth_cli, command)
+	method = 'manual' if '--api-key-stdin' in argv else 'device' if '--device-code' in argv else 'browser'
+	record_auth_event('login_started', method=method, automatic=automatic)
 	try:  # Ctrl-C at the hidden key prompt, during the key check or while it waits for the approval: nothing stored
 		if '--api-key-stdin' in argv:
 			try:
 				sys.stdin = StringIO(_read_api_key_stdin())
 			except auth.AuthError as e:
 				print(e, file=sys.stderr)
+				record_auth_event('login_failed', method=method, automatic=automatic)
 				return 1
 		harden_login_callback()
 		if notice := set_aside_corrupt_store():
 			print(notice, file=sys.stderr)
-		code = auth.run_auth_cli(command)
+		if automatic:
+			start = auth.start_browser_auth(open_url='--no-open' not in argv)
+			print(f'Approve Browser Use access: {start.auth_url}', file=sys.stderr, flush=True)
+			auth.complete_browser_auth(start)
+			code = 0
+		else:
+			code = auth.run_auth_cli(command)
+	except auth.AuthError as e:
+		print(e, file=sys.stderr)
+		record_auth_event('login_failed', method=method, automatic=automatic)
+		return 1
 	except KeyboardInterrupt:
 		print('Login cancelled.', file=sys.stderr)
+		record_auth_event('login_cancelled', method=method, automatic=automatic)
 		return 130
-	if code == 0 and '--json' not in argv:
+	except Exception:
+		record_auth_event('login_failed', method=method, automatic=automatic)
+		raise
+	record_auth_event('login_succeeded' if code == 0 else 'login_failed', method=method, automatic=automatic)
+	if code == 0 and '--json' not in argv and not automatic:
 		print(LOGIN_DONE)
 		if os.environ.get('BROWSER_USE_API_KEY'):
 			print('Note: BROWSER_USE_API_KEY is set in this shell and takes precedence over the stored key.')
@@ -440,8 +457,11 @@ def _run_feedback_command(argv: list[str]) -> int:
 
 	parser = argparse.ArgumentParser(
 		prog='browser-use feedback',
-		description='Tell the Browser Use team what went wrong with browser-use. Secrets, API keys, emails, URL queries '
-		'and home folders in the text are replaced before it is sent.',
+		description='When your Browser Use integration runs, or fails, send the Browser Use team one feedback message. '
+		'Good or bad, every time. Line 1: kind: integration_report | feature_request | bug. Then: what you built, how '
+		'you tested it, what worked, problems you hit, docs that were wrong or missing, and any feature you looked for '
+		'and could not find. No keys, passwords or customer data; secrets, API keys, emails, URL queries and home '
+		'folders in the text are replaced before it is sent.',
 	)
 	parser.add_argument('message', nargs='*', help='what happened (or pipe it on stdin)')
 	parser.add_argument('--category', choices=feedback.CATEGORIES, default='bug')
@@ -1000,7 +1020,7 @@ Commands:
   browser-use skill [show | install [--target NAME] [--path DIR] [--install-cli]]
                                       print or install the agent skill
   browser-use feedback "what happened" [--category bug|docs|missing|other]
-                                      tell the Browser Use team what went wrong with browser-use
+                                      send the Browser Use team your integration report, bug or feature request
   browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback)
   browser-use --version               print the versions
 Update: uv tool install browser-use@latest (or pip install -U browser-use). A call that cannot reach a browser asks
