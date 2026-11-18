@@ -1236,15 +1236,18 @@ async def test_a_none_delivered_for_a_nullable_schema_is_the_result(tmp_path):
 	assert result.partial == {'authors': ['partial']}  # still there to read, never the result
 
 
-def _charged(seen):
+def _charged(seen, first=None):
 	"""A model that runs cells until the delivery-only turn, then finishes (as the forced tool choice makes a real one
-	do). Each response carries a $0.10 Browser Use gateway charge, which result.cost_usd reads."""
+	do). Each response carries a $0.10 Browser Use gateway charge, which result.cost_usd reads. first: an
+	asyncio.Barrier the run's first request waits on before it answers."""
 	from pydantic_ai.usage import RequestUsage
 
 	from browser_use.agent.loop import DELIVER_NOW
 
-	def fn(messages, info: AgentInfo):
+	async def fn(messages, info: AgentInfo):
 		seen.append(messages)
+		if first is not None and len(seen) == 1:
+			await first.wait()
 		call = (
 			('finish', {'success': False, 'result': 'partial'})
 			if DELIVER_NOW in str(messages[-1])
@@ -1292,19 +1295,22 @@ async def test_max_cost_usd_counts_web_searches_as_result_cost_usd_does(tmp_path
 
 
 async def test_one_budget_shared_by_concurrent_runs_caps_them_together(tmp_path):
-	"""Runs given the same agent_budget.Budget reserve on it together: five concurrent runs stop at $1.00 in all, not
-	$1.00 each. Each holds its delivery turn's share apart, so the others cannot spend it."""
+	"""Runs given the same agent_budget.Budget reserve on it together: five concurrent runs stop at $1.50 in all, not
+	$1.50 each. Each holds its delivery turn's share apart, so the others cannot spend it. A run's first request has
+	no price to reserve yet, so the five first requests are all sent before any answers: $0.50, with $0.50 held for
+	the deliveries, leaves $0.50 for five more cells between them, in whatever order they come."""
 	import asyncio
 
 	from agent_budget import Budget
 
-	budget, runs = Budget(1.00, name='fleet'), []
+	budget, runs, first = Budget(1.50, name='fleet'), [], asyncio.Barrier(5)
 	for i in range(5):
 		(tmp_path / str(i)).mkdir()
-		runs.append((build_agent(_charged([])), Session(repl=FakeRepl(tmp_path / str(i), pad=10), budget=budget)))
+		agent = build_agent(_charged([], first))
+		runs.append((agent, Session(repl=FakeRepl(tmp_path / str(i), pad=10), budget=budget)))
 	results = await asyncio.gather(*(run(agent, 'task', s, 'browser-use:bu-fast') for agent, s in runs))
 	assert all(r.output == 'partial' and s.budget_hit == 'max_cost' for r, (_, s) in zip(results, runs))
-	assert sum(r.cost_usd for r in results) == pytest.approx(budget.spent_usd) == pytest.approx(1.00)
+	assert sum(r.cost_usd for r in results) == pytest.approx(budget.spent_usd) == pytest.approx(1.50)
 	assert budget.reserved_usd == 0
 
 
