@@ -412,7 +412,10 @@ def _name_daemon_files() -> None:
 
 	if os.environ.get('BH_RUNTIME_DIR') or os.environ.get('BH_TMP_DIR'):
 		os.environ['BH_RUNTIME_DIR_SHARED'] = os.environ['BH_TMP_DIR_SHARED'] = '1'
-		ipc.BH_RUNTIME_DIR_SHARED = ipc.BH_TMP_DIR_SHARED = True
+		# browser-harness 0.1.14 always uses per-name files and has no such flags; 0.1.13 reads them at import
+		for flag in ('BH_RUNTIME_DIR_SHARED', 'BH_TMP_DIR_SHARED'):
+			if hasattr(ipc, flag):
+				setattr(ipc, flag, True)
 
 
 def require_harness_dirs() -> None:
