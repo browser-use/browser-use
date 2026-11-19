@@ -44,7 +44,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | `use_judge`, `ground_truth` | kept as `judge` and `judge_context` (below) |
 | everything else 0.x took | removed: [Removed in 1.0](#removed-in-10) |
 | new: `judge`, `judge_context` | `judge=True` (the default): after each run that took a step, one request to the agent's own model, at low effort, judges the trace (120k characters of text, secrets redacted) against the task; with vision on (`use_vision=False` sends text only) it also sends the last 4 distinct images of the run, the final page included, as they are (not redacted). A model that rejects images is asked once more with the text alone. `result.judgement` holds `success`, `failure_reason`, `description`, `prompt_injection_detected`, `bot_block_or_captcha_detected` and `gotchas` (short, general lessons about the sites for the next agent, also on a success: what the agent had to retry or work around); its tokens and cost are added to `result.usage` and `result.cost_usd`. A judge that fails logs a warning and leaves `result.judgement` `None`. `judge_context` is your criteria or expected answer, which the judge puts first. With usage stats on, `agent_event` carries the judgement, each text scrubbed as error messages are. `judge=False` sends no judge request |
-| new: `before_action`, `after_action` | see every tool call (a Python cell, or one of your `Tools` actions) before it runs, refuse it, and see what it did: [Action hooks](#action-hooks) |
+| new: `before_action`, `after_action` | see every tool call (a Python cell, `finish_from_repl`, or one of your `Tools` actions) before it runs, refuse it, and see what it did: [Action hooks](#action-hooks) |
 | new: `reasoning`, `mode`, `workspace`, `web_search`, `max_context_chars`, `highlight_actions` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway a bu-* alias's own effort, a listed OpenAI model 'medium'; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'` (the default on `bu-fast` and `bu-ultrafast`; `mode='default'` opts out); `workspace` holds the agent's files (default: a new temp dir `browser-use-*`, kept after the run: it holds page text, screenshots and cell output, so delete it when done, or pass your own `workspace=`); `web_search=True` gives the agent `search()` (Browser Use web search on the gateway host, `POST /api/v4/search`, with the gateway model's key or the Browser Use key; billed per search; each charge the response reports (`browser_use.charge_usd`) is added to `result.cost_usd`, a response without one adds nothing, and an unknown model cost stays `None`) off by default; `True` raises without a Browser Use key or with `allowed_domains`. Off, the system prompt is unchanged; `max_context_chars`: past 75% of this many characters of conversation the agent compacts its history into a summary checkpoint (default 4 per token of the model's context window, as Browser Use Pi, or 240k when pydantic-ai does not know the window; unused where the provider compacts server-side: OpenAI Responses, the gateway); `highlight_actions=False` turns off the orange corner brackets around what the agent clicks or types into (on by default) |
 
 ## Agent methods
@@ -365,6 +365,32 @@ Agent('...', before_action=policy, after_action=record)
   decides on what the code says. Code can do things its text does not show (`exec` of a string it builds, a click whose
   effect depends on the page), and a cell does several things at once. For a hard boundary on where the browser goes,
   use `Browser(allowed_domains=...)`; run untrusted tasks in a container or VM.
+- After 3 refusals in a row, or 20 in one run, the run stops trying: the model reads that it must stop, the next turn
+  is delivery-only, and the model is told to deliver what it has with `success=false` (as Claude Code's auto mode stops
+  after repeated denials). `budget_hit='refused'` in telemetry.
+
+### Injection guard
+
+`from browser_use.guards import all_of, injection_guard`, then
+`Agent(task, before_action=injection_guard())`, or `before_action=all_of(policy, injection_guard())` to put your own
+rules first (each hook runs in order and the first refusal wins, so an action your rule refuses costs no critic request).
+
+- Before each action, one request to a critic model asks whether the action serves the task, and refuses it when it
+  does not: sending data to a destination the task never named, reading cookies, tokens or local files to send them
+  out, typing credentials on an unrelated site, opening URLs that come from nowhere in the task, deleting, buying or
+  sending messages the task did not ask for. The model reads `Not run: injection_guard: <the critic's reason>.`
+- The critic sees only the task, the code (or tool arguments) of the actions this run asked for before (the last 20,
+  each cut to 1,500 characters) and the proposed action. Never page text, cell output or screenshots, so text on a page
+  cannot address the critic directly (the design of Claude Code's auto mode, Chrome's User Alignment Critic and Meta's
+  AlignmentCheck). An action over 30,000 characters is refused unread: the model is told to split it.
+- `model=None` (the default) uses the agent's own `llm` at low reasoning effort, as the judge; pass any `llm` `Agent`
+  takes for a cheaper one: `injection_guard('openai:gpt-5-mini')`. Its tokens and cost are added to `result.usage` and
+  `result.cost_usd`. One critic request per action: about 1.5 s and $0.0001 each on `bu-fast` (12 eval cases: 19 s, $0.0013).
+- `fail_open=False` (the default): when the critic fails (provider error, 60 s timeout, an answer off the schema) the
+  action is refused. `fail_open=True` lets it run and logs a warning.
+- A signal, not a boundary. The model writes the code, so the code can quote page text, and adaptive attacks get past
+  most single judges ([arXiv 2510.09023](https://arxiv.org/abs/2510.09023)). Keep `Browser(allowed_domains=...)` and a
+  container for untrusted work. `scripts/injection_guard_eval.py` runs 12 hand-written cases against a real model.
 
 ## Trust model for secrets
 

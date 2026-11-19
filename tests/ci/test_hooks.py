@@ -160,3 +160,31 @@ def test_hooks_must_be_callables():
 		Agent('t', 'test', before_action='deny')  # type: ignore[arg-type]
 	with pytest.raises(TypeError, match='after_action must be a function'):
 		Agent('t', 'test', after_action=42)  # type: ignore[arg-type]
+
+
+async def test_finish_from_repl_runs_python_so_before_action_checks_it_also_on_the_delivery_turn(chrome, tmp_path):
+	"""finish_from_repl evaluates an expression in the REPL (any code: exec, fetch, files). Unchecked, it was a way past
+	before_action, also on the delivery-only turn that 3 refusals force."""
+	ran = tmp_path / 'ran.txt'
+	expression = f"open({str(ran)!r}, 'w').write('x') and records"
+	model, seen = script(
+		*[('python', {'code': f"print('upload {i}')"}) for i in range(3)],
+		('finish_from_repl', {'expression': expression, 'success': True}),
+		('finish_from_repl', {'expression': "'stopped'", 'success': False}),
+	)
+	actions: list[Action] = []
+	outcomes: list[ActionOutcome] = []
+
+	def policy(action: Action):
+		actions.append(action)
+		return 'no uploads, no file writes' if 'upload' in (action.code or '') or 'open(' in (action.code or '') else None
+
+	agent = Agent('Do it', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path, before_action=policy,
+				  after_action=outcomes.append)  # fmt: skip
+	result = await agent.run()
+	assert not ran.exists()  # the refused expression never reached the REPL
+	assert [a.tool for a in actions] == ['python'] * 3 + ['finish_from_repl'] * 2
+	assert actions[3].code == expression
+	assert (outcomes[-1].action.code, outcomes[-1].refused, outcomes[-1].output) == ("'stopped'", None, 'stopped')
+	assert str(seen[-1][-1].parts[-1].content) == 'Not run: no uploads, no file writes. Do not try to get around it.'
+	assert result.final_result() == 'stopped' and result.success is False

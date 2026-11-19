@@ -17,6 +17,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, cast
 
@@ -60,7 +61,7 @@ from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai.usage import UsageLimits
 from pydantic_core import PydanticSerializationError, to_json, to_jsonable_python
 
-from browser_use.agent.hooks import Action, ActionOutcome, AfterAction, BeforeAction, decide, observe, refusal
+from browser_use.agent.hooks import Action, ActionOutcome, AfterAction, BeforeAction, decide, observe, refusal, stop_after
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
@@ -141,9 +142,15 @@ class Session:
 	task: str = ''  # this run's task, secret values redacted (what the hooks see)
 	host: str | None = None  # the hostname the last cell was on (Action.host)
 	last_cell: dict | None = None  # the last python() result: after_action reads its error and URLs
+	actions: list[tuple[Action, str | None]] = field(default_factory=list)  # each action asked for, with its refusal
+	refused_in_row: int = 0  # refusals since the last action that ran (hooks.stop_after)
+	# requests a hook made for this run (injection_guard's critic), each with the ref that prices it: in usage and cost
+	hook_requests: list[tuple[list[ModelMessage], str]] = field(default_factory=list)
+	agent: Agent[Session, Any] | None = None  # the run's Pydantic AI agent and the ref pricing its model (set by run())
+	model_ref: str = ''
 	stats: RunStats = field(default_factory=RunStats)  # telemetry counts
 	finish_via: str | None = None  # finish | finish_from_repl | text: how the result was delivered
-	budget_hit: str | None = None  # max_steps | timeout | browser_gone: what forced the delivery-only turn
+	budget_hit: str | None = None  # max_steps | timeout | browser_gone | refused: what forced the delivery-only turn
 	error_type: str | None = None  # class of the exception that ended the run
 	checkpoint: ModelRequest | None = None  # Compaction: the message sent in place of messages[:covered]
 	covered: int = 0
@@ -169,6 +176,39 @@ class Session:
 		except (OSError, ValueError, KeyError, TypeError):  # recovery data must never turn a timeout into a crash
 			return None
 		return redact(value, self.repl.secrets)
+
+
+# The run whose before_action is being called, only while it is: a built-in hook (browser_use.guards) reads the agent's
+# model and the run's actions from it. Set for the call alone, so a task started in the run never keeps the run alive.
+RUNNING: ContextVar[Session | None] = ContextVar('browser_use_running', default=None)
+
+
+async def refused(s: Session, action: Action) -> str | None:
+	"""Ask before_action about one action: None to run it, else what the model reads (the refusal, and after too many the
+	note that stops the run); after_action sees a refused action here."""
+	why = None
+	if s.before_action:
+		running = RUNNING.set(s)
+		try:
+			why = await decide(s.before_action, action)
+		finally:
+			RUNNING.reset(running)
+	s.actions.append((action, why))
+	if why is None:
+		s.refused_in_row = 0
+		return None
+	s.rec.retry('refused')
+	logger.info(printable(f'step {action.step}: {action.tool} refused: {why[:200]}'))
+	s.refused_in_row += 1
+	text = refusal(why)
+	if not s.finalizing and (stop := stop_after(sum(r is not None for _, r in s.actions), s.refused_in_row)):
+		logger.warning(stop.split(':')[0] + ': the next turn is delivery-only')
+		s.budget_hit, s.finalizing = 'refused', True  # a later call of this response gets NOT_RUN
+		s.rec.delivery()
+		text = f'{text}\n{stop}'
+	if s.after_action:
+		await observe(s.after_action, ActionOutcome(action, why, text, None))
+	return text
 
 
 async def python(ctx: RunContext[Session], code: str) -> list[Any]:
@@ -337,19 +377,19 @@ def _outputs(output_type: Any) -> list[Any]:
 	async def finish_from_repl(ctx: RunContext[Session], expression: str, success: bool | None = None):
 		check_split_delivery(ctx)
 		s = ctx.deps
-		# The expression runs in the REPL as a cell does and can call any helper: it is an action for the hooks too
+		# the expression is Python in the REPL (it can do anything a cell does): an action for the hooks, also on the
+		# delivery-only turn, or it was the way past before_action
 		action = Action(ctx.run_step, 'finish_from_repl', redact({'expression': expression}, s.repl.secrets), s.task, s.host)
-		if s.before_action and (why := await decide(s.before_action, action)) is not None:
-			s.rec.retry('refused')
-			if s.after_action:
-				await observe(s.after_action, ActionOutcome(action, why, refusal(why), None))
-			raise ModelRetry(refusal(why))
+		if (s.before_action or s.after_action) and (text := await refused(s, action)) is not None:
+			raise ModelRetry(text)  # what an output tool returns is the run's result
 		started = time.monotonic()
-		r = await s.repl.call('eval', expression, s.cell_timeout_s)
-		if s.after_action:  # Repl.call redacted value and error
+		r = await ctx.deps.repl.call('eval', expression, ctx.deps.cell_timeout_s)
+		if s.after_action:
+			output = f'Expression failed: {r["error"]}' if r['error'] else r['value'] or ''
 			urls = redact(list((r.get('stats') or {}).get('pages') or []), s.repl.secrets)
-			outcome = ActionOutcome(action, None, r.get('value') or '', r['error'] or None, urls, time.monotonic() - started)
-			await observe(s.after_action, outcome)
+			await observe(
+				s.after_action, ActionOutcome(action, None, output, r['error'] or None, urls, time.monotonic() - started)
+			)
 		if r['error']:
 			ctx.deps.rec.retry('finish_expr_error')
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
@@ -521,8 +561,8 @@ class BrowserLoop(AbstractCapability[Session]):
 		return ActionResult(error=f'{type(error).__name__}: {error}')
 
 	async def wrap_tool_execute(self, ctx: RunContext[Session], *, call, tool_def, args, handler) -> Any:
-		"""before_action may refuse the call; after_action sees what it did (hooks.py). Output tools are not actions here:
-		finish touches no browser, and finish_from_repl calls the hooks itself (its expression runs in the REPL)."""
+		"""before_action may refuse the call; after_action sees what it did (hooks.py). Output tools are not here:
+		finish touches no browser, and finish_from_repl, which evaluates Python, checks itself (refused())."""
 		if ctx.deps.finalizing and tool_def.kind == 'function':
 			# The delivery-only turn withholds python where it cannot force finish (Claude), yet Claude still called it
 			# (2/2 runs, one ended empty): refuse it instead of running more browser actions.
@@ -532,12 +572,8 @@ class BrowserLoop(AbstractCapability[Session]):
 			return await self._execute(ctx, call, tool_def, args, handler)
 		plain = args if isinstance(args, dict) else to_jsonable_python(args, fallback=str)
 		action = Action(ctx.run_step, call.tool_name, redact(dict(plain), s.repl.secrets), s.task, s.host)
-		if s.before_action and (why := await decide(s.before_action, action)) is not None:
-			s.rec.retry('refused')
-			logger.info(printable(f'step {ctx.run_step}: {call.tool_name} refused: {why[:200]}'))
-			if s.after_action:
-				await observe(s.after_action, ActionOutcome(action, why, refusal(why), None))
-			return refusal(why)
+		if (text := await refused(s, action)) is not None:
+			return text
 		started, s.last_cell = time.monotonic(), None
 		try:
 			result = await self._execute(ctx, call, tool_def, args, handler)
@@ -1348,6 +1384,7 @@ async def run(
 	budget = asyncio.timeout(session.timeout_s)
 	task = redact(task, session.repl.secrets)  # 0.x: a secret written into the task reaches the model as its name only
 	recording = CURRENT.set(session.rec)  # this task's context: StreamedRequest reaches the recorder through it
+	session.agent, session.model_ref = agent, model_ref
 	try:
 		async with budget:
 			result = await agent.run(
@@ -1375,6 +1412,10 @@ async def run(
 	error = redact(error, session.repl.secrets)  # provider/tool exceptions can quote a secret; Agent.run logs this
 	session.rec.loop_ended()
 	usage, cost = usage_and_cost(new + session.summaries, model_ref)
+	for requests, ref in session.hook_requests:  # a model of its own is priced as itself; an unknown price stays unknown
+		hook_usage, hook_cost = usage_and_cost(requests, ref)
+		usage = {k: n + hook_usage.get(k, 0) for k, n in usage.items()}
+		cost = None if cost is None or hook_cost is None else cost + hook_cost
 	if search:
 		session.rec.cost_search = sum(search.charges[searched:])
 	if session.summaries:
