@@ -1207,16 +1207,64 @@ def gateway_charge(m: ModelResponse) -> float | None:
 	return parse_usd(((m.provider_details or {}).get('browser_use') or {}).get('charge_usd'))
 
 
-def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[str, int], float | None]:
-	"""Tokens and USD cost of these messages. A gateway response's cost is what the gateway charged (browser_use.charge_usd);
-	others are priced by genai-prices. Cost is None when any request has no known price, and for a gateway model
-	('browser-use:...') when any response has no charge: never a retail estimate in place of the charge."""
-	total = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
-	cost: float | None = 0.0
+def openrouter_cost(m: ModelResponse) -> float | None:
+	"""USD OpenRouter reported for this response (usage.cost). With BYOK, cost is only OpenRouter's fee and the provider
+	bills upstream_inference_cost to your own key: both are counted."""
+	details = m.provider_details or {}
+	if m.provider_name != 'openrouter':
+		return None
+	if (cost := parse_usd(details.get('cost'))) is None:
+		if 'is_byok' not in details:  # no usage accounting in this response
+			return None
+		cost = 0.0  # pydantic-ai leaves out a reported cost of 0 (a free model)
+	if details.get('is_byok') and (upstream := parse_usd(details.get('upstream_inference_cost'))) is not None:
+		cost += upstream
+	return cost
+
+
+def request_costs(messages: list[ModelMessage], model_ref: str) -> list[float | None]:
+	"""USD cost of each model request in these messages, in order (None when its price is unknown). A gateway response
+	costs what the gateway charged (browser_use.charge_usd), an OpenRouter response what OpenRouter reported (usage.cost);
+	others are priced by genai-prices. A gateway model ('browser-use:...') response without a charge is None: never a
+	retail estimate in place of the charge."""
 	provider = 'openai'
 	if ':' in model_ref:  # 'anthropic:claude-...'; the eval passes a bare OpenAI name
 		provider, model_ref = model_ref.split(':', 1)
 		provider = provider.removesuffix('-responses').removesuffix('-chat')
+	costs: list[float | None] = []
+	for m in messages:
+		if not isinstance(m, ModelResponse):
+			continue
+		if (charge := gateway_charge(m)) is not None or (charge := openrouter_cost(m)) is not None:
+			costs.append(charge)
+			continue
+		if provider == 'browser-use':
+			costs.append(None)
+			continue
+		# Priced as the model that answered (m.model_name): an alias can be served by another model (requested
+		# gemini-3.5-flash, served and billed as gemini-3.6-flash). The requested name only when the answer names no
+		# model or a snapshot of the requested one (gpt-4.1 -> gpt-4.1-2025-04-14): another model's price is a guess.
+		served = m.model_name
+		names = [served] if served and not served.startswith(model_ref) else [served, model_ref]
+		price = None
+		for name in dict.fromkeys(filter(None, names)):
+			try:
+				price = float(calc_price(m.usage, model_ref=name, provider_id=provider).total_price)  # cache writes too
+				break
+			except Exception:  # - unknown price: try the next name
+				continue
+		costs.append(price)  # no known price: None, not a made-up cost
+	return costs
+
+
+def total_cost(costs: list[float | None]) -> float | None:
+	"""Sum of request_costs(), or None when any request has no known cost."""
+	known = [c for c in costs if c is not None]
+	return sum(known, 0.0) if len(known) == len(costs) else None
+
+
+def token_usage(messages: list[ModelMessage]) -> dict[str, int]:
+	total = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
 	for m in messages:
 		if isinstance(m, ModelResponse):
 			u = m.usage
@@ -1225,28 +1273,12 @@ def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[s
 			total['cache_read'] += u.cache_read_tokens
 			total['cache_write'] += u.cache_write_tokens
 			total['requests'] += 1
-			if cost is None:
-				continue
-			if (charge := gateway_charge(m)) is not None:
-				cost += charge
-				continue
-			if provider == 'browser-use':
-				cost = None
-				continue
-			# Priced as the model that answered (m.model_name): an alias can be served by another model (requested
-			# gemini-3.5-flash, served and billed as gemini-3.6-flash). The requested name only when the answer names no
-			# model or a snapshot of the requested one (gpt-4.1 -> gpt-4.1-2025-04-14): another model's price is a guess.
-			served = m.model_name
-			names = [served] if served and not served.startswith(model_ref) else [served, model_ref]
-			for name in dict.fromkeys(filter(None, names)):
-				try:
-					cost += float(calc_price(u, model_ref=name, provider_id=provider).total_price)  # cache writes too
-					break
-				except Exception:  # - unknown price: try the next name
-					continue
-			else:  # no known price: report tokens, not a made-up cost
-				cost = None
-	return total, cost
+	return total
+
+
+def usage_and_cost(messages: list[ModelMessage], model_ref: str) -> tuple[dict[str, int], float | None]:
+	"""Tokens and USD cost of these messages (see request_costs). Cost is None when any request has no known cost."""
+	return token_usage(messages), total_cost(request_costs(messages, model_ref))
 
 
 def last_text(messages: list[ModelMessage]) -> str:
@@ -1318,11 +1350,12 @@ async def run(
 	text = redact(as_text(output), session.repl.secrets)
 	error = redact(error, session.repl.secrets)  # provider/tool exceptions can quote a secret; Agent.run logs this
 	session.rec.loop_ended()
-	usage, cost = usage_and_cost(new + session.summaries, model_ref)
+	costs, summary_costs = request_costs(new, model_ref), request_costs(list(session.summaries), model_ref)
+	usage, cost = token_usage(new + session.summaries), total_cost(costs + summary_costs)
 	if search:
 		session.rec.cost_search = sum(search.charges[searched:])
 	if session.summaries:
-		session.rec.cost_compaction = usage_and_cost(list(session.summaries), model_ref)[1]
+		session.rec.cost_compaction = total_cost(summary_costs)
 	if cost is not None and search:  # web searches that named a charge; an unknown model cost stays unknown
 		cost += sum(search.charges[searched:])
 	steps = sum(isinstance(m, ModelResponse) for m in new)
@@ -1333,7 +1366,9 @@ async def run(
 	if forms:  # model text, thinking and tool-call args can quote a secret read off a screenshot, and browser-use quotes
 		# them back in requests: the delivery repair turn quotes the reply, a schema error echoes the rejected input
 		messages = [replace(m, parts=[redact_part(p, forms) for p in m.parts]) for m in messages]
-	return AgentHistoryList(status, text, output, steps, duration, usage, cost, partial, error, messages, success)
+	result = AgentHistoryList(status, text, output, steps, duration, usage, cost, partial, error, messages, success)
+	result.request_costs = costs
+	return result
 
 
 def redact_part(part: Any, forms: list[tuple[str, str]]) -> Any:
