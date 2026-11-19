@@ -308,7 +308,8 @@ class Repl:
 	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
 	worker, answered here (Browser.list_downloads). feedback: answers report_issue() with the confirmation the cell
 	gets (telemetry/feedback.RunReports); without it nothing is sent. highlight_actions: orange corner brackets around
-	what the agent clicks or types into (repl/highlight.py)."""
+	what the agent clicks or types into (repl/highlight.py). approve(kind, detail): the helpers stop before an effect of a
+	kind in approve_on and wait for it (agent/hooks.Approvals): None allows it, else the PermissionError text."""
 
 	def __init__(
 		self,
@@ -322,11 +323,14 @@ class Repl:
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		highlight_actions: bool = False,
 		feedback: Callable[[dict], str] | None = None,
+		approve: Callable[[str, dict], Awaitable[str | None]] | None = None,
+		approve_on: Iterable[str] = (),
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
 		self.feedback = feedback
+		self.approve, self.approve_on = approve, sorted(approve_on) if approve else []
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
 		# which a keep_alive Agent outlives (asyncio.run per run); killed after that loop closed, the worker was never
@@ -426,7 +430,12 @@ class Repl:
 			if connected not in done:
 				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
 			self.reader, self.writer = connected.result()
-			init = {'secrets': self.secrets, 'search': self.search is not None, 'downloads': self.downloads is not None}
+			init = {
+				'secrets': self.secrets,
+				'search': self.search is not None,
+				'downloads': self.downloads is not None,
+				'approve_on': self.approve_on,
+			}
 			self.writer.write(json.dumps(init).encode() + b'\n')
 			await self.writer.drain()
 			if not await asyncio.wait_for(self.reader.readline(), 60):
@@ -521,6 +530,22 @@ class Repl:
 		except Exception as e:  # - a report that could not be queued
 			return {'value': f'Feedback failed ({type(e).__name__}): nothing was sent.'}
 
+	async def _approve(self, args: Any, deadline: asyncio.Timeout) -> dict[str, Any]:
+		"""{'value': None} to go ahead, else {'value': the PermissionError text}. The cell's deadline stops while a human
+		decides: the cell is waiting, not hung."""
+		loop, when = asyncio.get_running_loop(), deadline.when()
+		deadline.reschedule(None)
+		started = loop.time()
+		try:
+			if self.approve is None or not isinstance(args, dict) or not isinstance(args.get('detail'), dict):
+				return {'value': 'Not allowed: no approval is set up for it. Nothing was done.'}
+			# the URL or a file name may hold a secret the model wrote into its code
+			return {'value': await self.approve(str(args.get('kind')), redact(args['detail'], self.secrets))}
+		except Exception as e:  # - fail closed
+			return {'value': f'Not allowed: the approval failed ({type(e).__name__}). Nothing was done.'}
+		finally:
+			deadline.reschedule(None if when is None else when + loop.time() - started)
+
 	async def _call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		try:  # one cleanup boundary: a cancel during startup, the send or the wait never leaves a half-used worker
 			# A worker started on another (finished) event loop cannot be driven from this one: replace it.
@@ -532,14 +557,16 @@ class Repl:
 			try:
 				self.writer.write(json.dumps({'op': op, 'code': code, 'n': n}).encode() + b'\n')
 				await self.writer.drain()
-				async with asyncio.timeout(timeout):
+				async with asyncio.timeout(timeout) as deadline:
 					while True:
 						line = await self.reader.readline()
 						if not line:
 							raise ConnectionError('worker exited')
 						msg = json.loads(line)
-						if msg.get('type') in ('search', 'downloads', 'feedback'):  # the cell called one: answered while it waits
-							if msg['type'] == 'feedback':
+						if msg.get('type') in ('search', 'downloads', 'feedback', 'approve'):  # answered while the cell waits
+							if msg['type'] == 'approve':
+								answer = await self._approve(msg.get('args'), deadline)
+							elif msg['type'] == 'feedback':
 								answer = self._feedback(msg.get('args'))
 							else:
 								answer = await (self._search(msg.get('args')) if msg['type'] == 'search' else self._downloads())

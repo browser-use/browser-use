@@ -21,7 +21,7 @@ _install_0x_import_errors()  # import browser_use.dom (any 0.x module path) name
 
 if TYPE_CHECKING:
 	from browser_use.agent import Agent, AgentHistoryList
-	from browser_use.agent.hooks import Action, ActionOutcome
+	from browser_use.agent.hooks import Action, ActionOutcome, ApprovalRequest
 	from browser_use.browser import Browser
 	from browser_use.llm import ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
 	from browser_use.telemetry.feedback import feedback
@@ -32,6 +32,7 @@ _LAZY_IMPORTS = {
 	'AgentHistoryList': 'browser_use.agent',
 	'Action': 'browser_use.agent.hooks',
 	'ActionOutcome': 'browser_use.agent.hooks',
+	'ApprovalRequest': 'browser_use.agent.hooks',
 	'Browser': 'browser_use.browser',
 	'Tools': 'browser_use.tools',
 	'Controller': 'browser_use.tools',
@@ -96,6 +97,7 @@ __all__ = [
 	'AgentHistoryList',
 	'Action',
 	'ActionOutcome',
+	'ApprovalRequest',
 	'Browser',
 	'Tools',
 	'Controller',

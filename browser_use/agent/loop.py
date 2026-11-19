@@ -60,7 +60,7 @@ from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai.usage import UsageLimits
 from pydantic_core import PydanticSerializationError, to_json, to_jsonable_python
 
-from browser_use.agent.hooks import Action, ActionOutcome, AfterAction, BeforeAction, decide, observe, refusal
+from browser_use.agent.hooks import Action, ActionOutcome, AfterAction, Approvals, BeforeAction, decide, observe, refusal
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
@@ -138,6 +138,7 @@ class Session:
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
 	before_action: BeforeAction | None = None  # Agent(before_action=...): may refuse each tool call (hooks.py)
 	after_action: AfterAction | None = None  # Agent(after_action=...): sees what each tool call did
+	approvals: Approvals | None = None  # Agent(approve=...): the REPL asks it before an upload, a secret, a new origin
 	task: str = ''  # this run's task, secret values redacted (what the hooks see)
 	host: str | None = None  # the hostname the last cell was on (Action.host)
 	last_cell: dict | None = None  # the last python() result: after_action reads its error and URLs
@@ -183,6 +184,8 @@ async def python(ctx: RunContext[Session], code: str) -> list[Any]:
 	if left <= 0:  # a later call of the same response, after an earlier one used the time up
 		return [NO_TIME]
 	ctx.deps.rec.cell_start()
+	if ctx.deps.approvals:  # ApprovalRequest.step: the request whose cell causes the effect
+		ctx.deps.approvals.step = ctx.run_step
 	starts = getattr(repl, 'start_ns', 0)  # test doubles have none
 	# Ultrafast prints the page state after the cell's code, so its cells get 10 s more (Pi src/runtime.ts:257), out of
 	# the time left: added to it, a short run(timeout=...) lost the delivery turn (status timeout, no answer)

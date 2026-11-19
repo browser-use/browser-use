@@ -95,6 +95,19 @@ def parse_url(url: str) -> Url | None:
 	)
 
 
+def origin(url: Any) -> str | None:
+	"""scheme://host[:port] of an http(s) URL as the browser reads it (no default port), 'file://' for any file: URL,
+	None for the rest (about:, data:, blob:, javascript:, unparsable). Agent(approve=...) names effects by it."""
+	text = str(url or '')
+	if text.strip(C0_AND_SPACE).split(':', 1)[0].lower() == 'file':
+		return 'file://'
+	u = parse_url(text)
+	if u is None or u.scheme not in WEB:
+		return None
+	host = f'[{u.host}]' if ':' in u.host else u.host
+	return f'{u.scheme}://{host}' + (f':{u.port}' if u.port and u.port != DEFAULT_PORT[u.scheme] else '')
+
+
 DOUBLE_DOT = ('..', '.%2e', '%2e.', '%2e%2e')
 
 

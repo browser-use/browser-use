@@ -11,6 +11,7 @@ import re
 import tempfile
 import time
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -28,7 +29,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from browser_use.agent.hooks import AfterAction, BeforeAction, check_hook
+from browser_use.agent.hooks import AfterAction, Approvals, Approve, BeforeAction, check_approve, check_hook
 from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_run
 from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run, usage_and_cost
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
@@ -263,6 +264,8 @@ class Agent:
 		judge_context: str | None = None,
 		before_action: BeforeAction | None = None,
 		after_action: AfterAction | None = None,
+		approve: Approve | None = None,
+		approve_on: Iterable[str] | None = None,
 		**kwargs: Any,
 	):
 		# 0.x use_judge and ground_truth: the same options under their old names
@@ -287,6 +290,7 @@ class Agent:
 			raise TypeError(f'judge_context must be a str or None, not {type(judge_context).__name__}')
 		check_hook(before_action, 'before_action')
 		check_hook(after_action, 'after_action')
+		approve_kinds = check_approve(approve, approve_on)
 		if max_context_chars is not None and (type(max_context_chars) is not int or max_context_chars < 1):
 			raise ValueError(f'max_context_chars must be a positive int or None, not {max_context_chars!r}')
 		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) the default instead
@@ -330,6 +334,8 @@ class Agent:
 		self.web_search, self.max_context_chars, self.highlight_actions = web_search, max_context_chars, highlight_actions
 		self.judge, self.judge_context = judge, judge_context or None
 		self.before_action, self.after_action = before_action, after_action
+		self.approve, self.approve_on = approve, approve_kinds
+		self._approvals: Approvals | None = None  # this run's: what approve() allowed is remembered for the run only
 		self._judge_cost: float | None = None  # the last run's judge cost (telemetry)
 		self._final_page: BinaryContent | None = None  # the last run's final page, for the judge
 		self._search: WebSearch | None = None  # set by _build when search() is on
@@ -533,9 +539,12 @@ class Agent:
 					downloads=self._list_downloads if self.browser.use_cloud or self._launched() else None,
 					highlight_actions=self.highlight_actions,
 					feedback=self._reports,
+					approve=self._ask_approval if self.approve else None,
+					approve_on=self.approve_on,
 				)
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}
+			self._approvals = Approvals(self.approve, redact(self.task, self.sensitive_data)) if self.approve else None
 			session = Session(
 				repl=self._repl,
 				timeout_s=timeout,
@@ -544,6 +553,7 @@ class Agent:
 				rec=rec,
 				before_action=self.before_action,
 				after_action=self.after_action,
+				approvals=self._approvals,
 				task=redact(self.task, self.sensitive_data),
 				**compacted,
 			)
@@ -673,6 +683,12 @@ class Agent:
 		log so far is read first."""
 		self.browser.note_downloads(self.workspace / '.browser-use' / 'downloads.jsonl')
 		return await self.browser.list_downloads()
+
+	async def _ask_approval(self, kind: str, detail: dict) -> str | None:
+		"""The REPL's approvals (Agent(approve=...)): this run's, so what was allowed is remembered for one run."""
+		if self._approvals is None:  # - a cell outside a run
+			return 'Not allowed: no run is active. Nothing was done.'
+		return await self._approvals.ask(kind, detail)
 
 	async def _shutdown(self) -> None:
 		"""Stop the REPL and the browser; a cloud browser's downloads land in workspace/downloads. The browser stops

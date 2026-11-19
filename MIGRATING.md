@@ -45,6 +45,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | everything else 0.x took | removed: [Removed in 1.0](#removed-in-10) |
 | new: `judge`, `judge_context` | `judge=True` (the default): after each run that took a step, one request to the agent's own model, at low effort, judges the trace (120k characters of text, secrets redacted) against the task; with vision on (`use_vision=False` sends text only) it also sends the last 4 distinct images of the run, the final page included, as they are (not redacted). A model that rejects images is asked once more with the text alone. `result.judgement` holds `success`, `failure_reason`, `description`, `prompt_injection_detected`, `bot_block_or_captcha_detected` and `gotchas` (short, general lessons about the sites for the next agent, also on a success: what the agent had to retry or work around); its tokens and cost are added to `result.usage` and `result.cost_usd`. A judge that fails logs a warning and leaves `result.judgement` `None`. `judge_context` is your criteria or expected answer, which the judge puts first. With usage stats on, `agent_event` carries the judgement, each text scrubbed as error messages are. `judge=False` sends no judge request |
 | new: `before_action`, `after_action` | see every tool call (a Python cell, or one of your `Tools` actions) before it runs, refuse it, and see what it did: [Action hooks](#action-hooks) |
+| new: `approve`, `approve_on` | approve effects, not code: an upload, typing a secret, the first visit to an origin. The helpers wait for your answer before the effect happens: [Approvals](#approvals) |
 | new: `reasoning`, `mode`, `workspace`, `web_search`, `max_context_chars`, `highlight_actions` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway a bu-* alias's own effort, a listed OpenAI model 'medium'; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'` (the default on `bu-fast` and `bu-ultrafast`; `mode='default'` opts out); `workspace` holds the agent's files (default: a new temp dir `browser-use-*`, kept after the run: it holds page text, screenshots and cell output, so delete it when done, or pass your own `workspace=`); `web_search=True` gives the agent `search()` (Browser Use web search on the gateway host, `POST /api/v4/search`, with the gateway model's key or the Browser Use key; billed per search; each charge the response reports (`browser_use.charge_usd`) is added to `result.cost_usd`, a response without one adds nothing, and an unknown model cost stays `None`) off by default; `True` raises without a Browser Use key or with `allowed_domains`. Off, the system prompt is unchanged; `max_context_chars`: past 75% of this many characters of conversation the agent compacts its history into a summary checkpoint (default 4 per token of the model's context window, as Browser Use Pi, or 240k when pydantic-ai does not know the window; unused where the provider compacts server-side: OpenAI Responses, the gateway); `highlight_actions=False` turns off the orange corner brackets around what the agent clicks or types into (on by default) |
 
 ## Agent methods
@@ -365,6 +366,50 @@ Agent('...', before_action=policy, after_action=record)
   decides on what the code says. Code can do things its text does not show (`exec` of a string it builds, a click whose
   effect depends on the page), and a cell does several things at once. For a hard boundary on where the browser goes,
   use `Browser(allowed_domains=...)`; run untrusted tasks in a container or VM.
+
+## Approvals
+
+`Agent(task, approve=ask, approve_on={'upload', 'type_secret'})`. `before_action` shows a human a Python cell; `approve`
+asks about the effect itself, as the Codex browser plugin does ("Allow upload to https://x.com?"). The REPL helpers stop
+right before the effect and wait while your process calls `approve`; the model's code cannot answer for you.
+
+```python
+from browser_use import Agent, ApprovalRequest
+
+def ask(request: ApprovalRequest) -> bool | str:
+	return input(f'{request.message} [y/N] ') == 'y' or 'the user said no'
+
+Agent('Apply with cv.pdf', approve=ask, approve_on={'upload', 'type_secret', 'new_origin'})
+```
+
+| kind | when | `request.detail` |
+|---|---|---|
+| `upload` | `upload_file()`, `cdp('DOM.setFileInputFiles', ...)`, `cdp('Input.dispatchDragEvent', data={'files': [...]})` | `files` (absolute paths), `origin` of the tab, or of the out-of-process frame a `session_id` names (a same-process frame or a drop target inside the tab gets the tab's) |
+| `type_secret` | `type_secret(name)`, before any key is sent; if the focused field or its origin changed while `approve` decided, nothing is typed | `secret` (the name, never the value), `origin` of the frame the keys reach |
+| `new_origin` | `goto_url()`, `new_tab(url)` (before it opens a tab), `cdp('Page.navigate' / 'Target.createTarget', url=...)` to an http(s) or file: URL | `origin`, `url` |
+
+- The default `approve_on` is `{'upload', 'type_secret'}`; `new_origin` is off because every new site asks. A set you pass
+  replaces the default: `{'new_origin'}` alone stops asking about uploads and secrets.
+- `ApprovalRequest`: `kind`, `detail`, `step` (the model request whose cell caused it), `task`, and `message` (the
+  question for a human, such as `Allow upload of cv.pdf to https://jobs.example?`). Secret values in `detail` are
+  replaced with `<secret:name>`.
+- Only `True` allows it. `False`, a reason (`str`), anything else, an exception, or no answer within 15 minutes denies
+  it (fail closed): the cell raises `PermissionError: Not allowed: upload of cv.pdf to https://jobs.example was denied
+  (<reason>). Nothing was done. Do not try to get around it.` The model reads it and can choose another way.
+- What `approve` allowed is remembered for the run: per origin for `new_origin`, per origin and secret for
+  `type_secret`, per origin and files for `upload` (the same file to the same site does not ask again; another file
+  does). A denial, or anything on a page whose origin is unknown, is not remembered; the next attempt asks again.
+- `approve` may be a plain function or a coroutine. A plain function runs in a thread, so it may block on a human
+  (a terminal prompt, a Slack button, a ticket). The cell's 120 s deadline stops while it waits; the run's `timeout`
+  keeps counting.
+- Human handoff (sign in, solve a 2FA prompt yourself): the browser is untouched while `approve` waits, so a human can
+  act in it (a visible Chrome, the cloud live view) and then answer. Return `True` to let the agent go on, or a reason
+  such as `'I signed in myself; continue from the dashboard'`: the agent reads it in the cell's error.
+- Not a sandbox, like [Action hooks](#action-hooks): it gates what goes through the helpers and `cdp()`. Model-written
+  Python can still reach the browser around them (its own socket to the daemon, page JavaScript that builds a `File`),
+  `new_origin` does not see a link the page follows or a redirect, and downloads are not gated (CDP cannot hold a
+  download until a human answers). For a hard boundary on where the browser goes, use `Browser(allowed_domains=...)`;
+  run untrusted tasks in a container or VM.
 
 ## Trust model for secrets
 
