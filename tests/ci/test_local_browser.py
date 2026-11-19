@@ -157,7 +157,9 @@ async def test_browser_chromium_runs_its_own_daemon_and_stop_ends_the_browser(fa
 	env = await browser.start()
 	pid, tmp = int((tmp_path / 'pid').read_text()), browser._local.tmp
 	# never the shared default daemon; BU_OWN_BROWSER: the agent's tab is the visible one (C09)
-	assert env == {'BU_NAME': browser.name, 'BU_OWN_BROWSER': '1'} and env['BU_NAME'].startswith('bu')
+	# BH_OWNER: the worker drives the tabs of the same owner as this process's daemon requests
+	assert env == {'BU_NAME': browser.name, 'BU_OWN_BROWSER': '1', 'BH_OWNER': browser_mod._owner()}
+	assert env['BU_NAME'].startswith('bu')
 	assert no_daemon == [
 		('start', browser.name, {'BU_CDP_WS': 'ws://127.0.0.1:4321/devtools/browser/fake', 'BH_TAB_MARKER': '0'})
 	]
