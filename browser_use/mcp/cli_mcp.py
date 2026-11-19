@@ -1,5 +1,5 @@
 """MCP server exposing the CLI 3.0
-Run with: browser-use --cli-mcp
+Run with: browser-use --mcp (or its alias, browser-use --cli-mcp)
 """
 
 import asyncio
@@ -22,6 +22,7 @@ from io import StringIO
 from typing import Any
 
 import browser_harness
+import browser_harness.helpers
 import mcp.server.stdio
 import mcp.types as types
 from browser_harness import _ipc as ipc
@@ -85,6 +86,28 @@ These rules override the skill below where they differ:
   both are returned.
 
 """
+
+# browser-harness 0.1.14 (#1000): solve_captcha() and captcha_note(). browser-use pins 0.1.13 until 0.1.14 is released, so
+# the captcha text below appears only where the installed harness has them.
+HAS_CAPTCHA = hasattr(browser_harness.helpers, 'solve_captcha') and hasattr(browser_harness.helpers, 'captcha_note')
+CAPTCHA_GUIDE = """- Captcha or challenge on a cloud browser: its solver handles supported ones. Run `solve_captcha()` in browser_exec and
+  wait; do not reload, navigate or switch tabs meanwhile. `still solving` -> call it again. A browser_exec result ends
+  with a separate `[Captcha solver ...]` block while a solve runs and once when one finishes.
+
+"""
+
+
+def captcha_note() -> str:
+	"""browser-harness's captcha solver lines not shown yet (a solve running, or one that finished): '' when there are
+	none, the browser has no solver, or the installed browser-harness predates captcha_note() (0.1.13)."""
+	note = getattr(browser_harness.helpers, 'captcha_note', None)
+	if note is None:
+		return ''
+	try:
+		return note() or ''
+	except Exception:  # never fail a browser_exec call over its note
+		return ''
+
 
 # Runs detached for each cloud browser this server starts, and stops that browser once the server exits however it ends
 # (stdin closed, SIGTERM, SIGKILL). POSIX: its stdin is a pipe only this server holds, and the read returns at EOF.
@@ -455,6 +478,12 @@ class CLIMCPServer:
 					'(stopped when this server exits). '
 					"A cloud browser's downloads stay on the remote host, never in ~/Downloads (a file there is not its "
 					'download): GET https://api.browser-use.com/api/v4/browsers/{id}/downloads lists them.'
+					+ (
+						' Captcha on a cloud browser: solve_captcha() waits for its solver (do not reload or navigate '
+						'meanwhile); a separate [Captcha solver ...] block follows the output while a solve runs.'
+						if HAS_CAPTCHA
+						else ''
+					)
 				),
 				input_schema={
 					'type': 'object',
@@ -527,6 +556,7 @@ class CLIMCPServer:
 						is_error=True,
 					)
 				output, failed = await self._locked(self._execute, code)
+				captcha = await self._locked(captcha_note)  # same daemon the code drove; '' on browser-harness 0.1.13
 				note, self._note = self._note, None
 				if len(output) > MAX_OUTPUT_CHARS:  # same cap as the agent's cells; the full text stays readable on disk
 					# utf-8: Windows' locale encoding (cp1252) failed the whole call on an emoji, after the cell ran; newline='':
@@ -539,6 +569,8 @@ class CLIMCPServer:
 				content = [types.TextContent(type='text', text=output or '(no output)')]
 				if note:  # its own block: a client that parses the code's output (JSON) gets only that in the first
 					content.append(types.TextContent(type='text', text=note))
+				if captcha:  # its own block too: a solve running means wait with solve_captcha(), not reload
+					content.append(types.TextContent(type='text', text=captcha))
 				return types.CallToolResult(content=content, is_error=failed)
 			if name == 'browser_screenshot':
 				max_dim = arguments.get('max_dim')
@@ -857,6 +889,8 @@ class CLIMCPServer:
 				"which, and how to get the user's Chrome"
 			)
 		guide = MCP_GUIDE.format(local=local)
+		if HAS_CAPTCHA:  # one more rule in the list above, before its blank line
+			guide = guide.rstrip('\n') + '\n' + CAPTCHA_GUIDE
 		if self._browser is not None and self._browser.domains:
 			guide += f'- {NO_CLOUD_WITH_DOMAINS.format(name="start_remote_daemon")}: ignore the Cloud rules above.\n\n'
 		return guide + _harness_skill_text()

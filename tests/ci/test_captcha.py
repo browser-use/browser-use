@@ -292,7 +292,9 @@ async def test_a_solve_that_starts_between_cells_is_in_the_next_output_despite_a
 	fake, env = cloud
 	repl = Repl(tmp_path, env)
 	try:
-		assert (await repl.call('exec', '1', 30))['error'] is None  # worker up, reading events
+		# worker up, reading events, on its own tab: browser-harness 0.1.14 gives each owner only its own tabs' events,
+		# so the busy page's session S1 must be the worker's tab
+		assert (await repl.call('exec', "cdp('Runtime.evaluate', expression='1')", 30))['error'] is None
 		fake.emit(*started())
 		for i in range(2000):
 			fake.emit('Network.dataReceived', {'requestId': str(i), 'dataLength': 1}, 'S1')
@@ -385,3 +387,77 @@ async def test_captcha_solver_false_turns_the_cloud_solver_off_at_start(monkeypa
 	assert NO_CAPTCHA_PROMPT in off and 'solve_captcha' not in off
 	with pytest.raises(ValueError, match=r'only Browser\(\) \(a cloud browser\) has a captcha solver'):
 		Browser('chromium', captcha_solver=False)
+
+
+def _harness_has_captcha() -> bool:
+	"""browser-harness 0.1.14 (solve_captcha, captcha_note); browser-use still pins 0.1.13, where both are absent."""
+	from browser_harness import helpers
+
+	return hasattr(helpers, 'captcha_note')
+
+
+async def test_cli_output_ends_with_the_captcha_solver_lines(cloud):
+	"""bridge: the browser-use CLI never showed the cloud solver's events, so an agent reloaded the page mid-solve. With
+	browser-harness 0.1.14 its output ends with them; with 0.1.13 the output is unchanged."""
+	import subprocess
+	import sys
+	from pathlib import Path
+
+	fake, env = cloud
+	fake.emit(*started())
+	await asyncio.sleep(0.5)
+	root = str(Path(__file__).resolve().parents[2])
+	run_env = {
+		**os.environ,
+		'BU_NAME': env['BU_NAME'],
+		'PYTHONPATH': os.pathsep.join(p for p in (root, os.environ.get('PYTHONPATH')) if p),
+	}
+	cmd = [sys.executable, '-m', 'browser_use.cli']
+	r = await asyncio.to_thread(subprocess.run, cmd, input='print(1)', env=run_env, capture_output=True, text=True, timeout=60)
+	assert r.returncode == 0, r.stderr
+	if not _harness_has_captcha():
+		assert r.stdout == '1\n', r.stdout
+		return
+	lines = r.stdout.splitlines()
+	assert lines[0] == '1' and len(lines) == 2, r.stdout
+	assert lines[1].startswith('[Captcha solver running (recaptcha) on https://example.com/ for '), r.stdout
+	assert 'Wait with solve_captcha()' in lines[1]
+
+
+async def test_browser_exec_ends_with_the_captcha_solver_lines_in_their_own_block(cloud, monkeypatch):
+	"""bridge: browser_exec (browser-use --mcp) never showed the cloud solver's events either. A running solve and each
+	finish are a last text block once; a client that parses the code's output still gets only that in the first."""
+	import mcp.types as types
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+
+	fake, env = cloud
+	monkeypatch.setattr(admin, 'NAME', env['BU_NAME'])
+	monkeypatch.setattr(helpers, 'NAME', env['BU_NAME'])
+	server = cli_mcp.CLIMCPServer()
+	monkeypatch.setattr(server, '_attach', lambda: None)  # the cloud fixture's daemon is up; nothing else to attach
+	handler = server.server._request_handlers['tools/call'].handler
+
+	async def texts(code: str) -> list[str]:
+		r = await handler(None, types.CallToolRequestParams(name='browser_exec', arguments={'code': code}))  # pyright: ignore[reportArgumentType]
+		assert isinstance(r, types.CallToolResult) and not r.is_error, r
+		return [c.text for c in r.content if isinstance(c, types.TextContent)]
+
+	exec_tool = next(t for t in server._tool_definitions() if t.name == 'browser_exec')
+	has = _harness_has_captcha()
+	assert ('solve_captcha()' in (exec_tool.description or '')) is has
+	assert (cli_mcp.CAPTCHA_GUIDE in server._instructions()) is has
+
+	fake.emit(*started())
+	await asyncio.sleep(0.5)
+	first = await texts('print(1)')
+	assert first[0] == '1\n'
+	if not has:  # browser-harness 0.1.13: no note, and the call still works
+		assert not any('[Captcha solver' in t for t in first), first
+		return
+	assert first[-1].startswith('[Captcha solver running (recaptcha) on https://example.com/ for '), first
+	fake.emit(*finished(success=True))
+	await asyncio.sleep(0.5)
+	assert (await texts('print(2)')) == ['2\n', '[Captcha solver finished: solved (recaptcha) on https://example.com/.]']
+	assert (await texts('print(3)')) == ['3\n']  # shown once

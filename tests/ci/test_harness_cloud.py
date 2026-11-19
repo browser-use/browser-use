@@ -1075,7 +1075,10 @@ def test_cli_mcp_on_a_headless_box_opens_a_page_in_its_own_chromium(chrome_binar
 		out, failed = mcp._execute(
 			'new_tab("data:text/html,<title>own page</title>"); wait_for_load(); print(page_info()["title"])'
 		)
-		assert not failed and out == 'own page\n' and 'own Chromium' in (mcp._note or ''), (out, mcp._note)
+		# browser-harness 0.1.14's new_tab() prints its tab id for CLI agents, which see only stdout (kept here)
+		opened, title = out.splitlines()
+		assert not failed and opened.startswith('new_tab: ') and title == 'own page', (out, mcp._note)
+		assert 'own Chromium' in (mcp._note or ''), mcp._note
 	finally:
 		if mcp._browser is not None:
 			import asyncio
@@ -1286,3 +1289,45 @@ def test_mcp_http_get_is_plain_http_from_this_machine_even_with_a_key(monkeypatc
 	finally:
 		server.shutdown()
 	assert seen == ['Bearer t', 'Bearer t']
+
+
+def test_mcp_is_the_cli_mcp_server_unless_a_0x_setup_is_there(tmp_path, monkeypatch):
+	"""bridge: --mcp is the canonical name of the exec server (browser_exec on the user's Chrome), as --cli-mcp. Only a
+	0.x setup (its config.json, or its domain / proxy variables) keeps the 0.x server's own Chromium and limits (C44)."""
+	from browser_use import cli
+
+	runs = []
+	monkeypatch.setattr(cli, '_run_mcp_stdio_server', lambda module, **kwargs: runs.append(kwargs))
+	monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(tmp_path))
+	for name in cli._0X_MCP_ENV:
+		monkeypatch.delenv(name, raising=False)
+	assert cli._dispatch(['--mcp']) == (0, 'mcp')
+	assert cli._dispatch(['--cli-mcp']) == (0, 'cli-mcp')
+	monkeypatch.setenv('BROWSER_USE_ALLOWED_DOMAINS', 'example.org')
+	assert cli._dispatch(['--mcp']) == (0, 'mcp')
+	monkeypatch.delenv('BROWSER_USE_ALLOWED_DOMAINS', raising=False)
+	(tmp_path / 'config.json').write_text('{}')  # 0.x wrote one on first run
+	assert cli._dispatch(['--mcp']) == (0, 'mcp')
+	assert runs == [{}, {}, {'own_browser': True, 'allowed_domains': ['example.org']}, {'own_browser': True}]
+
+
+def test_harness_runs_under_this_clis_name_where_it_has_the_name_hook():
+	"""bridge: browser-harness 0.1.14's run.main(prog=...) names browser-use in its help, usage and hints; 0.1.13's
+	main() takes no argument and must not get one (the regex rebrand covers it there)."""
+	from browser_use import cli
+
+	calls = []
+
+	class Hooked:
+		@staticmethod
+		def main(prog=None):
+			calls.append(prog)
+
+	class Old:
+		@staticmethod
+		def main():
+			calls.append('no hook')
+
+	cli._harness_main(Hooked)
+	cli._harness_main(Old)
+	assert calls == ['browser-use', 'no hook']
