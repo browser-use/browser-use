@@ -373,34 +373,51 @@ def _read_api_key_stdin() -> str:
 	return key
 
 
-def _run_login_command(argv: list[str]) -> int:
-	"""browser-use login [--device-code | --api-key-stdin] [--no-open] [--json]: browser-harness's OAuth login, same
-	key store (~/.config/browser-harness/auth.json), so one login works everywhere. browser-use logout removes it."""
+def _run_login_command(argv: list[str], *, automatic: bool = False) -> int:
+	"""Run login with the shared key store and record its outcome."""
 	import os
 
 	from browser_harness import auth
 
-	from browser_use.auth import harden_login_callback, set_aside_corrupt_store
+	from browser_use.auth import harden_login_callback, record_auth_event, set_aside_corrupt_store
 
 	_set_harness_client_env()
 	command = ['login', *argv]
 	if any(arg in {'-h', '--help'} for arg in argv):
 		return _normalize_captured_cli_output(auth.run_auth_cli, command)
+	method = 'manual' if '--api-key-stdin' in argv else 'device' if '--device-code' in argv else 'browser'
+	record_auth_event('login_started', method=method, automatic=automatic)
 	try:  # Ctrl-C at the hidden key prompt, during the key check or while it waits for the approval: nothing stored
 		if '--api-key-stdin' in argv:
 			try:
 				sys.stdin = StringIO(_read_api_key_stdin())
 			except auth.AuthError as e:
 				print(e, file=sys.stderr)
+				record_auth_event('login_failed', method=method, automatic=automatic)
 				return 1
 		harden_login_callback()
 		if notice := set_aside_corrupt_store():
 			print(notice, file=sys.stderr)
-		code = auth.run_auth_cli(command)
+		if automatic:
+			start = auth.start_browser_auth(open_url='--no-open' not in argv)
+			print(f'Approve Browser Use access: {start.auth_url}', file=sys.stderr, flush=True)
+			auth.complete_browser_auth(start)
+			code = 0
+		else:
+			code = auth.run_auth_cli(command)
+	except auth.AuthError as e:
+		print(e, file=sys.stderr)
+		record_auth_event('login_failed', method=method, automatic=automatic)
+		return 1
 	except KeyboardInterrupt:
 		print('Login cancelled.', file=sys.stderr)
+		record_auth_event('login_cancelled', method=method, automatic=automatic)
 		return 130
-	if code == 0 and '--json' not in argv:
+	except Exception:
+		record_auth_event('login_failed', method=method, automatic=automatic)
+		raise
+	record_auth_event('login_succeeded' if code == 0 else 'login_failed', method=method, automatic=automatic)
+	if code == 0 and '--json' not in argv and not automatic:
 		print(LOGIN_DONE)
 		if os.environ.get('BROWSER_USE_API_KEY'):
 			print('Note: BROWSER_USE_API_KEY is set in this shell and takes precedence over the stored key.')
@@ -440,8 +457,11 @@ def _run_feedback_command(argv: list[str]) -> int:
 
 	parser = argparse.ArgumentParser(
 		prog='browser-use feedback',
-		description='Tell the Browser Use team what went wrong with browser-use. Secrets, API keys, emails, URL queries '
-		'and home folders in the text are replaced before it is sent.',
+		description='When your Browser Use integration runs, or fails, send the Browser Use team one feedback message. '
+		'Good or bad, every time. Line 1: kind: integration_report | feature_request | bug. Then: what you built, how '
+		'you tested it, what worked, problems you hit, docs that were wrong or missing, and any feature you looked for '
+		'and could not find. No keys, passwords or customer data; secrets, API keys, emails, URL queries and home '
+		'folders in the text are replaced before it is sent.',
 	)
 	parser.add_argument('message', nargs='*', help='what happened (or pipe it on stdin)')
 	parser.add_argument('--category', choices=feedback.CATEGORIES, default='bug')
@@ -551,7 +571,7 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 	from browser_use import harness_cloud
 
 	harness_cloud.install(vars(run))
-	vars(run)['ensure_daemon'] = _with_own_chromium(harness_cloud.ensure_daemon, vars(run))
+	vars(run)['ensure_daemon'] = _with_upgrade_hint(_with_own_chromium(harness_cloud.ensure_daemon, vars(run)))
 	if (
 		code
 		and harness_cloud.calls_cloud_admin(code)
@@ -567,16 +587,36 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 		vars(run)['ensure_daemon'] = skip_pre_run_attach
 
 
-OWN_CHROMIUM = 'default-chromium'
-"""The daemon of the CLI's own Chromium. Never 'default': that one is the user's Chrome, and Browser('chrome') and
---cli-mcp take a live default daemon to be it (they then drove this temp-profile Chromium as "your own Chrome")."""
+def _own_chromium_name() -> str:
+	"""The daemon of the CLI's own Chromium: '<BU_NAME>-chromium' (a host such as Hermes Agent sets BU_NAME), else
+	'default-chromium'. Never the user's name itself: 'default' is the user's Chrome, and Browser('chrome') and --cli-mcp
+	take a live default daemon to be it (they then drove this temp-profile Chromium as "your own Chrome")."""
+	import os
+
+	return f'{os.environ.get("BU_NAME") or "default"}-chromium'
+
+
+def _own_chromium_unfit(own: str) -> str | None:
+	"""Why daemon name own cannot run: a BU_NAME near browser-harness's 64-character name limit, or a socket path near the
+	OS limit, that fits without the '-chromium'."""
+	from browser_harness import _ipc as ipc
+
+	from browser_use.browser.browser import _check_socket_path
+
+	if not ipc._NAME_RE.match(own):
+		return f"browser-use's own Chromium daemon {own!r} is over 64 characters: use a BU_NAME of at most 55"
+	try:
+		_check_socket_path(own)
+	except RuntimeError as e:
+		return f"browser-use's own Chromium daemon {own!r} cannot listen: {e}"
+	return None
 
 
 def _own_chromium_dir() -> Path:
 	"""The profile of the CLI's own Chromium, next to its daemon's pid file: the next call finds it there."""
 	from browser_harness import _ipc as ipc
 
-	return ipc.pid_path(OWN_CHROMIUM).with_suffix('.chromium')
+	return ipc.pid_path(_own_chromium_name()).with_suffix('.chromium')
 
 
 def _own_chromium_ws() -> str | None:
@@ -644,10 +684,10 @@ def _route(name: str, namespace: dict[str, Any]) -> None:
 
 def _with_own_chromium(ensure_daemon: Any, namespace: dict[str, Any]) -> Any:
 	"""The CLI's ensure_daemon: where the user's Chrome cannot be used (no display, remote debugging off, none installed),
-	a Chromium of the CLI's own, as --cli-mcp does (mcp/cli_mcp.py), under its own daemon (OWN_CHROMIUM) that every later
-	call is routed to until `browser-use --reload`. An explicit choice is never replaced: BU_NAME, BU_CDP_URL / BU_CDP_WS,
-	a cloud daemon, a default daemon already attached, a user's Chrome that is set up (or whose toggle is on and still
-	starting)."""
+	a Chromium of the CLI's own, as --cli-mcp does (mcp/cli_mcp.py), under its own daemon (_own_chromium_name) that every
+	later call is routed to until `browser-use --reload`. An explicit choice is never replaced: BU_CDP_URL / BU_CDP_WS, a
+	cloud daemon (under BU_NAME too), a daemon already attached under BU_NAME (or 'default'), a user's Chrome that is set
+	up (or whose toggle is on and still starting)."""
 
 	def ensure(wait: float | None = None, name: str | None = None, env: dict[str, str] | None = None) -> None:
 		import os
@@ -656,18 +696,20 @@ def _with_own_chromium(ensure_daemon: Any, namespace: dict[str, Any]) -> Any:
 
 		from browser_use import harness_cloud
 
-		if name or env or os.environ.get('BU_NAME') or not admin._is_local_chrome_mode():
+		if name or env or not admin._is_local_chrome_mode():
 			return ensure_daemon(wait=wait, name=name, env=env)
-		_route('default', namespace)  # a second ensure in this process starts over
-		if harness_cloud.was_cloud(admin.NAME):
+		base, own = os.environ.get('BU_NAME') or 'default', _own_chromium_name()
+		_route(base, namespace)  # a second ensure in this process starts over
+		if harness_cloud.was_cloud(base):  # a cloud browser's name never goes local: it fails closed once that one ends
 			return ensure_daemon(wait=wait)
-		for attached in (OWN_CHROMIUM, 'default'):  # its own Chromium until --reload, else a default daemon attached
+		unfit = _own_chromium_unfit(own)
+		for attached in (base,) if unfit else (own, base):  # its own Chromium until --reload, else a daemon attached
 			try:
 				admin.require_existing_daemon(attached)
 			except RuntimeError:
 				continue
 			return _route(attached, namespace)
-		ws = _own_chromium_ws()  # still running from an earlier call, whose daemon died or was stopped
+		ws = None if unfit else _own_chromium_ws()  # still running from an earlier call, whose daemon died or was stopped
 		if ws is None:
 			try:
 				return ensure_daemon(wait=wait)
@@ -681,16 +723,36 @@ def _with_own_chromium(ensure_daemon: Any, namespace: dict[str, Any]) -> Any:
 					if daemon.remote_debugging_toggle_profiles():  # Chrome is starting with it on: the next call attaches
 						raise
 					why, setup = _setup_reason(e, 'run `browser-use --reload`'), e
-			lock = admin._spawn_lock(OWN_CHROMIUM, timeout=90.0)  # concurrent cold calls: one launches the Chromium
+				if unfit:
+					raise RuntimeError(f'{e}\n{unfit}') from None
+			lock = admin._spawn_lock(own, timeout=90.0)  # concurrent cold calls: one launches the Chromium
 			lock.path = _own_chromium_dir().with_suffix('.chromiumlock')
 			with lock:
 				if lock.fd is None:  # another call is still launching it (or installing Chromium): never a second one
 					raise RuntimeError('daemon-starting: another browser-use call is still starting its browser; retry')
 				ws = _own_chromium_ws() or _start_own_chromium(why, setup)
-		ensure_daemon(wait=wait, name=OWN_CHROMIUM, env={'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0'})  # one spawn at a time
-		_route(OWN_CHROMIUM, namespace)
+		ensure_daemon(wait=wait, name=own, env={'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0'})  # one spawn at a time
+		_route(own, namespace)
 
 	return ensure
+
+
+def _with_upgrade_hint(ensure: Any) -> Any:
+	"""ensure_daemon that prints the upgrade line to stderr when attaching fails (no browser, remote debugging off, a dead
+	CDP URL) and PyPI has a newer browser-use (update_check.py). The exception is re-raised unchanged: browser-harness
+	prints it after this line, so it stays the last line of stderr that its error event keeps."""
+
+	def ensure_or_hint(*args: Any, **kwargs: Any) -> None:
+		try:
+			return ensure(*args, **kwargs)
+		except RuntimeError as e:
+			from browser_use.update_check import upgrade_hint
+
+			if hint := upgrade_hint(e):
+				print(hint, file=sys.stderr)
+			raise
+
+	return ensure_or_hint
 
 
 def _close_own_chromium() -> None:
@@ -699,8 +761,11 @@ def _close_own_chromium() -> None:
 
 	from browser_use.browser import local
 
+	own = _own_chromium_name()
+	if _own_chromium_unfit(own):  # it never started
+		return
 	try:
-		admin.restart_daemon(OWN_CHROMIUM)
+		admin.restart_daemon(own)
 	except Exception:  # a pending daemon it would not signal: its Chromium closes below, so it ends too
 		pass
 	if ws := _own_chromium_ws():
@@ -955,10 +1020,11 @@ Commands:
   browser-use skill [show | install [--target NAME] [--path DIR] [--install-cli]]
                                       print or install the agent skill
   browser-use feedback "what happened" [--category bug|docs|missing|other]
-                                      tell the Browser Use team what went wrong with browser-use
+                                      send the Browser Use team your integration report, bug or feature request
   browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback)
   browser-use --version               print the versions
-Update: uv tool upgrade browser-use (or pip install -U browser-use).
+Update: uv tool install browser-use@latest (or pip install -U browser-use). A call that cannot reach a browser asks
+PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=1 turns that off.
 Library: from browser_use import Agent, see https://github.com/browser-use/browser-use"""
 
 

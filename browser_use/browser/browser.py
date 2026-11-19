@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import base64
 import concurrent.futures
 import contextlib
 import functools
@@ -34,7 +35,7 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting
+from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting, record_auth_event
 from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
@@ -565,25 +566,14 @@ class Browser:
 		cloud_profile_id: str | None = None,
 		cloud_proxy_country_code: str | None = US,
 		cloud_timeout: int | None = None,
-		live_view: bool = False,
+		live_view: bool | None = None,
 		captcha_solver: bool = True,
 		allowed_domains: list[str] | None = None,
 		prohibited_domains: list[str] | None = None,
 		block_ip_addresses: bool = False,
 		**kwargs,
 	):
-		"""kind: 'cloud' (default), 'chromium' (a fresh local browser; local=True is the same) or 'chrome' (the Chrome
-		you have open; with profile='Work', a new Chrome on a temporary copy of that profile).
-		headless (launched browsers; default: only without a display), executable_path (default: Chrome, Chromium or
-		Edge, whichever is installed), user_data_dir ('chromium': a dedicated profile dir kept between runs instead of a
-		temp one). keep_alive: Agent.run() leaves the browser running (stop it with `await browser.stop()`).
-		cloud_profile_id: a cloud profile id or name (logins persist in it). cloud_proxy_country_code=None turns the
-		proxy off. cloud_timeout: minutes (1-240, default 60). live_view: print and open the interactive live view URL
-		(anyone with that link can drive the browser). captcha_solver=False: the cloud browser's automatic captcha solver
-		is off from the start. The cloud_* options, live_view and captcha_solver=False raise on a local browser.
-		allowed_domains / prohibited_domains (0.x patterns: 'example.com', '*.example.com', 'https://example.com') and
-		block_ip_addresses limit where the browser navigates, in every mode (browser_use/domains.py; MIGRATING.md "Domain
-		restrictions" says what is and is not blocked)."""
+		"""Configure a browser; live_view=None prints the link, True also opens it, and False hides it."""
 		if kwargs:
 			name = next(iter(kwargs))
 			if name in REMOVED:
@@ -814,6 +804,26 @@ class Browser:
 			with contextlib.suppress(Exception):  # the daemon is gone: the last tab known stays
 				self._agent_tab = _daemon_request(self.name, {'meta': 'current_tab'}, timeout=5)['targetId']
 
+	def _screenshot(self, timeout: float) -> bytes | None:
+		"""The agent's tab as JPEG, taken from this process through our daemon, never through the agent's REPL (its state,
+		notices and stats stay as they are). None when there is no daemon, the capture fails, or the tab is hidden: a
+		hidden tab's capture can hang (Linux headless, cloud), and activating it would switch the user's visible tab."""
+
+		def cdp(method: str, **params) -> dict:
+			return _daemon_request(
+				self._daemon_name(), {'method': method, 'params': params, 'session_id': None}, timeout=timeout
+			)['result']
+
+		try:
+			if (
+				cdp('Runtime.evaluate', expression='document.visibilityState', returnByValue=True)['result'].get('value')
+				== 'hidden'
+			):
+				return None
+			return base64.b64decode(cdp('Page.captureScreenshot', format='jpeg', quality=70)['data'])
+		except Exception:  # - no daemon, a gone browser or tab, a timeout: the judge goes without
+			return None
+
 	def _attach_agent_tab(self) -> None:
 		"""A daemon started again attaches a new blank tab of its own, so the next run saw about:blank, the agent's page
 		and form state out of reach. Attach the agent's tab instead and close that blank one."""
@@ -888,7 +898,7 @@ class Browser:
 			# older browser-use) keeps its own BH_TAB_MARKER: the worker strips the horse it adds to the agent's tabs.
 			return {'BU_SHARED_DAEMON': '1'}
 		if self.use_cloud:
-			browser_use_api_key('Browser() (a Browser Use Cloud browser)')  # fail before anything starts
+			await asyncio.to_thread(browser_use_api_key, 'Browser() (a Browser Use Cloud browser)', auto_login=True)
 			if ((self.id and not self.stopped) or self._creating is not None) and not await asyncio.to_thread(self._stop_now):
 				raise RuntimeError(
 					f'Cloud browser {self.id or "(still being created)"} is still running and could not be stopped; retry '
@@ -941,9 +951,15 @@ class Browser:
 		except BaseException:
 			await self._stop()
 			raise
-		if self.live_view and self.live_url:
-			print(f'Live view: {self.live_url}')
-			webbrowser.open(self.live_url, new=2)
+		if self.use_cloud:
+			record_auth_event('cloud_browser_started')
+		if self.live_view is not False and self.live_url:
+			with contextlib.suppress(OSError, ValueError):
+				print(f'Live view: {self.live_url}', file=sys.stderr)
+				record_auth_event('live_view_printed')
+			if self.live_view:
+				with contextlib.suppress(Exception):
+					webbrowser.open(self.live_url, new=2)
 		# BU_OWN_BROWSER: not the user's Chrome, so the agent's tab may be the visible one (repl/worker.py)
 		env = {'BU_NAME': self.name, 'BU_OWN_BROWSER': '1', **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
 		if self.use_cloud and not self.captcha_solver:
