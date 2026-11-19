@@ -16,6 +16,7 @@ import sys
 import sysconfig
 import warnings
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cache, lru_cache
 from importlib.metadata import PackageNotFoundError, version
@@ -30,6 +31,7 @@ MAX_NAME = 64  # characters per name
 MAX_URLS, MAX_URL = 50, 200  # per run, characters per URL
 MAX_ERRORS, MAX_ERROR = 20, 300  # per run, characters per error message
 MAX_RESULT = 500  # characters of the final result
+MAX_GOTCHAS = 5  # the judge's gotchas per run (as judge.MAX_GOTCHAS)
 CLI_CONTENT = ('task', 'output', 'steps')  # browser-harness cli_event fields that carry the code or its output
 
 
@@ -344,6 +346,20 @@ def provider_name(provider: Any) -> str:
 	return name[:MAX_NAME] if isinstance(name, str) else 'other'
 
 
+def judged(judgement: dict | None, cost: float | None, clean: Callable[[str], str | None]) -> dict | None:
+	"""The judge's whole answer as agent_event sends it: its text fields scrubbed (clean, as error messages), at most
+	MAX_GOTCHAS gotchas, and what the judge cost. None when the run was not judged."""
+	if judgement is None:
+		return None
+	return {
+		**judgement,
+		'failure_reason': clean(judgement['failure_reason']) if judgement['failure_reason'] else None,
+		'description': clean(judgement['description']) or '',
+		'gotchas': [g for g in (clean(g) for g in judgement['gotchas'][:MAX_GOTCHAS]) if g],
+		'cost_usd': cost,
+	}
+
+
 def top(counter: Counter, n: int = MAX_KEYS) -> dict[str, int]:
 	return dict(counter.most_common(n))
 
@@ -447,6 +463,13 @@ def error_class(e: BaseException | type) -> str:
 	# the module's class of that name is one of its bases
 	known = known_module((cls.__module__ or '').split('.')[0]) and getattr(module, cls.__name__, None) in cls.__mro__
 	return cls.__name__[:MAX_NAME] if known else 'custom'
+
+
+def group_class(e: BaseException) -> str:
+	"""An exception group's class with the classes inside it (error_class each), 'ExceptionGroup(BrokenPipeError)'."""
+	if not isinstance(e, BaseExceptionGroup):
+		return error_class(e)
+	return f'{error_class(e)}({", ".join(sorted({group_class(inner) for inner in e.exceptions}))})'[:MAX_ERROR]
 
 
 CDP_PART = re.compile(r'[A-Za-z][A-Za-z0-9]{0,63}')
@@ -607,7 +630,9 @@ def scrub_cli_event(payload: dict, error: BaseException | None = None) -> dict:
 		return payload
 	steps = [s for s in props.get('steps') or [] if isinstance(s, dict)]
 	clean = {k: v for k, v in props.items() if k not in CLI_CONTENT}
-	if clean.get('error_message') is not None and error is not None and raised_by_cell(error):
+	if clean.get('error_message') is not None and isinstance(error, BaseExceptionGroup):
+		clean['error_message'] = group_class(error)  # 'ExceptionGroup' (11-11, 3% of --cli-mcp devices) named no cause
+	elif clean.get('error_message') is not None and error is not None and raised_by_cell(error):
 		clean['error_message'] = error_class(error)
 	elif clean.get('error_message') is not None:  # a traceback's frames quote the code: its last line only
 		clean['error_message'] = scrub(error_line(clean['error_message']), [], MAX_ERROR) or None

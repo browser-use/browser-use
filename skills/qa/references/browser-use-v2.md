@@ -6,7 +6,7 @@ behavior, and **structured output** forces the 1–5 score. It runs server-side,
 returns step-by-step evidence (screenshots + actions).
 
 **Cost / credits:** the v2 agent spends Browser Use credits — about **$0.01 per task + ~$0.006 per
-step (LLM) + $0.02/hr browser**, drawn from the account's monthly allowance. (The Claude-subagent
+step (LLM) + $0.06/hr browser**, drawn from the account's monthly allowance. (The Claude-subagent
 backend in `methodology.md` spends no Browser Use *task* credits.) Recommend v2 for real QA; fall
 back to the Claude subagent to avoid credits.
 

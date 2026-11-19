@@ -15,6 +15,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from browser_use.exceptions import BrowserConfigError
@@ -80,7 +82,23 @@ def _left_over(base: Path) -> bool:
 		started = os.lstat(base / 'SingletonLock').st_mtime
 	except OSError:
 		return True
-	return written < started or not daemon.browser_running_for_profile(base)
+	return written < started or not (daemon.browser_running_for_profile(base) or _holder_wrote_it(base))
+
+
+def _holder_wrote_it(base: Path) -> bool:
+	"""What listens on DevToolsActivePort's port serves the browser websocket the file names: the browser that wrote the
+	file holds the port, though the pid in its SingletonLock is not one this process can see (Chrome in another PID
+	namespace: a sidecar container sharing the home dir and localhost). A process that took the port after that browser
+	quit does not know the id, unless it read it from that browser's /json/version while it ran (and could drive it
+	then). Chrome 147+ on its default dir answers 404 there: unproven, as before."""
+	try:
+		port, path = (base / 'DevToolsActivePort').read_text(encoding='utf-8', errors='replace').split()[:2]
+		local = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # 127.0.0.1 itself, never an HTTP proxy
+		with local.open('http://127.0.0.1:%d/json/version' % int(port), timeout=1) as r:
+			ws = json.loads(r.read(65536))['webSocketDebuggerUrl']  # ~500 bytes from Chrome
+		return urllib.parse.urlsplit(ws).path == path
+	except Exception:  # - 404, not a browser, no such field: not proven
+		return False
 
 
 def require_debug_port() -> None:

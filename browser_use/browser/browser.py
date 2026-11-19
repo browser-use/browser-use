@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import base64
 import concurrent.futures
 import contextlib
 import functools
@@ -34,7 +35,7 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting
+from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting, record_auth_event
 from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
@@ -198,6 +199,7 @@ REMOVED_METHODS = {  # 0.x BrowserSession methods and attributes -> the 1.0 alte
 CREATE_TIMEOUT_S = 120  # total for the cloud create; start() fails past it, and a browser that lands later is stopped
 LOCAL_START_WAIT_S = 120  # Browser('chrome'): Chrome start plus the user clicking Allow on its remote-debugging prompt
 DOWNLOADS_TIMEOUT_S = 300  # all download passes before a stop (and one after); a slow download never holds the billing longer
+CANCEL_DOWNLOADS_TIMEOUT_S = 10  # cancelled: all copy passes of a stop (or of a keep_alive run) share it, so it stays prompt
 _LIVE: set[Browser] = set()  # browsers this process owns that still need stopping
 _POOL = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='browser-use-cloud')  # joined at exit
 _atexit_installed = _signals_installed = False
@@ -253,6 +255,8 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 					size += len(chunk)
 					if time.monotonic() > deadline:
 						raise TimeoutError(f'download did not finish within its deadline ({name})')
+				if time.monotonic() > deadline:  # EOF came after it: the caller already gave up and never records the file
+					raise TimeoutError(f'download did not finish within its deadline ({name})')
 				expected = (getattr(r, 'headers', None) or {}).get('Content-Length')
 				if expected is not None and expected.isdigit() and size != int(expected):  # EOF before the end: truncated
 					raise ConnectionError(f'download of {name} ended after {size} of {expected} bytes')
@@ -562,25 +566,14 @@ class Browser:
 		cloud_profile_id: str | None = None,
 		cloud_proxy_country_code: str | None = US,
 		cloud_timeout: int | None = None,
-		live_view: bool = False,
+		live_view: bool | None = None,
 		captcha_solver: bool = True,
 		allowed_domains: list[str] | None = None,
 		prohibited_domains: list[str] | None = None,
 		block_ip_addresses: bool = False,
 		**kwargs,
 	):
-		"""kind: 'cloud' (default), 'chromium' (a fresh local browser; local=True is the same) or 'chrome' (the Chrome
-		you have open; with profile='Work', a new Chrome on a temporary copy of that profile).
-		headless (launched browsers; default: only without a display), executable_path (default: Chrome, Chromium or
-		Edge, whichever is installed), user_data_dir ('chromium': a dedicated profile dir kept between runs instead of a
-		temp one). keep_alive: Agent.run() leaves the browser running (stop it with `await browser.stop()`).
-		cloud_profile_id: a cloud profile id or name (logins persist in it). cloud_proxy_country_code=None turns the
-		proxy off. cloud_timeout: minutes (1-240, default 60). live_view: print and open the interactive live view URL
-		(anyone with that link can drive the browser). captcha_solver=False: the cloud browser's automatic captcha solver
-		is off from the start. The cloud_* options, live_view and captcha_solver=False raise on a local browser.
-		allowed_domains / prohibited_domains (0.x patterns: 'example.com', '*.example.com', 'https://example.com') and
-		block_ip_addresses limit where the browser navigates, in every mode (browser_use/domains.py; MIGRATING.md "Domain
-		restrictions" says what is and is not blocked)."""
+		"""Configure a browser; live_view=None prints the link, True also opens it, and False hides it."""
 		if kwargs:
 			name = next(iter(kwargs))
 			if name in REMOVED:
@@ -811,6 +804,26 @@ class Browser:
 			with contextlib.suppress(Exception):  # the daemon is gone: the last tab known stays
 				self._agent_tab = _daemon_request(self.name, {'meta': 'current_tab'}, timeout=5)['targetId']
 
+	def _screenshot(self, timeout: float) -> bytes | None:
+		"""The agent's tab as JPEG, taken from this process through our daemon, never through the agent's REPL (its state,
+		notices and stats stay as they are). None when there is no daemon, the capture fails, or the tab is hidden: a
+		hidden tab's capture can hang (Linux headless, cloud), and activating it would switch the user's visible tab."""
+
+		def cdp(method: str, **params) -> dict:
+			return _daemon_request(
+				self._daemon_name(), {'method': method, 'params': params, 'session_id': None}, timeout=timeout
+			)['result']
+
+		try:
+			if (
+				cdp('Runtime.evaluate', expression='document.visibilityState', returnByValue=True)['result'].get('value')
+				== 'hidden'
+			):
+				return None
+			return base64.b64decode(cdp('Page.captureScreenshot', format='jpeg', quality=70)['data'])
+		except Exception:  # - no daemon, a gone browser or tab, a timeout: the judge goes without
+			return None
+
 	def _attach_agent_tab(self) -> None:
 		"""A daemon started again attaches a new blank tab of its own, so the next run saw about:blank, the agent's page
 		and form state out of reach. Attach the agent's tab instead and close that blank one."""
@@ -885,7 +898,7 @@ class Browser:
 			# older browser-use) keeps its own BH_TAB_MARKER: the worker strips the horse it adds to the agent's tabs.
 			return {'BU_SHARED_DAEMON': '1'}
 		if self.use_cloud:
-			browser_use_api_key('Browser() (a Browser Use Cloud browser)')  # fail before anything starts
+			await asyncio.to_thread(browser_use_api_key, 'Browser() (a Browser Use Cloud browser)', auto_login=True)
 			if ((self.id and not self.stopped) or self._creating is not None) and not await asyncio.to_thread(self._stop_now):
 				raise RuntimeError(
 					f'Cloud browser {self.id or "(still being created)"} is still running and could not be stopped; retry '
@@ -938,9 +951,15 @@ class Browser:
 		except BaseException:
 			await self._stop()
 			raise
-		if self.live_view and self.live_url:
-			print(f'Live view: {self.live_url}')
-			webbrowser.open(self.live_url, new=2)
+		if self.use_cloud:
+			record_auth_event('cloud_browser_started')
+		if self.live_view is not False and self.live_url:
+			with contextlib.suppress(OSError, ValueError):
+				print(f'Live view: {self.live_url}', file=sys.stderr)
+				record_auth_event('live_view_printed')
+			if self.live_view:
+				with contextlib.suppress(Exception):
+					webbrowser.open(self.live_url, new=2)
 		# BU_OWN_BROWSER: not the user's Chrome, so the agent's tab may be the visible one (repl/worker.py)
 		env = {'BU_NAME': self.name, 'BU_OWN_BROWSER': '1', **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
 		if self.use_cloud and not self.captcha_solver:
@@ -1069,7 +1088,7 @@ class Browser:
 		"""Stop the daemon this Browser started, and the cloud browser or local Chrome it started. Never touches the
 		Chrome you have open.
 		downloads_dir: copy what the cloud browser downloaded there (default: the workspace/downloads of the last Agent
-		that ran on this Browser). Returns the local paths."""
+		that ran on this Browser); a cancelled stop copies within CANCEL_DOWNLOADS_TIMEOUT_S. Returns the local paths."""
 		async with self._lock:
 			await self._stopped()
 			return await self._stop(downloads_dir or self._downloads_dir)
@@ -1090,13 +1109,16 @@ class Browser:
 			# no wait when cancelled (task.cancel(), Ctrl-C: the stop must be prompt, a cloud browser bills) or when the
 			# Chrome this Browser launched died (its downloads never send progress again)
 			cancelled = (task := asyncio.current_task()) is not None and task.cancelling() > 0
+			# cancelled: every copy pass, before and after the stop, shares one CANCEL_DOWNLOADS_TIMEOUT_S (each could hold
+			# the stop, and the billing, up to DOWNLOADS_TIMEOUT_S); a pass that runs out of time is logged
+			cancel_deadline = time.monotonic() + CANCEL_DOWNLOADS_TIMEOUT_S if cancelled else None
 			dead = self._local is not None and self._local.proc is not None and self._local.proc.poll() is not None
 			completed = await self._finish_downloads() if ending and not cancelled and not dead else 0
 			# before the stop too: the API may not list a stopped session's files. The cloud lists a download about a
 			# second after it completes: retry until it lists them all, within one DOWNLOADS_TIMEOUT_S for all passes (a
 			# copy that kept failing, each pass with a deadline of its own, held the stop and the billing ~15 min)
 			if downloads_dir and self.use_cloud:
-				deadline = time.monotonic() + DOWNLOADS_TIMEOUT_S
+				deadline = cancel_deadline or time.monotonic() + DOWNLOADS_TIMEOUT_S
 				for _ in range(30):
 					await self._fetch_downloads(downloads_dir, fetched, files, browser_id, deadline)
 					if len(fetched) >= completed or time.monotonic() >= deadline:
@@ -1106,8 +1128,9 @@ class Browser:
 			self._stopping = asyncio.ensure_future(asyncio.to_thread(self._stop_now))
 			stopped = await asyncio.shield(self._stopping)
 			self._stopping = None
-		if downloads_dir and self.use_cloud:  # and after: files that finished while the browser stopped
-			await self._fetch_downloads(downloads_dir, fetched, files, browser_id)
+		# and after: files that finished while the browser stopped (the cloud lists a download ~1 s after it completes)
+		if downloads_dir and self.use_cloud and (cancel_deadline is None or time.monotonic() < cancel_deadline):
+			await self._fetch_downloads(downloads_dir, fetched, files, browser_id, cancel_deadline)
 		if stopped and self.id == browser_id:
 			self.id = None
 			self._download_records, self.json_page_copies, self._fetched = [], set(), set()  # the next session starts anew
@@ -1212,7 +1235,7 @@ class Browser:
 			async with asyncio.timeout(max(deadline - time.monotonic(), 0)):
 				await self.download_files(dest, skip, out=out, browser_id=browser_id, deadline=deadline)
 		except Exception as e:  # - the result is already delivered
-			logger.warning('Could not fetch cloud browser downloads: %s', e or type(e).__name__)
+			logger.warning('Could not fetch cloud browser downloads: %s', str(e) or type(e).__name__)
 
 	async def download_files(
 		self,

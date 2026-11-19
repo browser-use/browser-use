@@ -10,6 +10,7 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from test_compaction import FakeRepl
 
+from browser_use.agent import loop
 from browser_use.agent.loop import Session, build_agent, run
 from browser_use.repl import Repl
 
@@ -114,15 +115,16 @@ async def test_timeout_returns_partial(daemon, tmp_path):
 	assert json.loads(result.text) == {'rows': 3}
 
 
-async def test_only_last_two_screenshot_results_keep_images(daemon, tmp_path):
+async def test_screenshots_pruned_in_one_batch(daemon, tmp_path, monkeypatch):
+	monkeypatch.setattr(loop, 'PRUNE_IMAGES_AT', 3)
 	shot = ('python', {'code': "new_tab('data:text/html,<h1>x</h1>') if not list_tabs(False) else None\nscreenshot()\n'shot'"})
-	result, seen = await go(daemon, tmp_path, [shot, shot, shot, ('finish', {'success': True, 'result': 'ok'})])
+	result, seen = await go(daemon, tmp_path, [shot, shot, shot, shot, ('finish', {'success': True, 'result': 'ok'})])
 	assert result.output == 'ok'
 	returns = [
 		p for m in result.messages for p in getattr(m, 'parts', []) if isinstance(p, ToolReturnPart) and p.tool_name == 'python'
 	]
 	images = [sum(getattr(c, 'is_image', False) for c in p.content) for p in returns]
-	assert images == [0, 1, 1]
+	assert images == [0, 0, 1, 1]
 	assert '[older screenshot removed]' in returns[0].content
 
 

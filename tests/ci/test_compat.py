@@ -38,7 +38,6 @@ GUIDE = r' Migration guide: https://github\.com/browser-use/browser-use/blob/mai
 		'register_should_stop_callback',
 		'generate_gif',
 		'judge_llm',  # judge
-		'ground_truth',
 		'enable_planning',  # planner
 		'planner_llm',
 		'planning_replan_on_stall',
@@ -78,7 +77,7 @@ def test_available_file_paths_error_says_there_is_no_allowlist(no_browser):
 
 def test_0x_tuning_knobs_warn_and_construct(no_browser, caplog, monkeypatch):
 	"""use_vision=False alone is on 31% of 0.x devices: a script that only tuned the old loop keeps running."""
-	knobs = dict(use_vision=False, max_actions_per_step=3, flash_mode=True, use_judge=False, use_thinking=True, max_failures=5)
+	knobs = dict(use_vision=False, max_actions_per_step=3, flash_mode=True, use_thinking=True, max_failures=5)
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
 	with caplog.at_level('WARNING', logger='browser_use'):
 		Agent('t', script()[0], **knobs)
@@ -492,7 +491,7 @@ def test_result_keeps_common_0x_methods():
 	assert (failed.final_result(), failed.is_done(), failed.is_successful(), failed.errors()) == (None, False, None, ['boom'])
 
 
-@pytest.mark.parametrize('name', ['urls', 'screenshots', 'action_names', 'model_thoughts', 'history', 'judgement', 'is_judged'])
+@pytest.mark.parametrize('name', ['urls', 'screenshots', 'action_names', 'model_thoughts', 'history', 'is_judged'])
 def test_removed_result_methods_raise_attribute_error(name):
 	with pytest.raises(AttributeError, match=rf'^AgentHistoryList\.{name} {REMOVED} In 1\.0: '):
 		getattr(result(), name)
