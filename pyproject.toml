@@ -139,4 +139,4 @@ dev = [
 # Temporary, until browser-harness 0.1.14 is on PyPI: uv installs it from the release candidate
 # (release/0.1.14 with browser-use/browser-harness#1050). Delete this block and run `uv lock` once 0.1.14 is published.
 [tool.uv.sources]
-browser-harness = { git = "https://github.com/browser-use/browser-harness", rev = "7987ca4dcac239de38c434aab71204a48bbbcfaa" }
+browser-harness = { git = "https://github.com/browser-use/browser-harness", rev = "bcc1d3b51740c44d36f6eb5c52ed7f578ad3d66b" }
