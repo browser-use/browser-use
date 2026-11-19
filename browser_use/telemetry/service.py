@@ -608,7 +608,10 @@ class ProductTelemetry:
 				return
 			kw: dict[str, Any] = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
 			if sys.platform == 'win32':
-				kw['creationflags'] = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
+				# NEW_PROCESS_GROUP, NO_WINDOW: a console with no window, which the venv launcher's child (uv, venv
+				# python.exe) inherits. Not DETACHED: Windows ignores NO_WINDOW with it, and the child then gets a new,
+				# visible console.
+				kw['creationflags'] = 0x00000200 | 0x08000000
 			else:
 				kw['start_new_session'] = True
 			try:
