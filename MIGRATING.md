@@ -45,6 +45,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | everything else 0.x took | removed: [Removed in 1.0](#removed-in-10) |
 | new: `judge`, `judge_context` | `judge=True` (the default): after each run that took a step, one request to the agent's own model, at low effort, judges the trace (120k characters of text, secrets redacted) against the task; with vision on (`use_vision=False` sends text only) it also sends the last 4 distinct images of the run, the final page included, as they are (not redacted). A model that rejects images is asked once more with the text alone. `result.judgement` holds `success`, `failure_reason`, `description`, `prompt_injection_detected`, `bot_block_or_captcha_detected` and `gotchas` (short, general lessons about the sites for the next agent, also on a success: what the agent had to retry or work around); its tokens and cost are added to `result.usage` and `result.cost_usd`. A judge that fails logs a warning and leaves `result.judgement` `None`. `judge_context` is your criteria or expected answer, which the judge puts first. With usage stats on, `agent_event` carries the judgement, each text scrubbed as error messages are. `judge=False` sends no judge request |
 | new: `before_action`, `after_action` | see every tool call (a Python cell, or one of your `Tools` actions) before it runs, refuse it, and see what it did: [Action hooks](#action-hooks) |
+| new: `audit_log`, `audit_metadata` | a hash-chained JSONL record of each run, its tool calls, their decisions and outcomes, secrets redacted and no page text: [Audit log](#audit-log) |
 | new: `reasoning`, `mode`, `workspace`, `web_search`, `max_context_chars`, `highlight_actions` | `reasoning='medium'` (OpenAI reasoning models, the gateway, Anthropic, Google; on the gateway a bu-* alias's own effort, a listed OpenAI model 'medium'; OpenAI-compatible chat backends ignore it with a warning: use `ChatOpenAI(..., reasoning_effort=...)`); `mode='ultrafast'` (the default on `bu-fast` and `bu-ultrafast`; `mode='default'` opts out); `workspace` holds the agent's files (default: a new temp dir `browser-use-*`, kept after the run: it holds page text, screenshots and cell output, so delete it when done, or pass your own `workspace=`); `web_search=True` gives the agent `search()` (Browser Use web search on the gateway host, `POST /api/v4/search`, with the gateway model's key or the Browser Use key; billed per search; each charge the response reports (`browser_use.charge_usd`) is added to `result.cost_usd`, a response without one adds nothing, and an unknown model cost stays `None`) off by default; `True` raises without a Browser Use key or with `allowed_domains`. Off, the system prompt is unchanged; `max_context_chars`: past 75% of this many characters of conversation the agent compacts its history into a summary checkpoint (default 4 per token of the model's context window, as Browser Use Pi, or 240k when pydantic-ai does not know the window; unused where the provider compacts server-side: OpenAI Responses, the gateway); `highlight_actions=False` turns off the orange corner brackets around what the agent clicks or types into (on by default) |
 
 ## Agent methods
@@ -365,6 +366,46 @@ Agent('...', before_action=policy, after_action=record)
   decides on what the code says. Code can do things its text does not show (`exec` of a string it builds, a click whose
   effect depends on the page), and a cell does several things at once. For a hard boundary on where the browser goes,
   use `Browser(allowed_domains=...)`; run untrusted tasks in a container or VM.
+
+## Audit log
+
+`Agent(task, audit_log='audit.jsonl', audit_metadata={'run_by': 'svc-reports', 'on_behalf_of': 'alice@corp.com'})`
+appends one JSON line per event to the file (created `0600`, parent folders made; follow-up runs and other Agents append
+to the same file). An action is a tool call as in [Action hooks](#action-hooks), and your own `before_action` and
+`after_action` still run.
+
+```python
+from browser_use import Agent
+from browser_use.audit import verify
+
+await Agent('...', audit_log='audit.jsonl', audit_metadata={'run_by': 'svc-reports'}).run()
+assert verify('audit.jsonl') == []  # each problem is one string: 'line 7 (run ..., seq 6): prev does not match line 6: ...'
+```
+
+| `type` | fields (every line also has `seq`, `prev`, `run_id`, `ts` in ISO 8601 UTC) |
+|---|---|
+| `run_start` | `version`, `model`, `task`, `follow_up`, `browser` (`cloud`, `chromium`, `chrome`, `cdp`), `allowed_domains`, `prohibited_domains`, `block_ip_addresses`, `metadata` (your `audit_metadata`) |
+| `action` | `step`, `tool`, `args` (`{'code': ...}` for a cell, `{'expression': ...}` for `finish_from_repl`), `host`, `decision` (`allowed` or `refused`: the final one, after your `before_action`), `reason` |
+| `outcome` | `step`, `tool`, `error`, `urls`, `duration_s`, `output_chars`, `output_sha256` (only for actions that ran) |
+| `run_end` | `status`, `steps`, `cost_usd` (with the judge), `success`, `error`; a run that raised: `status` `cancelled` or `error`, `error` the exception class |
+
+- Tamper-evident: `seq` counts 0, 1, 2, ... within a run, and `prev` is the sha256 hex of the run's previous line (its
+  exact bytes, without the newline); the first line's `prev` is the sha256 of the `run_id`. `verify(path)` returns the
+  problems: a line edited, deleted, reordered or cut off mid-write, or a run without `run_end` (still running, killed,
+  or its last lines deleted). Empty means intact. It cannot see a whole run deleted, an edit to a run's last line, or a
+  writer who rewrites every later line with new hashes. The agent's Python runs as your user and can do that to the
+  file: for a record the agent cannot change, ship each line off the machine as it is written (`audit_log=fn`).
+- No secrets, no page text: `sensitive_data` values are replaced with `<secret:name>` in every field (code, task,
+  errors, URLs, metadata). An outcome records the length and sha256 of what the model read back, not the text: audit
+  logs are kept for years and page text holds personal data. The sha256 matches `ActionOutcome.output`, so a copy you
+  keep elsewhere can be proven to be what the agent saw. The code in `args` is the model's and can contain what it typed.
+- `audit_log=fn` instead of a path: `fn(event)` (sync or async) gets each event as a dict, to send to a SIEM.
+  `json.dumps(event, separators=(',', ':'))` is the exact line, so writing those lines to a file gives one `verify()`
+  accepts.
+- Fail closed: a path that cannot be opened, or a `run_start` that cannot be written, makes `run()` raise before the
+  browser starts. An action whose line cannot be written is refused (the model reads `Not run: the audit log could not
+  be written (<error class>).`). A failed `outcome` or `run_end` line is logged; the run's result is still returned.
+- Each line is one `write()` to a file opened with `O_APPEND`, and `run_end` is `fsync`ed before `run()` returns.
 
 ## Trust model for secrets
 
