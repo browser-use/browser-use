@@ -1075,7 +1075,10 @@ def test_cli_mcp_on_a_headless_box_opens_a_page_in_its_own_chromium(chrome_binar
 		out, failed = mcp._execute(
 			'new_tab("data:text/html,<title>own page</title>"); wait_for_load(); print(page_info()["title"])'
 		)
-		assert not failed and out == 'own page\n' and 'own Chromium' in (mcp._note or ''), (out, mcp._note)
+		# browser-harness 0.1.14's new_tab() prints its tab id for CLI agents, which see only stdout (kept here)
+		opened, title = out.splitlines()
+		assert not failed and opened.startswith('new_tab: ') and title == 'own page', (out, mcp._note)
+		assert 'own Chromium' in (mcp._note or ''), mcp._note
 	finally:
 		if mcp._browser is not None:
 			import asyncio

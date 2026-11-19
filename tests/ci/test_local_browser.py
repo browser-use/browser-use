@@ -966,8 +966,7 @@ async def test_a_download_in_the_agents_second_tab_reports_its_progress(chrome_b
 	try:
 		assert browser.name
 		target = browser_mod._daemon_cdp(browser.name, 'Target.createTarget', url=link)['targetId']
-		session = browser_mod._daemon_cdp(browser.name, 'Target.attachToTarget', targetId=target, flatten=True)['sessionId']
-		browser_mod._daemon_request(browser.name, {'meta': 'set_session', 'session_id': session, 'target_id': target})
+		assert 'error' not in browser_mod._daemon_request(browser.name, {'meta': 'switch_tab', 'target_id': target})
 		await asyncio.sleep(1)  # as new_tab() then wait_for_load()
 		browser_mod._daemon_cdp(browser.name, 'Runtime.evaluate', expression='document.getElementById("a").click()')
 		events, deadline = [], time.monotonic() + 10

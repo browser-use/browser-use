@@ -86,6 +86,9 @@ UNMARK_JS = """(() => {
   new MutationObserver(strip).observe(document, {subtree: true, childList: true, characterData: true});
   strip();
 })()"""
+BROWSER_ENDED = 'the browser ended (crashed, stopped, or a cloud browser hit its timeout)'
+TAB_METAS = ('new_tab', 'switch_tab', 'set_session')  # daemon requests that make a tab the agent's current one
+NEW_TAB_LINE = re.compile(r'^new_tab: \S+ .*\n?', re.M)
 # The daemon's error once its websocket to the browser closed: Chrome crashed or quit ("no close frame received or
 # sent"), or the cloud browser was stopped or timed out ("received 1001 (going away) browser session ended").
 BROWSER_GONE = re.compile(r'no close frame|received 10\d\d \(|sent 10\d\d \(|ConnectionClosed|websocket.*closed', re.I)
@@ -400,6 +403,33 @@ class CountedBu:
 		return repr(self._bu)
 
 
+def _quiet_new_tab(fn):
+	"""browser-harness 0.1.14's new_tab() prints 'new_tab: <targetId> <url>' for CLI agents that only see stdout. The
+	agent here gets the id as the return value, and its cell output (which the prompt is evaluated on) stays as before."""
+
+	@functools.wraps(fn)
+	def new_tab(*args, **kwargs):
+		buf = io.StringIO()
+		try:
+			with contextlib.redirect_stdout(buf):
+				tab = fn(*args, **kwargs)
+		finally:
+			sys.stdout.write(NEW_TAB_LINE.sub('', buf.getvalue(), count=1))
+		return tab
+
+	return new_tab
+
+
+def _daemon_saw_browser_end() -> bool:
+	"""The daemon's log says it exited because its browser connection closed (browser-harness >= 0.1.14)."""
+	from browser_harness import _ipc as ipc
+
+	try:
+		return 'CDP connection closed' in ipc.log_path(os.environ.get('BU_NAME') or 'default').read_text(errors='replace')
+	except OSError:
+		return False
+
+
 def _checked(fn, check_url):
 	@functools.wraps(fn)
 	def checked(*args, **kwargs):
@@ -511,18 +541,31 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			r = raw_send(req, *args, **kwargs)
 		except (FileNotFoundError, ConnectionRefusedError, ConnectionResetError, BrokenPipeError):
 			AGENT_TAB['lost'] = True
-			raise BrowserConnectionLost() from None
+			# browser-harness >= 0.1.14: a daemon whose browser connection closed exits, so its socket is gone too
+			raise (BrowserConnectionLost(BROWSER_ENDED) if _daemon_saw_browser_end() else BrowserConnectionLost()) from None
 		except RuntimeError as e:  # the daemon is up but its browser connection closed: the browser crashed or ended
 			if BROWSER_GONE.search(str(e)):
 				AGENT_TAB['lost'] = True
-				raise BrowserConnectionLost('the browser ended (crashed, stopped, or a cloud browser hit its timeout)') from None
+				raise BrowserConnectionLost(BROWSER_ENDED) from None
 			raise
-		if isinstance(req, dict) and req.get('meta') == 'set_session' and req.get('target_id'):
-			AGENT_TAB['id'] = req['target_id']
-			unmark()
-		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
+		meta = req.get('meta') if isinstance(req, dict) else None
+		if meta in TAB_METAS and isinstance(r, dict) and (tab := r.get('target_id') or req.get('target_id')):
+			on_tab(meta, tab)
+		if meta == 'drain_events' and isinstance(r, dict):
 			stats.observe(r.get('events'))
 		return r
+
+	def on_tab(meta: str, tab: str) -> None:
+		"""The agent's tab is the one new_tab() / switch_tab() made current (browser-harness >= 0.1.14 does both in the
+		daemon, with no Target.createTarget or attachToTarget through cdp()), or set_session (older ones) named."""
+		AGENT_TAB['id'] = tab
+		if tabs_file:  # Browser._touched_tabs: the sweep resets the agent's tabs on a disallowed page
+			with contextlib.suppress(OSError), open(tabs_file, 'a') as f:
+				f.write(f'{tab}\n')
+		if meta == 'new_tab' and os.environ.get('BU_OWN_BROWSER') == '1':  # visible, as switch_tab(activate=True) below
+			with contextlib.suppress(Exception):
+				raw_send({'method': 'Target.activateTarget', 'params': {'targetId': tab}})
+		unmark()
 
 	def unmark() -> None:
 		"""Keep the attached tab's title free of a shared daemon's horse (UNMARK_JS), on this page and the next ones."""
@@ -533,6 +576,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 				)
 
 	helpers._send = send
+	helpers.new_tab = _quiet_new_tab(helpers.new_tab)
 	raw_cdp = helpers.cdp
 	with contextlib.suppress(Exception):  # no daemon yet
 		AGENT_TAB['id'] = raw_send({'meta': 'current_tab'})['targetId']
@@ -704,7 +748,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		install_tls_opener()  # http_get and urllib in cells verify as the OS does, as with rules
 	if os.environ.get('BU_OWN_BROWSER') == '1':  # a browser we launched or were given: the agent's tab is the visible one,
 		# as in 0.x. A hidden tab never paints, so scroll() timed out and keys and clicks were dropped.
-		helpers.switch_tab = functools.partial(helpers.switch_tab, activate=True)  # new_tab() calls it too
+		helpers.switch_tab = functools.partial(helpers.switch_tab, activate=True)  # new_tab(): on_tab() in send()
 		with contextlib.suppress(Exception):  # the daemon attached to a background tab of its own
 			cdp('Target.activateTarget', targetId=helpers.current_tab()['targetId'])
 	captcha = Captcha(cdp, STATE / 'captcha.json', off=os.environ.get('BU_CAPTCHA_SOLVER') == 'off')
