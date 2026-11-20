@@ -6,6 +6,8 @@ from collections.abc import Callable
 CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
 SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
 HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
+# a headless browser has no visible tab to switch, so its hidden tab is activated without the 10 s try
+VISIBILITY = "document.visibilityState + (navigator.userAgent.includes('HeadlessChrome') ? ' headless' : '')"
 
 
 def capture(raw_cdp, current_tab, session_id=None, *, activate: bool | Callable[[], bool] = False, frozen=False, **params):
@@ -17,16 +19,17 @@ def capture(raw_cdp, current_tab, session_id=None, *, activate: bool | Callable[
 	for a hidden tab. frozen: a JS dialog is open (cdp()), so the page answers no visibility probe either (its 5 s took
 	screenshot() to 7 s): capture as is."""
 	timeout = params.pop('_response_timeout', SCREENSHOT_TIMEOUT_S)
-	hidden = False
+	hidden = headless = False
 	if session_id is None and not frozen:  # the attached tab; another session's target is unknown here
 		try:
-			r = raw_cdp('Runtime.evaluate', expression='document.visibilityState', returnByValue=True, _response_timeout=5)
-			hidden = r['result'].get('value') == 'hidden'
+			r = raw_cdp('Runtime.evaluate', expression=VISIBILITY, returnByValue=True, _response_timeout=5)
+			seen = str(r['result'].get('value', '')).split()
+			hidden, headless = seen[:1] == ['hidden'], 'headless' in seen
 		except Exception:  # unknown: capture as for a visible tab
 			pass
 	if not hidden:
 		return raw_cdp('Page.captureScreenshot', session_id, _response_timeout=timeout, **params)
-	if not (activate() if callable(activate) else activate):
+	if not (headless or (activate() if callable(activate) else activate)):
 		try:
 			return raw_cdp('Page.captureScreenshot', _response_timeout=min(timeout, HIDDEN_CAPTURE_TRY_S), **params)
 		except TimeoutError:
