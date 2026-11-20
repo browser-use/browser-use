@@ -265,7 +265,7 @@ async def test_agent_event_sends_urls_errors_and_result_never_task_secrets_typed
 	assert r.status == 'completed', r.error
 	(props,) = sent
 	assert_absent(props, task, secret, typed, query, value, fragment, error, 'type_text(', 'wait_for_load()')
-	assert props['schema_version'] == 5 and props['agent_type'] == 'pydantic' and props['os']
+	assert props['schema_version'] == 6 and props['agent_type'] == 'pydantic' and props['os']
 	assert 'task' not in props and 'final_result_response' not in props
 	assert props['urls_visited'] == [f'http://127.0.0.1/{path}/{path}2', f'http://{other_host}.invalid/{path}3']  # no port
 	assert props['error_messages'] == ['ValueError']  # the cell raised it with what it read: its class, never the message
@@ -983,7 +983,7 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 	assert p['final_result'] == f'{c.result} <task>'  # the task, quoted whole (and with its secret redacted)
 	assert (event['event'], event['distinct_id'], event['uuid']) == ('agent_event', 'bu-test-device', str(uuid.UUID(p['run_id'])))
 	assert (p['schema_version'], p['status'], p['steps'], p['is_internal'], p['$lib']) == (
-		5,
+		6,
 		'completed',
 		5,
 		True,  # conftest: every test event is internal
@@ -2292,7 +2292,7 @@ async def test_report_issue_sends_scrubbed_feedback_joined_to_its_run_at_most_th
 	assert (first['source'], first['category'], first['step'], first['last_error_type']) == ('agent', 'bug', 2, 'ValueError')
 	assert first['run_id'] == run['properties']['run_id'] and first['model'] == run['properties']['model']
 	assert first['version'] and first['python_version'] and first['os'] and 'browser_harness_version' in first
-	assert (first['is_internal'], first['is_ci'] in (True, False), first['schema_version']) == (True, True, 5)
+	assert (first['is_internal'], first['is_ci'] in (True, False), first['schema_version']) == (True, True, 6)
 	assert [r['properties']['message'] for r in reports[1:]] == ['again 0', 'again 1']
 	assert {r['distinct_id'] for r in events} == {'bu-test-device'}
 	assert_absent({'events': events}, 'Zq9', user_key)
@@ -2519,3 +2519,37 @@ def test_a_home_outside_users_and_home_is_sent_as_tilde(monkeypatch):
 	monkeypatch.setenv('USERPROFILE', '/data/users/jane')  # Windows: expanduser reads USERPROFILE, not HOME
 	text = 'no file /data/users/jane/app/a.pdf, /data/users/janet/x, file:///data/users/jane/y, /Users/bob/z'
 	assert scrub(text, [], 500) == 'no file ~/app/a.pdf, /data/users/janet/x, file://~/y, /Users/<user>/z'
+
+
+def test_provider_masked_key_fragments_are_scrubbed():
+	"""A provider's 401 quotes the key it got, masked: 'sk-...***...eeb' reached PostHog in error_messages."""
+	from browser_use.telemetry.stats import scrub
+
+	for text, kept in (
+		("Error code: 401 - {'message': 'Incorrect API key provided: sk-...***...eeb', 'type': 'x'}", 'Error code: 401'),
+		('Incorrect API key provided: sk-proj-****************kX0A. You can find your key at', 'You can find your key'),
+		('Incorrect API key provided: 1234****5678.', 'Incorrect API key provided'),
+		('bad key sk-abc12******************xyz9 used', 'bad key'),
+		('API key AIzaSy...Q2w is invalid', 'is invalid'),
+		('stored key bu_1234...abcd rejected', 'rejected'),
+	):
+		out = scrub(text, [], 300) or ''
+		assert '<credential>' in out and kept in out, out
+		for fragment in ('eeb', 'kX0A', '5678', 'xyz9', 'Q2w', 'abcd'):
+			assert fragment not in out, (fragment, out)
+	assert scrub('***important*** and sk-learn stay', [], 300) == '***important*** and sk-learn stay'
+	deepseek = scrub('Authentication Fails, Your api key: ****f3a1 is invalid', [], 300) or ''
+	assert 'f3a1' not in deepseek and 'Your api key: <credential> is invalid' in deepseek
+
+
+def test_masked_key_scrub_stays_linear_on_runs_of_key_prefixes():
+	"""An unbounded lazy run before the mask made each 'sk-' start scan to the text's end: 26 s for 'sk-'*12000, in the
+	telemetry thread holding the GIL a run needs."""
+	import time
+
+	from browser_use.telemetry.stats import scrub
+
+	start = time.perf_counter()
+	for text in ('sk-' * 12000, 'AIza-' * 7000, 'sk-.' * 9000):
+		scrub(text, [], 500)
+	assert time.perf_counter() - start < 5

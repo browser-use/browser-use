@@ -30,7 +30,13 @@ from mcp.server import Server
 
 import browser_use
 from browser_use import Browser, harness_cloud
-from browser_use.auth import browser_use_api_key, harden_login_callback, set_aside_corrupt_store
+from browser_use.auth import (
+	browser_use_api_key,
+	harden_login_callback,
+	login_outcome,
+	record_auth_event,
+	set_aside_corrupt_store,
+)
 from browser_use.browser.browser import _name_daemon_files
 from browser_use.domains import DomainRules
 from browser_use.exceptions import removed
@@ -39,6 +45,7 @@ from browser_use.repl.capture import install as install_capture
 from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
 from browser_use.telemetry import feedback
+from browser_use.telemetry.auth_events import set_entry
 from browser_use.update_check import upgrade_hint
 from browser_use.utils import get_browser_use_version
 
@@ -388,7 +395,8 @@ def _open_url(url: str) -> bool:
 
 
 class _Login:
-	"""One browser OAuth login (browser-harness's flow and key store), finishing in a thread across tool calls."""
+	"""One browser OAuth login (browser-harness's flow and key store), finishing in a thread across tool calls. Sends
+	library_auth login_started, then login_succeeded or login_failed (entry mcp)."""
 
 	def __init__(self):
 		from browser_harness import auth
@@ -396,7 +404,12 @@ class _Login:
 		os.environ.setdefault('BH_DEVICE_NAME', 'browser-use-mcp')
 		harden_login_callback()
 		set_aside_corrupt_store()  # a corrupt key store would make saving the new key fail after the user approved
-		self.start = auth.start_browser_auth(open_url=False)
+		record_auth_event('login_started', method='browser', entry='mcp')
+		try:
+			self.start = auth.start_browser_auth(open_url=False)
+		except Exception as e:
+			record_auth_event('login_failed', method='browser', entry='mcp', outcome=login_outcome(e))
+			raise
 		self.opened = _open_url(self.start.auth_url)
 		self.error: str | None = None
 		self.thread = threading.Thread(target=self._finish, daemon=True, name='browser-use-login')
@@ -409,6 +422,9 @@ class _Login:
 			auth.complete_browser_auth(self.start)
 		except Exception as e:  # AuthError: denied, timed out, exchange failed
 			self.error = str(e)
+			record_auth_event('login_failed', method='browser', entry='mcp', outcome=login_outcome(e))
+		else:
+			record_auth_event('login_succeeded', method='browser', entry='mcp')
 
 
 def _refusing(fn: Any, rules: DomainRules) -> Any:
@@ -563,17 +579,18 @@ class CLIMCPServer:
 			errors: list[tuple[str, str]] = []
 			token = _call_errors.set(errors)
 			started, result = time.monotonic(), None
+			call: dict[str, str] = {}  # this call's login_state: overlapping calls share the server
 			try:
-				result = await call_tool(params.name, params.arguments or {})
+				result = await call_tool(params.name, params.arguments or {}, call)
 				return result
 			except BaseException as e:  # a cancelled call (the client's timeout): CancelledError
 				_error_class(e)
 				raise
 			finally:
 				_call_errors.reset(token)
-				self._record_call(params.name, result, errors, time.monotonic() - started)
+				self._record_call(params.name, result, errors, time.monotonic() - started, call.get('login_state'))
 
-		async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+		async def call_tool(name: str, arguments: dict[str, Any], call: dict[str, str]) -> types.CallToolResult:
 			if name == 'browser_exec':
 				code = arguments.get('code')
 				if not isinstance(code, str):
@@ -597,8 +614,9 @@ class CLIMCPServer:
 				content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
 				return types.CallToolResult(content=content)
 			if name == 'browser_login':
-				text = await asyncio.to_thread(self._sign_in, bool(arguments.get('force', False)))
-				return types.CallToolResult(content=[types.TextContent(type='text', text=text)])
+				text, call['login_state'] = await asyncio.to_thread(self._sign_in, bool(arguments.get('force', False)))
+				failed = call['login_state'] in ('failed', 'start_failed')  # ok=True always made a failed login invisible
+				return types.CallToolResult(content=[types.TextContent(type='text', text=text)], is_error=failed)
 			if name == 'browser_feedback':
 				text, failed = feedback.mcp_call(arguments)
 				return types.CallToolResult(content=[types.TextContent(type='text', text=text)], is_error=failed)
@@ -611,7 +629,14 @@ class CLIMCPServer:
 		self.server.add_request_handler('tools/list', types.PaginatedRequestParams, handle_list_tools)
 		self.server.add_request_handler('tools/call', types.CallToolRequestParams, handle_call_tool)
 
-	def _record_call(self, name: str, result: types.CallToolResult | None, errors: list[tuple[str, str]], seconds: float) -> None:
+	def _record_call(
+		self,
+		name: str,
+		result: types.CallToolResult | None,
+		errors: list[tuple[str, str]],
+		seconds: float,
+		login_state: str | None = None,
+	) -> None:
 		"""One mcp_server_event per tool call: queued, sent by the telemetry thread; never fails a call."""
 		self._calls += 1
 		try:
@@ -623,7 +648,9 @@ class CLIMCPServer:
 
 			if not telemetry().enabled:
 				return
-			if not errors and result is not None and result.is_error:  # no exception: rejected arguments, an unknown tool
+			if not errors and result is not None and result.is_error and name == 'browser_login':
+				errors = [('login_failed', '')]  # login_state is the reason: the text quotes the auth server's own
+			elif not errors and result is not None and result.is_error:  # no exception: rejected arguments, an unknown tool
 				text = next((c.text for c in result.content if isinstance(c, types.TextContent)), '') if name in TOOLS else ''
 				errors = [('invalid_arguments' if name in TOOLS else 'unknown_tool', text.removeprefix('Error: '))]
 			detect = getattr(harness_telemetry, '_detect_agent_client', None)
@@ -639,6 +666,7 @@ class CLIMCPServer:
 				call_n=self._calls,
 				is_internal=is_internal(),
 				error_message=scrub(errors[0][1], [], MAX_ERROR) or None if errors else None,
+				login_state=login_state if name == 'browser_login' else None,
 			)
 			telemetry().capture(event)
 		except Exception:  # - telemetry never breaks a tool call
@@ -892,6 +920,7 @@ class CLIMCPServer:
 		"""One line for a failure to reach the browser. browser-harness's "daemon <name> didn't come up -- check <log>"
 		named only a log file the model cannot read: its last line is the reason (browser-harness reads it the same way)."""
 		if isinstance(e, CloudAuthRequired):  # its own message names `browser-harness auth login`, not this server's tool
+			record_auth_event('missing_key', key_gate='mcp_cloud', key_reason='missing', entry='mcp')
 			return LOGIN_HINT
 		if isinstance(e, CloudBrowserError | NoBrowserError):
 			return f'Error: {e}'
@@ -905,8 +934,9 @@ class CLIMCPServer:
 			text += f'. No local Chrome to use? {hint[0].upper()}{hint[1:]}'
 		return f'Error: {text}'
 
-	def _sign_in(self, force: bool, wait: float = LOGIN_WAIT_SECONDS) -> str:
-		"""Start (or keep waiting on) one browser login. The key never appears in the result."""
+	def _sign_in(self, force: bool, wait: float = LOGIN_WAIT_SECONDS) -> tuple[str, str]:
+		"""Start (or keep waiting on) one browser login: (the text, how it stands). The key never appears in the text.
+		The state is mcp_server_event login_state; failed and start_failed are error results."""
 		from browser_harness import auth
 
 		with self._login_lock:
@@ -920,14 +950,17 @@ class CLIMCPServer:
 					status = {'status': 'error', 'reason': str(e)}
 				if status.get('source') == 'env':
 					if not force:
-						return f'Signed in to Browser Use Cloud (key from BROWSER_USE_API_KEY). {LOGIN_NEXT}'
-					return 'BROWSER_USE_API_KEY is set for this server and wins over a stored key: fix or unset it in the MCP config.'
+						return f'Signed in to Browser Use Cloud (key from BROWSER_USE_API_KEY). {LOGIN_NEXT}', 'env'
+					return (
+						'BROWSER_USE_API_KEY is set for this server and wins over a stored key: fix or unset it in the MCP config.',
+						'env',
+					)
 				if status.get('status') == 'authenticated' and not force:
-					return f'Signed in to Browser Use Cloud (key from {status.get("path")}). {LOGIN_NEXT}'
+					return f'Signed in to Browser Use Cloud (key from {status.get("path")}). {LOGIN_NEXT}', 'already'
 				try:
 					login = self._login = _Login()
 				except Exception as e:  # network error, auth server refused the request
-					return f'Could not start Browser Use Cloud login: {e}'
+					return f'Could not start Browser Use Cloud login: {e}', 'start_failed'
 		login.thread.join(wait)
 		if login.thread.is_alive():
 			how = 'in the browser tab that just opened' if login.opened else 'by opening this URL in a browser'
@@ -935,13 +968,13 @@ class CLIMCPServer:
 				f'Waiting for the user to approve Browser Use {how}: {login.start.auth_url}\n'
 				'Call browser_login again after approving. No browser on this machine? Run `browser-use login --device-code` '
 				'in a terminal instead.'
-			)
+			), 'waiting'
 		with self._login_lock:
 			if self._login is login:
 				self._login = None
 		if login.error:
-			return f'Browser Use Cloud login failed: {login.error}. Call browser_login to try again.'
-		return f'Signed in to Browser Use Cloud. {LOGIN_NEXT}'
+			return f'Browser Use Cloud login failed: {login.error}. Call browser_login to try again.', 'failed'
+		return f'Signed in to Browser Use Cloud. {LOGIN_NEXT}', 'signed_in'
 
 	def _screenshot(self, full: bool, max_dim: int | None) -> str:
 		buffer = StringIO()
@@ -993,6 +1026,7 @@ class CLIMCPServer:
 
 
 async def main(own_browser: bool = False, **browser_options: Any):
+	set_entry('mcp')  # library_auth entry: a key the server's own browser start finds missing
 	os.environ.setdefault('BH_CLIENT', 'browser-use-mcp')
 	os.environ['BU_MODEL_CODE'] = '1'  # browser_exec runs the client model's code: its browser_use.feedback() is not consent
 	server = CLIMCPServer(own_browser, **browser_options)

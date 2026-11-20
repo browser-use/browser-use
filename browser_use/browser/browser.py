@@ -43,6 +43,7 @@ from browser_use.exceptions import BrowserConfigError, removed
 from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
 
 logger = logging.getLogger(__name__)
+BLANK_OR_INTERNAL = ('about:', 'chrome:', 'chrome-', 'devtools:', 'edge:', 'brave:')  # not a page the caller prepared
 load_env()  # 0.x read .env on import; credentials below resolve from it
 
 CLOUD_API = 'https://api.browser-use.com/api/v4'
@@ -212,12 +213,12 @@ class _Default(str):
 US = _Default('us')
 
 
-def _cloud(path: str, method: str = 'GET', body: dict | None = None) -> dict:
+def _cloud(path: str, method: str = 'GET', body: dict | None = None, key: str | None = None) -> dict:
 	req = urllib.request.Request(
 		f'{CLOUD_API}{path}',
 		method=method,
 		data=json.dumps(body).encode() if body is not None else None,
-		headers={'X-Browser-Use-API-Key': browser_use_api_key(), 'Content-Type': 'application/json'},
+		headers={'X-Browser-Use-API-Key': key or browser_use_api_key(gate='cloud_browser'), 'Content-Type': 'application/json'},
 	)
 	try:
 		with urlopen_keyed(req, 60) as r:
@@ -313,11 +314,12 @@ def _no_query(url: str) -> str:
 	return urllib.parse.urlsplit(url)._replace(query='', fragment='').geturl()
 
 
-def _profile_id(profile: str) -> str:
+def _profile_id(profile: str, key: str | None = None) -> str:
 	"""A cloud profile id, or the id of the one profile with exactly this name."""
 	if re.fullmatch(r'[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', profile, re.IGNORECASE):
 		return profile.lower()
-	items = _cloud(f'/profiles?pageSize=100&query={urllib.parse.quote(profile)}').get('items', [])
+	path = f'/profiles?pageSize=100&query={urllib.parse.quote(profile)}'
+	items = (_cloud(path, 'GET', None, key) if key else _cloud(path)).get('items', [])
 	ids = [p['id'] for p in items if p.get('name') == profile]
 	if len(ids) != 1:
 		raise BrowserConfigError(f'{len(ids)} cloud profiles are named {profile!r}; pass the profile id')
@@ -655,6 +657,10 @@ class Browser:
 		self.id: str | None = None  # cloud browser id
 		self.live_url: str | None = None  # interactive; anyone with the link can drive the browser
 		self.cloud_cdp_url: str | None = None
+		self._llm_key: str | None = None  # the key of the gateway model an Agent runs here (Agent._build): used without another
+		# (the model's key,) the cloud browser was created with, else (): its stop uses that key, whatever Agent runs here
+		# later (a keep_alive Browser's next Agent on ChatOpenAI sets _llm_key None; a stop without a key never ends billing)
+		self._cloud_key: tuple[str, ...] = ()
 		self.stopped = False  # the cloud browser is stopped (reset on every start)
 		self._env: dict[str, str] | None = None  # set while started; what the REPL worker needs
 		self._daemon_env: dict[str, str] = {}  # what our daemon was started with, to start it again if it dies
@@ -824,6 +830,26 @@ class Browser:
 		except Exception:  # - no daemon, a gone browser or tab, a timeout: the judge goes without
 			return None
 
+	def _attach_open_page(self) -> None:
+		"""Browser(cdp_url=): the daemon attaches a new blank tab of its own, so an agent sent to work on the page its
+		caller prepared (Playwright, another tool) saw about:blank and gave up.
+		Exactly one open page: attach it and close the blank tab. Several: the agent picks with list_tabs()."""
+		if not self.name:
+			return
+		try:
+			own = _daemon_request(self.name, {'meta': 'current_tab'}, timeout=5).get('targetId')
+			pages = [
+				t['targetId']
+				for t in _daemon_cdp(self.name, 'Target.getTargets')['targetInfos']
+				if t['type'] == 'page' and t['targetId'] != own and not t['url'].startswith(BLANK_OR_INTERNAL)
+			]
+		except Exception as e:  # - the tab list could not be read: the run starts on the daemon's tab, as before
+			logger.debug('Could not list the open pages: %s', e)
+			return
+		if len(pages) == 1:
+			self._agent_tab = pages[0]  # a daemon started again attaches it too
+			self._attach_agent_tab()
+
 	def _attach_agent_tab(self) -> None:
 		"""A daemon started again attaches a new blank tab of its own, so the next run saw about:blank, the agent's page
 		and form state out of reach. Attach the agent's tab instead and close that blank one."""
@@ -898,7 +924,10 @@ class Browser:
 			# older browser-use) keeps its own BH_TAB_MARKER: the worker strips the horse it adds to the agent's tabs.
 			return {'BU_SHARED_DAEMON': '1'}
 		if self.use_cloud:
-			await asyncio.to_thread(browser_use_api_key, 'Browser() (a Browser Use Cloud browser)', auto_login=True)
+			# fail (or sign in) before anything starts; on the loop's thread, not a worker thread: only the main thread
+			# gets Ctrl-C, which must end a login this starts (auth._ctrl_c_interrupts). It signs in only when this run is
+			# the loop's one task (auth._login_can_block): a server's or gather's other tasks would stall for the wait
+			self._key(auto_login=True)
 			if ((self.id and not self.stopped) or self._creating is not None) and not await asyncio.to_thread(self._stop_now):
 				raise RuntimeError(
 					f'Cloud browser {self.id or "(still being created)"} is still running and could not be stopped; retry '
@@ -942,6 +971,8 @@ class Browser:
 				self._local.watch(self.name, daemon_pid)
 				await asyncio.to_thread(self._close_launch_tab)
 			else:
+				if self.cdp_url:
+					await asyncio.to_thread(self._attach_open_page)
 				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, (self.id or '') if self.use_cloud else '')
 			if self.domains:
 				self._guard = Guard(ws, self.domains)
@@ -969,7 +1000,7 @@ class Browser:
 	async def _start_cloud(self) -> str:
 		body = {'proxyCountryCode': self.proxy, 'timeout': self.timeout, 'browserScreenWidth': 1440, 'browserScreenHeight': 900}
 		if self.profile:
-			body['profileId'] = await asyncio.to_thread(_profile_id, self.profile)
+			body['profileId'] = await asyncio.to_thread(_profile_id, self.profile, *self._model_key())
 		# The POST records the id from its own thread: a start cancelled mid-request still knows which browser to stop.
 		self._creating = _POOL.submit(self._create, body)
 		self._create_deadline = time.monotonic() + CREATE_TIMEOUT_S
@@ -981,13 +1012,26 @@ class Browser:
 		return await asyncio.to_thread(_ws_url, self.cloud_cdp_url)
 
 	def _create(self, body: dict) -> None:
-		info = _cloud('/browsers', 'POST', body)
+		self._cloud_key = self._model_key()  # before the POST: a create that outlives stop() is stopped with it (_stop_late)
+		info = _cloud('/browsers', 'POST', body, *self._cloud_key)
 		self.id, self.live_url, self.cloud_cdp_url, self.stopped = info['id'], info.get('liveUrl'), info['cdpUrl'], False
 		# Never log live_url or the whole id: each grants control of the browser (the id is its CDP hostname)
 		proxy = f'{self.proxy} proxy' if self.proxy else 'no proxy'
 		logger.info(
 			f"Browser Use cloud browser {info['id'][:8]} ({proxy}, billed until it stops). Browser('chromium') runs a local one."
 		)
+
+	def _key(self, auto_login: bool = False) -> str:
+		"""BROWSER_USE_API_KEY or the stored key, else the key of the gateway model an Agent runs on this browser
+		(ChatBrowserUse(api_key=...)): one key runs model and browser."""
+		name = 'Browser() (a Browser Use Cloud browser)'
+		return browser_use_api_key(name, 'cloud_browser', self._llm_key, auto_login=auto_login)
+
+	def _model_key(self) -> tuple[str, ...]:
+		"""(the gateway model's key,) for a cloud call when it is the key to use (no BROWSER_USE_API_KEY or stored key),
+		else (): _cloud finds the env or stored key itself."""
+		key = self._key()
+		return (key,) if self._llm_key and key == self._llm_key else ()
 
 	def _daemon_name(self) -> str:
 		return self.name or os.environ.get('BU_NAME') or 'default'  # Browser('chrome'): the shared daemon
@@ -1064,7 +1108,7 @@ class Browser:
 				error: Exception | None = None
 				for attempt in range(3):
 					try:
-						_cloud(f'/browsers/{self.id}', 'PATCH', {'action': 'stop'})
+						_cloud(f'/browsers/{self.id}', 'PATCH', {'action': 'stop'}, *self._cloud_key)
 						self.stopped = True
 						break
 					except Exception as e:
@@ -1073,7 +1117,7 @@ class Browser:
 				else:
 					logger.warning('Could not stop cloud browser %s (it stays registered for retry): %s', self.id, error)
 					return False
-			self._creating = None
+			self._creating, self._cloud_key = None, ()
 			self.live_url = self.cloud_cdp_url = None  # dead now, and either one drove the browser
 			_LIVE.discard(self)
 			return True
