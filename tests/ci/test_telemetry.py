@@ -727,7 +727,7 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 		('browser_exec', {'code': 'print("Zq9-out")'}),
 		('browser_exec', {'code': 'raise KeyError("sent zq7 sk-ant-Zq9secretkey123")'}),
 		('browser_exec', {'code': 'import json\njson.loads("{Zq9")'}),
-		('browser_exec', {'code': ''}),
+		('browser_exec', {'code': 5}),
 		('browser_navigate', {'url': 'https://zq9.test/'}),
 		('Zq9-made-up', {}),
 	]
@@ -737,7 +737,7 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 	# what the cell's code or a library it called raised is its class only: it can quote what Claude typed or read from
 	# the page. A rejected call has no exception: its error is the server's own text; an unknown tool's name is never sent
 	errors = [e['error_message'] for e in sent]
-	assert errors == [None, None, None, "'code' must be a non-empty string", None, None]
+	assert errors == [None, None, None, "'code' must be a string", None, None]
 	got = [(e['event'], e['action'], e['tool_name'], e['ok'], e['error_type'], e['call_n']) for e in sent]
 	assert got == [
 		('mcp_server_event', 'tool_call', 'browser_exec', True, None, 1),
