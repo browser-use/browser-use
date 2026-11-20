@@ -34,6 +34,19 @@ def install() -> None:
 			try:
 				return original()
 			except RuntimeError as e:
+				# A dialog can open after original's check, while its evaluate is starting or waiting for the page.
+				# The root retry budget does not limit an evaluation that later fails with a dialog open.
+				probe_timeout = helpers.DEFAULT_IPC_RESPONSE_TIMEOUT_SECONDS
+				if NO_ROOT in str(e):
+					probe_timeout = deadline - time.monotonic()
+					if probe_timeout <= 0:
+						raise
+				try:
+					dialog = helpers._send({'meta': 'pending_dialog'}, response_timeout=probe_timeout).get('dialog')
+				except Exception:  # a failed probe must not replace the original page/daemon error
+					dialog = None
+				if dialog:
+					return {'dialog': dialog}
 				if NO_ROOT not in str(e) or time.monotonic() >= deadline:
 					raise
 			time.sleep(0.05)
