@@ -643,16 +643,24 @@ async def test_a_launched_browsers_pages_run_at_full_speed_out_of_sight(chrome_b
 		(
 			'python',
 			{
-				'code': "a = new_tab('data:text/html,<p>a'); wait_for_load(); js('(window.t = 0, setInterval(() => window.t++, 50), 1)'); "
-				"new_tab('data:text/html,<p>b'); wait_for_load(); wait(3); switch_tab(a); ticks = js('window.t')"
+				'code': "import json; a = new_tab('data:text/html,<p>a'); wait_for_load(); "
+				"new_tab('data:text/html,<p>b'); wait_for_load(); cdp('Page.bringToFront'); "
+				"assert js('document.visibilityState') == 'visible'; "
+				"assert js('document.visibilityState', target_id=a) == 'hidden'; "
+				"ticker = '(window.t = 0, setInterval(() => window.t++, 50), 1)'; "
+				'js(ticker, target_id=a); js(ticker); wait(3); '
+				"foreground = js('window.t'); background = js('window.t', target_id=a)"
 			},
 		),
-		('finish_from_repl', {'success': True, 'expression': 'ticks'}),
+		('finish_from_repl', {'success': True, 'expression': 'json.dumps(dict(foreground=foreground, background=background))'}),
 	)
 	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
 	result = await Agent('Count', model, browser=browser, workspace=tmp_path).run()
 	assert result.status == 'completed', result.error
-	assert int(result.final_result() or 0) > 30, result.final_result()  # 60 at full speed; throttled: 1 per second
+	ticks = json.loads(result.final_result() or '{}')
+	# Host scheduling can slow both pages. Compare simultaneous timers instead of assuming 60 foreground ticks.
+	assert ticks['foreground'] > 0, ticks
+	assert ticks['background'] > ticks['foreground'] / 2, ticks
 
 
 async def test_a_launched_browser_has_one_tab(chrome_binary):
