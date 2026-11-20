@@ -75,6 +75,14 @@ def test_docs_install_browser_use_skill_from_package_alias():
 	assert 'raw.githubusercontent.com/browser-use/browser-harness/main/SKILL.md' not in readme
 
 
+def test_readme_feedback_requires_authorization_for_agents():
+	readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+	feedback = next(paragraph for paragraph in readme.split('\n\n') if '`browser_use.feedback(...)`' in paragraph)
+
+	assert 'send your own feedback' in feedback
+	assert 'show the user the proposed message and destination and wait for explicit approval of both' in feedback
+
+
 def test_cloud_v4_reference_scopes_workspace_file_listing():
 	api_v4 = (ROOT / 'skills' / 'cloud' / 'references' / 'api-v4.md').read_text(encoding='utf-8')
 
@@ -451,3 +459,10 @@ def test_skill_has_one_feedback_section_also_when_the_harness_skill_has_its_own(
 	skill = as_browser_use_skill(harness)
 	assert skill.count('\n## Feedback\n') == 1 and 'uvx it' not in skill and 'browser-use feedback --category' in skill
 	assert skill.index('## Feedback') < skill.index('## Gotchas')
+	feedback = skill.split('\n## Feedback\n', 1)[1].split('\n## Gotchas\n', 1)[0]
+	guidance = ' '.join(feedback.split('```bash', 1)[0].split())
+	assert 'the user has explicitly authorized the report and its destination' in guidance
+	assert 'show the user the proposed message and destination and wait for their approval' in guidance
+	assert 'its PostHog project' in guidance
+	assert '2,000 characters' in guidance
+	assert 'runtime metadata' in guidance and 'distinct ID' in guidance
