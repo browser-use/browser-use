@@ -1054,9 +1054,16 @@ class Browser:
 			name, self.name, self._agent_tab = self.name, None, None
 			if name and _shutdown_daemon(name) and self.id and self._daemon_env.get('BU_BROWSER_ID') == self.id:
 				self.stopped = True  # the daemon stopped it before it acknowledged
-			launched, self._local = self._local, None
+			launched = self._local
 			if launched is not None:  # after the daemon: it never reconnects to a Chrome that is going away
-				launched.stop()
+				try:
+					launched.stop()
+				finally:
+					# Canceled/dead-browser stops skip waiting. Preserve files already finalized by Chrome, even if the
+					# worker never recorded completion; publication is local filesystem work, never a network wait.
+					with contextlib.suppress(Exception):
+						self._publish_local_downloads(stopping=True)
+					self._local = None
 			creating = self._creating
 			if creating is not None:  # a cancelled or timed-out start's POST may still be in flight
 				concurrent.futures.wait([creating], timeout=max(0.0, self._create_deadline - time.monotonic()))

@@ -1,6 +1,8 @@
 """A completed Chrome file must have its stable name before downloads() exposes it."""
 
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,7 +11,9 @@ from browser_use.browser import local
 from browser_use.repl import worker
 
 
-@pytest.mark.parametrize('finisher', ['worker', 'stop', 'lost_done', 'other_workspace', 'unannounced'])
+@pytest.mark.parametrize(
+	'finisher', ['worker', 'stop', 'lost_done', 'other_workspace', 'unannounced', 'canceled_stop', 'dead_stop']
+)
 @pytest.mark.parametrize(
 	'name',
 	['invoice.csv', '00000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', None, 'unusable.csv'],
@@ -56,6 +60,27 @@ async def test_downloads_publish_only_after_final_naming(tmp_path, monkeypatch, 
 			browser._downloads_dir.mkdir(parents=True)
 			assert await browser.list_downloads() == []  # late files belong to the earlier workspace
 			browser._downloads_dir = workspace / 'downloads'
+	elif finisher in ('canceled_stop', 'dead_stop'):
+		from browser_use.browser import browser as module
+
+		worker.CellStats().observe([begin, done])
+		browser.name = 'publication-test-no-daemon'
+		monkeypatch.setattr(module, '_shutdown_daemon', lambda *args: True)
+		monkeypatch.setattr(browser._local, 'stop', lambda: None)
+		if finisher == 'dead_stop':
+			browser._local.proc = SimpleNamespace(poll=lambda: 0)
+			await browser._stop()
+		else:
+
+			async def cancel_then_stop():
+				asyncio.current_task().cancel()
+				try:
+					await asyncio.sleep(0)
+				except asyncio.CancelledError:
+					await browser._stop()
+
+			await asyncio.create_task(cancel_then_stop())
+		assert browser._local is None
 	else:
 		from browser_use.browser import browser as module
 
