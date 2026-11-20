@@ -73,6 +73,9 @@ def test_feedback_help_explains_direct_and_agent_authorization():
 	help_text = ' '.join(result.stdout.split())
 	assert 'Running this command with your own feedback authorizes sending it.' in help_text
 	assert 'Agents must show the user the proposed message and destination and wait for explicit approval of both' in help_text
+	assert 'its PostHog project' in help_text
+	assert '2,000 characters' in help_text
+	assert 'runtime metadata' in help_text and 'distinct ID' in help_text
 
 
 def test_browser_use_doctor_names_browser_use_and_passes_without_a_daemon(tmp_path):

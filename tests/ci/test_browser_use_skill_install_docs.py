@@ -463,3 +463,6 @@ def test_skill_has_one_feedback_section_also_when_the_harness_skill_has_its_own(
 	guidance = ' '.join(feedback.split('```bash', 1)[0].split())
 	assert 'the user has explicitly authorized the report and its destination' in guidance
 	assert 'show the user the proposed message and destination and wait for their approval' in guidance
+	assert 'its PostHog project' in guidance
+	assert '2,000 characters' in guidance
+	assert 'runtime metadata' in guidance and 'distinct ID' in guidance

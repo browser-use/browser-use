@@ -463,6 +463,9 @@ def _run_feedback_command(argv: list[str]) -> int:
 		'Include what you built, how you tested it, what worked, problems you hit, docs that were wrong or missing, and any '
 		'feature you looked for and could not find. Omit keys, passwords and customer data. Secrets, API keys, emails, URL '
 		'queries and home folders in the text are replaced before it is sent.',
+		epilog='Browser Use sends CLI feedback to its PostHog project. Each report includes the message '
+		f'(up to {feedback.MAX_MESSAGE:,} characters), category, Browser Use version, runtime metadata such as '
+		'OS and Python version, and a distinct ID.',
 	)
 	parser.add_argument('message', nargs='*', help='what happened (or pipe it on stdin)')
 	parser.add_argument('--category', choices=feedback.CATEGORIES, default='bug')
