@@ -56,7 +56,7 @@ from browser_use.repl.session import (
 	secret_forms,
 )
 from browser_use.telemetry.stats import MAX_TYPED, MAX_URLS, error_class, host, page_url, raised_by_cell
-from browser_use.utils import TLSHandler, download_staging, install_tls_opener, publish_download
+from browser_use.utils import TLSHandler, install_tls_opener
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
@@ -127,7 +127,6 @@ class CellStats:
 		self.tabs: set[str] = set()  # targets this worker navigated: a page read there is the agent's page, not the user's
 		self.downloads: set[str | None] = set()  # guids seen: one download_started per download, whichever events announce it
 		self.started: list[str] = []  # names of downloads that started since the last cell output
-		self.names: dict[str, str | None] = {}  # guid -> suggested file name: a finished download is renamed to it
 		self.seen: set[int] = set()  # hashes of URLs this worker saw (loop detection); never leave this process
 		self.listed: set[str] = set()  # URLs (page_url: no query) this worker reported, MAX_URLS at most
 		self.json_pages: set[str] = set()  # top-frame JSON pages, without query: a cloud browser saves each as a download
@@ -233,8 +232,6 @@ class CellStats:
 					guid = params.get('guid')
 					key = None if guid is not None and guid in self.downloads else 'download_started'
 					self.downloads.add(guid)
-					if guid:
-						self.names.setdefault(guid, params.get('suggestedFilename'))
 				if key:
 					_log_download({'name': params.get('suggestedFilename'), 'url': params.get('url'), 'guid': guid})
 					url = str(params.get('url') or '')  # the copy's URL: the page's + '.json', ' (n)' for a repeat
@@ -245,38 +242,10 @@ class CellStats:
 			elif method in PROGRESS_EVENTS and params.get('state') in ('completed', 'canceled'):
 				# either event: a tab another client attached sends only Page's. Browser.stop() waits for the rest
 				_log_download({'done': params.get('guid'), 'state': params['state']})
-				if params['state'] == 'completed':
-					self.name_download(params)
 			elif method == 'Page.frameNavigated' and _json_page(params):
 				_log_download({'json_page': params['frame'].get('url')})
 			if key:
 				self.count('events', key)
-
-	def name_download(self, params: dict) -> None:
-		"""A Chrome Browser launched stages each download privately (Browser._send_downloads): publish its final name
-		on completion, so downloads() never hands the cell a transient GUID. Cloud files are not on this machine.
-		Only the reader that drained the completed event renames it (Browser._finish_downloads after this worker)."""
-		guid = str(params.get('guid') or '')
-		if not guid or os.environ.get('BU_REMOTE_BROWSER') == '1':
-			return
-		downloads = STATE.absolute().parent / 'downloads'
-		path = Path(params['filePath']) if params.get('filePath') else download_staging(downloads) / guid
-		if path.name != guid:  # Chrome named it itself (behavior 'allow', a browser this worker did not launch)
-			return
-		with self.lock:
-			name = self.names.get(guid)
-			announced = guid in self.names
-		if not announced:  # announced to an earlier worker of this REPL (a reset): its log has the name
-			with contextlib.suppress(OSError):
-				for line in (STATE / 'downloads.jsonl').read_text(encoding='utf-8').splitlines():
-					with contextlib.suppress(ValueError, AttributeError):
-						if (r := json.loads(line)).get('guid') == guid:
-							name = r.get('name')
-							announced = True
-		if not announced:  # stop() took the begin event: it will publish using that event's final name
-			return
-		with contextlib.suppress(OSError):  # - a file that cannot be renamed keeps its guid name, never lost
-			publish_download(path, name, downloads)
 
 	def take(self) -> dict:
 		self.end_keys()
@@ -917,8 +886,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	if os.environ.get('BU_MODE') != 'ultrafast':
 		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.
 		events = EventPump(helpers._send, captcha.observe)
-		# Our cloud browsers send solver events, and a Chrome Browser launched names each finished download from its
-		# events (CellStats.name_download): read continuously. The user's Chrome is read when the agent asks.
+		# Our cloud browsers send solver events; a Chrome Browser launched records download events for the parent
+		# publisher. Read continuously. The user's Chrome is read when the agent asks.
 		if cloud or os.environ.get('BU_OWN_BROWSER') == '1':
 			events.start()
 		captcha.pump = events.pump

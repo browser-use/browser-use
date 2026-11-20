@@ -9,7 +9,7 @@ from browser_use.browser import local
 from browser_use.repl import worker
 
 
-@pytest.mark.parametrize('finisher', ['worker', 'stop'])
+@pytest.mark.parametrize('finisher', ['worker', 'stop', 'lost_done', 'other_workspace', 'unannounced'])
 @pytest.mark.parametrize(
 	'name',
 	['invoice.csv', '00000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', None, 'unusable.csv'],
@@ -49,14 +49,31 @@ async def test_downloads_publish_only_after_final_naming(tmp_path, monkeypatch, 
 		)
 	begin = {'method': 'Browser.downloadWillBegin', 'params': {'guid': guid, 'suggestedFilename': name}}
 	done = {'method': 'Browser.downloadProgress', 'params': {'guid': guid, 'state': 'completed'}}
-	if finisher == 'worker':
+	if finisher in ('worker', 'other_workspace'):
 		worker.CellStats().observe([begin, done])
+		if finisher == 'other_workspace':
+			browser._downloads_dir = workspace / 'next' / 'downloads'
+			browser._downloads_dir.mkdir(parents=True)
+			assert await browser.list_downloads() == []  # late files belong to the earlier workspace
+			browser._downloads_dir = workspace / 'downloads'
 	else:
 		from browser_use.browser import browser as module
 
-		monkeypatch.setattr(module, '_daemon_request', lambda *args: {'events': [begin, done]})
+		if finisher == 'lost_done':
+			worker.CellStats().observe([begin])  # the worker drained completion, then was closed before recording it
+		monkeypatch.setattr(module, 'DOWNLOADS_TIMEOUT_S', 0)
+		monkeypatch.setattr(module, '_daemon_request', lambda *args: {'events': [begin, done] if finisher == 'stop' else []})
+		(staging / 'pending.crdownload').write_bytes(b'partial')
 		assert await browser._finish_downloads() == 1
-	expected = 'invoice (1).csv' if name == 'invoice.csv' else guid if name in (None, 'unusable.csv') else name
+	expected = (
+		guid
+		if finisher == 'unannounced' or name in (None, 'unusable.csv')
+		else 'invoice (1).csv'
+		if name == 'invoice.csv'
+		else name
+	)
 	assert await browser.list_downloads() == sorted([*before, {'name': expected, 'size': 6}], key=lambda f: f['name'])
 	assert (browser._downloads_dir / expected).read_bytes() == b'report'
 	assert not (staging / guid).exists()
+	worker.CellStats().observe([begin, done])  # delayed/repeated events never rename a published path or add a suffix
+	assert await browser.list_downloads() == sorted([*before, {'name': expected, 'size': 6}], key=lambda f: f['name'])

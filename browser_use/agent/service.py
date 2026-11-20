@@ -573,6 +573,7 @@ class Agent:
 					await self._shutdown()
 				else:
 					await asyncio.to_thread(self.browser.remember_tab)  # a daemon that dies before the next run reattaches it
+					self.browser._publish_local_downloads()  # completed local files need no worker-side publisher or stop
 					# each run's files land in its own workspace; a cancelled run copies what already finished, within
 					# CANCEL_DOWNLOADS_TIMEOUT_S (a file still copying then goes to the next run or browser.stop())
 					cancelled = (task := asyncio.current_task()) is not None and task.cancelling() > 0
