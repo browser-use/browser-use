@@ -633,6 +633,13 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=None,
 		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains. Lists with 100+ items are auto-optimized to sets (no pattern matching).',
 	)
+	allow_data_urls: bool = Field(
+		default=False,
+		description=(
+			'Allow navigation to data: URLs even when domain restrictions (allowed_domains or prohibited_domains) '
+			'are active. Off by default for security.'
+		),
+	)
 	block_ip_addresses: bool = Field(
 		default=False,
 		description='Block navigation to URLs containing IP addresses (both IPv4 and IPv6). When True, blocks all IP-based URLs including localhost and private networks.',

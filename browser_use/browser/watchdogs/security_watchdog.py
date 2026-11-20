@@ -196,9 +196,37 @@ class SecurityWatchdog(BaseWatchdog):
 			# Invalid URL
 			return False
 
-		# Allow data: and blob: URLs (they don't have hostnames)
-		if parsed.scheme in ['data', 'blob']:
-			return True
+		# Handle data: URLs: deny by default when domain restrictions are active,
+		# unless explicit allow_data_urls setting is enabled on browser_profile.
+		if parsed.scheme == 'data':
+			if (
+				not self.browser_session.browser_profile.allowed_domains
+				and not self.browser_session.browser_profile.prohibited_domains
+			):
+				return True
+			return bool(getattr(self.browser_session.browser_profile, 'allow_data_urls', False))
+
+		# Handle blob: URLs: extract and recursively validate the inner origin
+		# (e.g. blob:https://example.com/uuid -> https://example.com/uuid).
+		# Reject if inner origin is missing, malformed, or prohibited.
+		if parsed.scheme == 'blob':
+			_, _, inner_url = url.partition(':')
+			inner_url = inner_url.strip()
+			if not inner_url:
+				return False
+			try:
+				inner_parsed = urlparse(inner_url)
+			except Exception:
+				return False
+
+			# Nested blob: or data: URLs inside blob: are disallowed
+			if inner_parsed.scheme in ['blob', 'data']:
+				return False
+
+			if not inner_parsed.scheme or not inner_parsed.hostname:
+				return False
+
+			return self._is_url_allowed(inner_url)
 
 		# Get the actual host (domain)
 		host = parsed.hostname
