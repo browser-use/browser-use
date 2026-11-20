@@ -109,6 +109,9 @@ def totp(seed: str, now: float | None = None) -> str:
 STATE = Path(os.environ.get('BU_STATE_DIR', '.browser-use'))
 images: list[dict] = []
 NAVIGATING = ('Page.navigate', 'Target.createTarget')
+TOKEN_DENIED_DOMAINS = ('Fetch.', 'Tracing.')
+TOKEN_DENIED = {'Target.attachToBrowserTarget', 'Target.exposeDevToolsProtocol', 'Network.setRequestInterception'}
+TOKEN_DENIED_URLS = ('chrome:', 'file:', 'devtools:', 'chrome-untrusted:', 'view-source:')
 STAT_EVENTS = {'BrowserUse.captchaSolverStarted': 'captcha_started'}
 NET_ERROR = re.compile(r'net::(ERR_[A-Z0-9_]{1,40})')  # Page.navigate's errorText: Chrome's net error names
 DOWNLOAD_EVENTS = ('Browser.downloadWillBegin', 'Page.downloadWillBegin')  # cloud browsers send both for one download
@@ -540,6 +543,18 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
 	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
+	tokens = os.environ.get('BU_TOKENS') == '1'  # Browser(tokens=...): real values are written into requests
+
+	def refuse_token_leak(method, params) -> None:
+		"""Browser(tokens=...): the calls that would show a request after the real value was written into it (an
+		interceptor of its own, a browser-level session, a trace or net-export) or read the browser's files. A guard
+		for an aligned model on the cdp() path, not a sandbox (MIGRATING.md "Tokens")."""
+		url = str(params.get('url', '')).strip().lower() if method in NAVIGATING else ''
+		if method.startswith(TOKEN_DENIED_DOMAINS) or method in TOKEN_DENIED or url.startswith(TOKEN_DENIED_URLS):
+			raise PermissionError(
+				f'{method}{" " + url[:60] if url else ""} is refused while Browser(tokens=...) is on: it could show the real '
+				'values the browser substitutes for the stand-ins. Type the stand-ins and submit the form as usual.'
+			)
 
 	def check_url(url) -> None:
 		"""Browser(allowed_domains=...): refuse a disallowed URL before anything navigates (Browser.domains)."""
@@ -646,6 +661,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		frozen = params.pop('_frozen', False)
 		if known_secrets:
 			refuse_placeholder(method, params)
+		if tokens:
+			refuse_token_leak(str(method), params)
 		if method == 'DOM.setFileInputFiles':  # local paths, also on a remote browser (bu's recipe on the cloud default)
 			set_input_files(session_id, params)
 			return {}

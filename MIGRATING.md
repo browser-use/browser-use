@@ -106,6 +106,7 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | 0.x engine tuning: `dom_highlight_elements`, `filter_highlight_ids`, `paint_order_filtering`, `cross_origin_iframes`, `max_iframes`, `max_iframe_depth`, `minimum_wait_page_load_time`, `wait_for_network_idle_page_load_time`, `wait_between_actions`, `deterministic_rendering`, `demo_mode`; 0.1/0.6 `maximum_wait_page_load_time`, `viewport_expansion`, `include_dynamic_attributes`, `cached_state`, `default_timeout`, `default_navigation_timeout`, `slow_mo`, `strict_selectors` | removed: they tuned the 0.x DOM engine. Delete them |
 | 0.6 `handle_sigint`, `handle_sigterm`, `handle_sighup`; `stealth`; `cookies_file`; `context` | removed: a browser 1.0 started is stopped when the process exits; cloud browsers run with stealth settings (`Browser()`); `cookies_file` as `storage_state`; `context`: pass options to `Browser(...)` |
 | `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | kept, in every mode, with the 0.x patterns: see [Domain restrictions](#domain-restrictions) |
+| new: `tokens` | `Browser(tokens={'card': {'type': 'card', 'value': pan, 'cvc': cvc, 'exp': '08/29', 'hosts': ['shop.example.com', '*.stripe.com'], 'require': {'key': 'pk_live_...'}}})`: the model only ever sees and types a format-valid stand-in (a card keeps its BIN and passes Luhn); the real value is written into a request body only on its way to a listed host. Types `card` (with `cvc`), `ssn`, `digits`, `iban`, `text`. Not `Browser('chrome')` (your open Chrome): `ValueError`. See [Tokens](#tokens) |
 | `captcha_solver` | kept for cloud browsers: they solve captchas automatically, and `Browser(captcha_solver=False)` turns the solver off when the browser starts and keeps it off (the agent is told to handle captchas itself; `solve_captcha()` reports the solver unavailable). Other browsers have no solver: `captcha_solver=False` raises `ValueError` |
 
 Parallel agents (the 0.x `parallel_agents.py` pattern): give each its own `Browser()` or `Browser('chromium')`; each
@@ -249,6 +250,41 @@ Not blocked (a guard for an aligned model, not a sandbox):
   raises instead of running unguarded.
 
 Domain-scoped `sensitive_data` still limits where each secret is typed, independently of these lists.
+
+## Tokens
+
+`Browser(tokens={...})` keeps real values (card numbers, SSNs, bank accounts, a street line) out of the model, its
+prompt, the REPL worker, the page and its scripts. Each token gets a stand-in per `Browser` (`browser.token_dummies()`),
+which the system prompt lists; the agent types it with its normal helpers. browser-use holds a browser-wide
+`Fetch.enable` on a CDP connection of its own (as layer 2 of [Domain restrictions](#domain-restrictions)) for the token
+hosts only, and writes the real value over the stand-in in a request **body** when all of these hold:
+
+1. the request goes to one of the token's `hosts` (`'shop.example.com'` exactly; `'*.example.com'` subdomains only;
+   `'host:8443'` that port; https, or http to loopback, `localhost`, `*.localhost`, `*.test`);
+2. its `Origin` (else the `Referer`'s) is one of those hosts too: a page elsewhere that learned a stand-in cannot post
+   it to an allowed host;
+3. every `require` pin is present and equal wherever it occurs (form, top-level JSON and multipart fields, headers).
+   `require` is mandatory for multi-tenant processors (`stripe.com`, `braintree*`, `adyen.com`, `checkout.com`,
+   `paypal.com`, `shopifycs.com`): there, anyone's key would get the real card. It applies to every host of the token:
+   give the processor its own token when the merchant's own requests do not carry the pin.
+
+A `cvc` is written only as a whole field value, in a request that also carries its card. Digit values match with any
+of ` .-+`, `%20`, `%2D` between digits; text values case-insensitively. The real value is encoded for the body's
+`Content-Type` (percent-encoded in forms, JSON-escaped in JSON, raw in multipart and text, and not written at all into
+an unknown type when it needs escaping). Responses on the token hosts' sites (documents, XHR, fetch; textual types)
+are masked back, real to stand-in, before the page sees them, and so is any real value in a cell's output.
+
+Anything it cannot match safely goes out as the stand-in: a value in a URL or header (a GET form), a `Content-Encoding` body, a body without post data (blob,
+stream), base64 or client-side encrypted fields (Adyen CSE), a card split over several inputs, WebSocket frames, and
+pages loaded before the browser started (Chrome applies the interception to documents loaded after it; they work after
+their next navigation). A response that cannot be masked is failed, never passed through. While tokens are on, the
+agent's `cdp()` refuses `Fetch.*`, `Tracing.*`, `Target.attachToBrowserTarget`, `Target.exposeDevToolsProtocol` and
+navigating to `chrome:`, `file:` or `devtools:` URLs: a second interceptor would see the request after the swap.
+
+Not protected: the allowed host itself (the agent can change the shipping address and pay, or paste a stand-in into the
+merchant's chat); echoes masking misses (a normalized address, PDFs, images, email); the real BIN and last 4 a page
+shows. And not a sandbox: model code runs as your user and can open its own CDP connection, read Chrome's disk cache or
+this process's memory. Browser Use Cloud's secure tokens swap on the proxy, outside the browser, for that.
 
 ## Other removed modules
 

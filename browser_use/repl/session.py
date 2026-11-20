@@ -308,7 +308,8 @@ class Repl:
 	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
 	worker, answered here (Browser.list_downloads). feedback: answers report_issue() with the confirmation the cell
 	gets (telemetry/feedback.RunReports); without it nothing is sent. highlight_actions: orange corner brackets around
-	what the agent clicks or types into (repl/highlight.py)."""
+	what the agent clicks or types into (repl/highlight.py). mask: applied to the text the model gets from a cell
+	(Browser(tokens=...): real values -> their stand-ins)."""
 
 	def __init__(
 		self,
@@ -322,12 +323,14 @@ class Repl:
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		highlight_actions: bool = False,
 		feedback: Callable[[dict], str] | None = None,
+		mask: Callable[[str], str] | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
 		self.feedback = feedback
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
+		self.mask = mask  # Browser(tokens=...): a real value in cell output reaches the model as its stand-in
 		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
 		# which a keep_alive Agent outlives (asyncio.run per run); killed after that loop closed, the worker was never
 		# reaped on Linux (pidfd watcher) and logged "Loop ... that handles pid ... is closed" on macOS
@@ -488,7 +491,12 @@ class Repl:
 				if blocks:
 					events = r.setdefault('stats', {}).setdefault('events', {})
 					events['domain_blocked'] = events.get('domain_blocked', 0) + blocks
-		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value', 'error_message')}}
+		out = {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value', 'error_message')}}
+		if self.mask is not None:
+			out.update(
+				{k: self.mask(v) for k in ('output', 'error', 'value', 'error_message') if isinstance(v := out.get(k), str)}
+			)
+		return out
 
 	async def _search(self, args: Any) -> dict[str, Any]:
 		"""{'value': the search result} or {'error': the message search() raises in the cell}."""

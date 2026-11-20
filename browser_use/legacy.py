@@ -155,7 +155,13 @@ def _modules() -> dict[str, str]:
 				'browser_use.skills.utils': _SKILLS,
 				'browser_use.skills.views': _SKILLS,
 				'browser_use.sync': 'none (cloud sync of local runs was removed).',
-				'browser_use.tokens': _USAGE,
+				**dict.fromkeys(  # browser_use.tokens is Browser(tokens=...) in 1.0; the 0.x submodules name their answer
+					(
+						'browser_use.tokens',
+						*(f'browser_use.tokens.{m}' for m in ('service', 'views', 'custom_pricing', 'mappings', 'utils')),
+					),
+					_USAGE,
+				),
 			}
 		)
 	return _MODULES
@@ -228,6 +234,9 @@ _NAMES: dict[str, dict[str, str]] = {
 		'Agent(...) and Browser(...) arguments; 1.0 reads no config.json (browser-use --mcp keeps its domain limits).',
 	),
 	'browser_use.exceptions': {'LLMException': _LLM_ERROR},
+	'browser_use.tokens': dict.fromkeys(
+		('TokenCost', 'TokenUsageEntry', 'TokenCostCalculated', 'ModelPricing', 'ModelUsageStats', 'UsageSummary'), _USAGE
+	),
 	'browser_use.llm': {
 		**dict.fromkeys(
 			(
