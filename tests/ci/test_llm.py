@@ -273,6 +273,19 @@ async def test_gateway_models_run_stateless_responses_with_compaction(responses_
 	assert result.cost_usd == pytest.approx(3 * 0.0002)
 
 
+async def test_gateway_requests_cap_output_at_16k(responses_server, tmp_path):
+	"""The gateway holds credit for a call's worst case (its whole input plus max_output_tokens) before running it, so
+	the 32768 cap made a small balance refuse calls it could pay for. Gateway calls now ask for 16384; agent turns stay
+	far below it, and a turn that hits it is a 'length' finish the loop already recovers from. Direct OpenAI keeps 32768
+	(test_openai_settings_unchanged)."""
+	url, requests, _ = responses_server
+	model, settings = resolve_model(ChatBrowserUse(api_key='fake-test-key', base_url=url))
+	agent = build_agent(model, model_settings=settings, reasoning_effort=None)
+	result = await run(agent, 'task', Session(repl=Repl(tmp_path)), model.model_name)
+	assert (result.status, result.error) == ('completed', None)
+	assert [body['max_output_tokens'] for _, body in requests] == [16_384]
+
+
 async def test_responses_requests_stream_so_the_gateway_never_cuts_a_long_turn(responses_server, tmp_path, monkeypatch):
 	"""C5: the gateway cuts a non-streamed request at 300 s with HTTP 200 status=failed request_timeout (the stub
 	answers every non-streamed request that way) and a long bu-smart turn, often the delivery, ended the run. Gateway
