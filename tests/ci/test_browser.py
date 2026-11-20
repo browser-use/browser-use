@@ -969,7 +969,8 @@ async def test_a_download_the_keep_alive_worker_saw_finish_never_holds_the_stop(
 	monkeypatch.setattr(worker, 'STATE', tmp_path / '.browser-use')
 	(tmp_path / '.browser-use').mkdir()
 	(tmp_path / 'downloads').mkdir()
-	(tmp_path / 'downloads' / 'a').write_text('x')  # Chrome saves it as its guid
+	(tmp_path / '.browser-use' / 'downloads').mkdir()
+	(tmp_path / '.browser-use' / 'downloads' / 'a').write_text('x')  # private until completion names it
 	if worker_saw_begin:
 		worker.CellStats().observe([begin])
 	stats, drains = worker.CellStats(), []

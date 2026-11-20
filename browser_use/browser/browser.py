@@ -40,7 +40,7 @@ from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import BrowserConfigError, removed
-from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
+from browser_use.utils import download_staging, file_names, publish_download, tls_context, urlopen_keyed
 
 logger = logging.getLogger(__name__)
 load_env()  # 0.x read .env on import; credentials below resolve from it
@@ -753,7 +753,9 @@ class Browser:
 		Saved as <guid> and renamed once finished (utils.name_download): with 'allow' a repeated name overwrote the
 		earlier file. The REPL worker renames what finishes during a run, _finish_downloads what finishes after it."""
 		downloads.mkdir(parents=True, exist_ok=True)
-		cdp, params = self._cdp(), {'behavior': 'allowAndName', 'downloadPath': str(downloads), 'eventsEnabled': True}
+		staging = download_staging(downloads)
+		staging.mkdir(parents=True, exist_ok=True)
+		cdp, params = self._cdp(), {'behavior': 'allowAndName', 'downloadPath': str(staging), 'eventsEnabled': True}
 		try:
 			# On a browser session: the daemon sends other calls on its tab's session, and Chrome then reports
 			# Browser.download* only for that tab, so a download in the agent's second new_tab() stayed 'inProgress'
@@ -1176,12 +1178,14 @@ class Browser:
 						state[p['guid']] = p.get('state')
 					# finished after the worker closed: only this read saw the event, so no one else renames it
 					if progress and p.get('state') == 'completed':
-						path = Path(p['filePath']) if p.get('filePath') else (self._downloads_dir or Path()) / p['guid']
+						downloads = self._downloads_dir or Path()
+						path = Path(p['filePath']) if p.get('filePath') else download_staging(downloads) / p['guid']
 						if self._local is not None and path.name == p['guid']:  # a cloud browser's files are remote
-							name_download(path, names.get(p['guid']))
+							publish_download(path, names.get(p['guid']), downloads)
 				for guid in finished:  # a worker that never saw its downloadWillBegin (this read took it) cannot name it
 					if guid not in logged and self._local is not None:
-						name_download((self._downloads_dir or Path()) / guid, names.get(guid))
+						downloads = self._downloads_dir or Path()
+						publish_download(download_staging(downloads) / guid, names.get(guid), downloads)
 				if not (running := sum(s == 'inProgress' for s in state.values())):
 					break
 				if time.monotonic() > deadline:

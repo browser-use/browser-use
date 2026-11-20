@@ -56,7 +56,7 @@ from browser_use.repl.session import (
 	secret_forms,
 )
 from browser_use.telemetry.stats import MAX_TYPED, MAX_URLS, error_class, host, page_url, raised_by_cell
-from browser_use.utils import TLSHandler, install_tls_opener, name_download
+from browser_use.utils import TLSHandler, download_staging, install_tls_opener, publish_download
 
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
@@ -253,25 +253,30 @@ class CellStats:
 				self.count('events', key)
 
 	def name_download(self, params: dict) -> None:
-		"""A Chrome Browser launched saves each download as downloads/<guid> (Browser._send_downloads): give it its own
-		name now, so the cell that downloaded it finds it by that name. A cloud browser's files are not on this machine.
+		"""A Chrome Browser launched stages each download privately (Browser._send_downloads): publish its final name
+		on completion, so downloads() never hands the cell a transient GUID. Cloud files are not on this machine.
 		Only the reader that drained the completed event renames it (Browser._finish_downloads after this worker)."""
 		guid = str(params.get('guid') or '')
 		if not guid or os.environ.get('BU_REMOTE_BROWSER') == '1':
 			return
-		path = Path(params['filePath']) if params.get('filePath') else STATE.absolute().parent / 'downloads' / guid
+		downloads = STATE.absolute().parent / 'downloads'
+		path = Path(params['filePath']) if params.get('filePath') else download_staging(downloads) / guid
 		if path.name != guid:  # Chrome named it itself (behavior 'allow', a browser this worker did not launch)
 			return
 		with self.lock:
 			name = self.names.get(guid)
-		if name is None:  # announced to an earlier worker of this REPL (a reset): its log has the name
+			announced = guid in self.names
+		if not announced:  # announced to an earlier worker of this REPL (a reset): its log has the name
 			with contextlib.suppress(OSError):
 				for line in (STATE / 'downloads.jsonl').read_text(encoding='utf-8').splitlines():
 					with contextlib.suppress(ValueError, AttributeError):
 						if (r := json.loads(line)).get('guid') == guid:
 							name = r.get('name')
+							announced = True
+		if not announced:  # stop() took the begin event: it will publish using that event's final name
+			return
 		with contextlib.suppress(OSError):  # - a file that cannot be renamed keeps its guid name, never lost
-			name_download(path, name)
+			publish_download(path, name, downloads)
 
 	def take(self) -> dict:
 		self.end_keys()
