@@ -72,6 +72,14 @@ def test_browser_kinds_and_their_0x_aliases():
 		({'kind': 'chromium', 'profile': 'Work'}, "Browser\\('chrome', profile=...\\)"),
 		({'kind': 'chromium', 'cloud_profile_id': 'p'}, 'cloud profiles'),
 		({'local': True, 'live_view': True}, 'live view'),
+		({'kind': 'chromium', 'logins_for': ['github.com']}, "logins_for=: .*profile='Work', logins_for"),
+		({'kind': 'chrome', 'logins_for': ['github.com']}, r"Browser\('chrome'\) \(your open Chrome\) does not take logins_for="),
+		({'kind': 'chrome', 'profile': 'Work', 'logins_for': []}, 'keeps no logins'),
+		({'kind': 'chrome', 'profile': 'Work', 'logins_for': ['https://github.com']}, 'not a host pattern'),
+		({'kind': 'chrome', 'profile': 'Work', 'logins_for': ['github.com:443']}, 'not a host pattern'),
+		({'kind': 'chrome', 'profile': 'Work', 'logins_for': ['git*.com']}, 'not a host pattern'),
+		# cookie-style: matched only .github.com's domain cookies, so github.com's host-only login was dropped
+		({'kind': 'chrome', 'profile': 'Work', 'logins_for': ['.github.com']}, 'not a host pattern'),
 	],
 )
 def test_browser_options_that_do_not_fit_the_kind_raise_before_start(kwargs, match):
@@ -100,6 +108,7 @@ def test_chromes_default_profile_dir_is_refused_as_user_data_dir():
 		('cloud_browser_params', 'cloud_profile_id'),
 		('proxy_country_code', 'cloud_proxy_country_code'),
 		('args', "Browser('chromium')"),
+		('cookie_whitelist_domains', 'logins_for='),  # 0.x: the cookie-banner extension's list, not a cookie filter
 	],
 )
 def test_0x_browser_options_name_their_1_0_alternative(option, instead):

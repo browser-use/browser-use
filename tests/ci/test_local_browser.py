@@ -3,6 +3,7 @@ Chrome Browser('chrome') attaches to. Fake browsers stand in for Chrome where th
 end-to-end tests at the bottom launch the real Chrome (marked `chrome`)."""
 
 import asyncio
+import contextlib
 import json
 import os
 import socket
@@ -275,6 +276,67 @@ def test_profile_copy_keeps_logins_and_skips_caches_and_locks(tmp_path):
 	assert (root / 'Profile 1' / 'Cache' / 'blob').exists()  # the source is never changed
 
 
+def test_logins_for_copies_the_cookie_database_and_nothing_else(tmp_path):
+	"""Browser('chrome', profile=..., logins_for=[...]): saved passwords, autofill and cards, history and site storage of
+	every site never reach the copy the agent's browser runs on."""
+	root = chrome_root(tmp_path, {'Default': 'Personal'})
+	profile = root / 'Default'
+	for name in (
+		'Login Data',
+		'Login Data-journal',
+		'Login Data For Account',
+		'Login Data For Account-journal',
+		'Web Data',
+		'Web Data-journal',
+		'Account Web Data',
+		'History',
+		'Preferences',
+		'Network/Cookies',
+		'Network/Cookies-journal',
+		'Cookies-journal',
+		'IndexedDB/https_github.com_0.indexeddb.leveldb/000003.log',
+	):
+		(profile / name).parent.mkdir(parents=True, exist_ok=True)
+		(profile / name).write_text(name)
+	dest = tmp_path / 'copy'
+	_local.copy_profile(root, 'Default', dest, cookies_only=True)
+	copied = sorted(f.relative_to(dest).as_posix() for f in dest.rglob('*') if f.is_file())
+	assert copied == [
+		'Default/Cookies',
+		'Default/Cookies-journal',
+		'Default/Network/Cookies',
+		'Default/Network/Cookies-journal',
+		'Local State',
+	]
+	assert (dest / 'Default' / 'Cookies').read_text() == 'cookies of Default'
+
+
+def test_logins_for_deletes_other_sites_cookies_from_the_copy_before_chrome_starts(tmp_path):
+	"""Before launch, so no startup request carries them: the copied database keeps only the listed sites' rows, and
+	the deleted ones leave no bytes in the file."""
+	import sqlite3
+
+	db = tmp_path / 'Network' / 'Cookies'
+	db.parent.mkdir()
+	with contextlib.closing(sqlite3.connect(db)) as con, con:
+		con.execute('CREATE TABLE cookies (host_key TEXT, name TEXT, encrypted_value BLOB)')
+		rows = [('github.test', 'a'), ('.github.test', 'b'), ('.google.test', 'SID'), ('mail.google.test', 'c')]
+		con.executemany("INSERT INTO cookies VALUES (?, ?, x'00')", rows)
+	assert _local.drop_cookies_on_disk(tmp_path, ('github.test',)) == 2
+	with contextlib.closing(sqlite3.connect(db)) as con:
+		assert sorted(con.execute('SELECT host_key, name FROM cookies')) == [('.github.test', 'b'), ('github.test', 'a')]
+	assert b'google.test' not in db.read_bytes()
+
+
+def test_logins_for_refuses_to_launch_on_a_cookie_database_it_cannot_filter(tmp_path):
+	"""A copy taken while Chrome wrote it (or an unknown schema) only logged a warning, and Chrome then started on every
+	cookie of the profile: its startup requests could carry them before the check over CDP. Now nothing launches."""
+	db = tmp_path / 'Cookies'
+	db.write_bytes(b'not a database: .google.test SID')
+	with pytest.raises(RuntimeError, match='could not filter'):
+		_local.drop_cookies_on_disk(tmp_path, ('github.test',))
+
+
 def test_profile_copy_launches_in_chrome_with_the_real_keychain(tmp_path):
 	args = _local.chrome_args(tmp_path, headless=False, fresh=False, profile_directory='Profile 1')
 	assert '--profile-directory=Profile 1' in args and '--use-mock-keychain' not in args
@@ -319,10 +381,10 @@ def test_stop_during_the_profile_copy_leaves_no_copy_on_disk(tmp_path, monkeypat
 	monkeypatch.setattr(_local, 'find_binary', lambda *a, **k: 'chrome')
 	real_copy, copying = _local.copy_profile, threading.Event()
 
-	def slow_copy(*args):
+	def slow_copy(*args, **kwargs):
 		copying.set()
 		time.sleep(0.5)
-		real_copy(*args)
+		real_copy(*args, **kwargs)
 
 	monkeypatch.setattr(_local, 'copy_profile', slow_copy)
 	lb = _local.LocalBrowser()
@@ -1039,6 +1101,106 @@ async def test_chrome_profile_copy_carries_its_logins(chrome_binary, tmp_path, m
 	finally:
 		await browser.stop()
 	assert not copy.exists() and (src / 'Profile 1' / 'Cookies').exists()
+
+
+async def test_logins_for_launches_a_copy_with_only_the_listed_sites_cookies(chrome_binary, tmp_path, monkeypatch):
+	"""Least-privilege logins: a real Chrome profile with cookies for three sites (one a __Host- cookie, one partitioned,
+	one a parent-domain cookie), saved-password and autofill databases. The browser the agent gets holds the cookies of
+	the listed sites alone, unchanged, and its profile copy has no Login Data or Web Data."""
+	from websockets.sync.client import connect
+
+	src = tmp_path / 'Chrome'
+	src.mkdir()
+	owner = _local.LocalBrowser()  # stands in for the user's Chrome: signed in to three sites in 'Profile 1'
+	owner.user_data_dir = src
+	ws = owner._launch(chrome_binary, _local.chrome_args(src, headless=True, fresh=False, profile_directory='Profile 1'))
+	expires = int(time.time()) + 3600
+	cookies = [
+		{'name': '__Host-session', 'value': 'gh', 'url': 'https://github.test/', 'secure': True, 'expires': expires},
+		{'name': 'logged_in', 'value': 'yes', 'domain': '.github.test', 'path': '/', 'httpOnly': True, 'expires': expires},
+		{'name': 'tenant', 'value': 'acme', 'url': 'https://acme.atlassian.test/wiki', 'path': '/wiki', 'expires': expires},
+		{'name': 'cloud.session', 'value': 'sso', 'domain': '.atlassian.test', 'path': '/', 'secure': True, 'expires': expires},
+		{'name': 'other', 'value': 'x', 'domain': 'other.atlassian.test', 'path': '/', 'expires': expires},
+		{'name': 'SID', 'value': 'google', 'domain': '.google.test', 'path': '/', 'secure': True, 'expires': expires},
+		{
+			'name': 'embed',
+			'value': 'chips',
+			'url': 'https://github.test/',
+			'secure': True,
+			'sameSite': 'None',
+			'partitionKey': {'topLevelSite': 'https://news.test', 'hasCrossSiteAncestor': True},
+			'expires': expires,
+		},
+	]
+	try:  # a failed step must not leave the stand-in Chrome running
+		with connect(ws, max_size=None) as conn:
+			conn.send(json.dumps({'id': 1, 'method': 'Storage.setCookies', 'params': {'cookies': cookies}}))
+			assert 'error' not in json.loads(conn.recv())
+			conn.send(json.dumps({'id': 2, 'method': 'Storage.getCookies'}))
+			before = json.loads(conn.recv())['result']['cookies']
+			conn.send(json.dumps({'id': 3, 'method': 'Browser.close'}))  # flushes cookies and Local State to disk
+		assert owner.proc is not None
+		owner.proc.wait(20)
+	finally:
+		owner.stop()
+	assert len(before) == 7
+	import sqlite3
+
+	for db in ('Login Data', 'Web Data'):  # a saved password and a card stand-in, in the databases Chrome created
+		with contextlib.closing(sqlite3.connect(src / 'Profile 1' / db)) as con, con:
+			con.execute('CREATE TABLE bu_marker (v TEXT)')
+			con.execute("INSERT INTO bu_marker VALUES ('saved-secret-of-the-user')")
+
+	monkeypatch.setattr(_local, 'chrome_user_data_dir', lambda: src)
+	browser = Browser(
+		'chrome',
+		profile='Profile 1',
+		logins_for=['github.test', 'acme.atlassian.test'],
+		headless=True,
+		executable_path=chrome_binary,
+	)
+	await browser.start()
+	try:
+		assert browser.name and browser._local is not None
+		after = browser_mod._daemon_cdp(browser.name, 'Storage.getCookies')['cookies']
+		copy = browser._local.tmp / 'profile'
+		leaked = [f for f in copy.rglob('*') if f.is_file() and b'saved-secret-of-the-user' in f.read_bytes()]
+		cookie_db = (copy / 'Profile 1' / 'Cookies').read_bytes()  # deleted before launch, and vacuumed out of the file
+	finally:
+		await browser.stop()
+
+	def fields(c: dict) -> tuple:
+		return tuple(sorted((k, json.dumps(v, sort_keys=True)) for k, v in c.items() if k != 'size'))
+
+	kept = {'__Host-session', 'logged_in', 'tenant', 'cloud.session', 'embed'}
+	assert sorted(map(fields, after)) == sorted(fields(c) for c in before if c['name'] in kept)  # unchanged, all fields
+	assert leaked == [] and b'google.test' not in cookie_db and b'other.atlassian.test' not in cookie_db
+
+
+def test_logins_for_fails_the_start_on_a_cookie_of_another_site(chrome_binary):
+	"""The check over CDP after launch, on its own: it never changes a cookie, and a cookie of an unlisted site the
+	database filter missed fails the start instead of reaching the agent."""
+	from websockets.sync.client import connect
+
+	lb = _local.LocalBrowser()
+	ws = lb.start(executable_path=chrome_binary, headless=True)
+	try:
+		with connect(ws, max_size=None) as conn:
+
+			def cdp(i: int, method: str, **params) -> dict:
+				conn.send(json.dumps({'id': i, 'method': method, 'params': params}))
+				return json.loads(conn.recv())['result']
+
+			keep = {'name': 'keep', 'value': '1', 'url': 'https://github.test/', 'secure': True, 'sameSite': 'Strict'}
+			cdp(1, 'Storage.setCookies', cookies=[keep])
+			before = cdp(2, 'Storage.getCookies')['cookies']
+			assert _local.check_logins(ws, ('github.test',)) == 1
+			assert cdp(3, 'Storage.getCookies')['cookies'] == before
+			cdp(4, 'Storage.setCookies', cookies=[{'name': 'SID', 'value': '2', 'domain': '.google.test', 'path': '/'}])
+			with pytest.raises(RuntimeError, match=r'cookies of \.google\.test'):
+				_local.check_logins(ws, ('github.test',))
+	finally:
+		lb.stop()
 
 
 async def test_a_kept_user_data_dir_keeps_its_cookies_across_a_normal_stop(chrome_binary, tmp_path):

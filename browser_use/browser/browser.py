@@ -4,6 +4,7 @@ Browser()                         a Browser Use Cloud browser (default; needs a 
 Browser('chromium')               a fresh local Chrome/Chromium/Edge with its own temp profile (= Browser(local=True))
 Browser('chrome')                 the Chrome you have open, attached through the shared browser-harness daemon
 Browser('chrome', profile='Work') a new Chrome on a temporary copy of your Chrome profile 'Work'
+Browser('chrome', profile='Work', logins_for=['github.com'])   the same, with only the cookies of those sites
 
 Agent.run() stops the browser at the end unless Browser(keep_alive=True). Cloud browsers are also stopped when the
 process exits or gets SIGTERM or SIGHUP, and the server stops them after cloud_timeout minutes either way.
@@ -38,7 +39,7 @@ from typing import TYPE_CHECKING, Literal
 from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting, record_auth_event
 from browser_use.browser import local as _local
 from browser_use.config import load_env
-from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
+from browser_use.domains import DomainRules, Guard, disallowed_tabs, login_patterns, sweep
 from browser_use.exceptions import BrowserConfigError, removed
 from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
 
@@ -60,7 +61,8 @@ REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative 
 	'browser_profile': 'pass options to Browser(...).',
 	'config': 'pass options to Browser(...).',
 	'storage_state': _STORAGE,
-	'cookie_whitelist_domains': _STORAGE,
+	'cookie_whitelist_domains': "it listed sites for 0.x's cookie-banner extension, which 1.0 does not load. To limit "
+	"which logins a copied Chrome profile carries: Browser('chrome', profile=..., logins_for=['github.com']).",
 	'proxy': 'cloud_proxy_country_code on cloud browsers.',
 	'channel': 'executable_path=... (default: Chrome, Chromium or Edge, whichever is installed).',
 	**dict.fromkeys(
@@ -556,6 +558,7 @@ class Browser:
 		kind: Literal['cloud', 'chromium', 'chrome'] | None = None,
 		*,
 		profile: str | None = None,
+		logins_for: list[str] | None = None,
 		headless: bool | None = None,
 		user_data_dir: str | Path | None = None,
 		executable_path: str | None = None,
@@ -573,7 +576,8 @@ class Browser:
 		block_ip_addresses: bool = False,
 		**kwargs,
 	):
-		"""Configure a browser; live_view=None prints the link, True also opens it, and False hides it."""
+		"""Configure a browser; live_view=None prints the link, True also opens it, and False hides it. logins_for (with
+		profile=): the profile copy keeps only the cookies Chrome sends to those hosts ('github.com', '*.atlassian.net')."""
 		if kwargs:
 			name = next(iter(kwargs))
 			if name in REMOVED:
@@ -619,6 +623,7 @@ class Browser:
 			('executable_path', executable_path, launches),
 			('user_data_dir', user_data_dir, self.kind == 'chromium'),
 			('profile', profile is not None, self.kind == 'chrome'),
+			('logins_for', logins_for is not None, self.kind == 'chrome' and profile is not None),
 			('cloud_profile_id', cloud_profile_id, self.kind == 'cloud'),
 			('cloud_proxy_country_code', not isinstance(cloud_proxy_country_code, _Default), self.kind == 'cloud'),
 			('cloud_timeout', cloud_timeout is not None, self.kind == 'cloud'),
@@ -628,6 +633,7 @@ class Browser:
 			if value and not ok:
 				fix = {
 					'profile': "Browser('chrome', profile=...) copies one of your Chrome profiles",
+					'logins_for': "it filters a copied Chrome profile: Browser('chrome', profile='Work', logins_for=[...])",
 					'user_data_dir': "Browser('chromium', user_data_dir=...) keeps a dedicated profile dir",
 					'cloud_profile_id': 'cloud profiles are for Browser() (a cloud browser)',
 					'cloud_proxy_country_code': 'the proxy is for Browser() (a cloud browser); local browsers use your network',
@@ -645,6 +651,7 @@ class Browser:
 		self.local = self.kind in ('chromium', 'chrome')
 		self.cdp_url = cdp_url
 		self.use_cloud = self.kind == 'cloud'
+		self.logins_for = login_patterns(logins_for) if logins_for is not None else None
 		self.chrome_profile, self.headless, self.user_data_dir = profile, headless, user_data_dir
 		self.executable_path = executable_path
 		self.keep_alive, self.live_view, self.captcha_solver = keep_alive, live_view, captcha_solver
@@ -929,6 +936,7 @@ class Browser:
 					headless=self.headless,
 					user_data_dir=self.user_data_dir,
 					profile=self.chrome_profile,
+					logins_for=self.logins_for,
 				)
 			# BU_BROWSER_ID: the daemon knows the cloud browser is its own, so it attaches to its visible tab (a background
 			# tab is hidden, and a cloud browser never answers a hidden tab's screenshot) and stops it when it shuts down.
