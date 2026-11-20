@@ -190,6 +190,8 @@ class CellStats:
 			return
 		if h := host(url):
 			with self.lock:
+				if navigation and len(self.pages) < MAX_URLS:  # full URLs for Agent(after_action=...), never telemetry
+					self.pages.append(str(url).split('#', 1)[0])
 				self.navigated = self.navigated or navigation
 				if navigation and tab:
 					self.tabs.add(tab)
@@ -282,6 +284,7 @@ class CellStats:
 				'events': dict(getattr(self, 'events', {})),
 				'hosts': sorted(getattr(self, 'hosts', ())),
 				'urls': list(getattr(self, 'urls', ())),  # in the order visited, each once per worker
+				'pages': list(getattr(self, 'pages', ())),  # this cell's navigations, full URLs: the hooks', never sent
 				'typed': list(getattr(self, 'typed', ())),  # never sent: telemetry replaces it where quoted (scrub)
 				'navigations': getattr(self, 'navigations', 0),
 				'helper_t': getattr(self, 'helper_t', {}),
@@ -293,7 +296,7 @@ class CellStats:
 			}
 			self.helpers, self.cdp, self.events, self.hosts, self.navigations = Counter(), Counter(), Counter(), set(), 0
 			self.helper_t, self.cdp_t, self.host, self.new_pages, self.revisits = {}, {}, None, 0, 0
-			self.nav_errors, self.urls, self.typed = Counter(), [], []
+			self.nav_errors, self.urls, self.typed, self.pages = Counter(), [], [], []
 		return out
 
 

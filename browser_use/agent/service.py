@@ -28,6 +28,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
+from browser_use.agent.hooks import AfterAction, BeforeAction, check_hook
 from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_run
 from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run, usage_and_cost
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
@@ -260,6 +261,8 @@ class Agent:
 		highlight_actions: bool = True,
 		judge: bool = True,
 		judge_context: str | None = None,
+		before_action: BeforeAction | None = None,
+		after_action: AfterAction | None = None,
 		**kwargs: Any,
 	):
 		# 0.x use_judge and ground_truth: the same options under their old names
@@ -282,6 +285,8 @@ class Agent:
 			raise TypeError(f'judge must be True or False, not {judge!r}')
 		if judge_context is not None and not isinstance(judge_context, str):
 			raise TypeError(f'judge_context must be a str or None, not {type(judge_context).__name__}')
+		check_hook(before_action, 'before_action')
+		check_hook(after_action, 'after_action')
 		if max_context_chars is not None and (type(max_context_chars) is not int or max_context_chars < 1):
 			raise ValueError(f'max_context_chars must be a positive int or None, not {max_context_chars!r}')
 		if llm is None and os.environ.get('DEFAULT_LLM'):  # 0.x read it; 1.0 runs (and bills) the default instead
@@ -324,6 +329,7 @@ class Agent:
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
 		self.web_search, self.max_context_chars, self.highlight_actions = web_search, max_context_chars, highlight_actions
 		self.judge, self.judge_context = judge, judge_context or None
+		self.before_action, self.after_action = before_action, after_action
 		self._judge_cost: float | None = None  # the last run's judge cost (telemetry)
 		self._final_page: BinaryContent | None = None  # the last run's final page, for the judge
 		self._search: WebSearch | None = None  # set by _build when search() is on
@@ -531,7 +537,15 @@ class Agent:
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}
 			session = Session(
-				repl=self._repl, timeout_s=timeout, max_steps=max_steps, vision=self.use_vision, rec=rec, **compacted
+				repl=self._repl,
+				timeout_s=timeout,
+				max_steps=max_steps,
+				vision=self.use_vision,
+				rec=rec,
+				before_action=self.before_action,
+				after_action=self.after_action,
+				task=redact(self.task, self.sensitive_data),
+				**compacted,
 			)
 			self._reports.stats = session.stats
 			phase = 'loop'
