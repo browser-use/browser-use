@@ -40,6 +40,7 @@ from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import BrowserConfigError, removed
+from browser_use.tokens import Tokens, TokenSwap
 from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
 
 logger = logging.getLogger(__name__)
@@ -592,6 +593,7 @@ class Browser:
 		allowed_domains: list[str] | None = None,
 		prohibited_domains: list[str] | None = None,
 		block_ip_addresses: bool = False,
+		tokens: dict[str, dict] | None = None,
 		**kwargs,
 	):
 		"""Configure a browser; live_view=None prints the link, True also opens it, and False hides it."""
@@ -631,6 +633,12 @@ class Browser:
 				)
 			)
 		self.domains = DomainRules.of(allowed_domains, prohibited_domains, block_ip_addresses)
+		self.tokens = Tokens.of(tokens)  # real values stay in this process: TokenSwap writes them into requests
+		if self.tokens and self.kind == 'chrome' and profile is None:
+			raise ValueError(
+				"Browser('chrome') (your open Chrome) does not take tokens= yet: it would need a second remote-debugging "
+				"connection to your Chrome. Use Browser('chromium'), Browser('chrome', profile=...), Browser() or cdp_url."
+			)
 		launches = self.kind == 'chromium' or (self.kind == 'chrome' and profile is not None)
 		where = {'cloud': 'Browser() (a cloud browser)', 'chrome': "Browser('chrome') (your open Chrome)"}.get(
 			self.kind, f'Browser({self.kind!r})'
@@ -698,6 +706,7 @@ class Browser:
 		# the handler on the thread that holds it
 		self._stop_mutex = threading.RLock()
 		self._guard: Guard | None = None  # domain restrictions' browser-level block, while started
+		self._token_swap: TokenSwap | None = None  # tokens=: writes real values into requests, while started
 		self._watchdog: subprocess.Popen | None = None  # cloud or cdp_url: cleans up if this process dies uncleanly
 		# tab -> the disallowed URL it showed when this Browser first started (yours, in Browser('chrome')): sweep() leaves
 		# it alone while it still shows that URL. Taken once: a follow-up run or a reattach must not exempt a tab the
@@ -738,6 +747,8 @@ class Browser:
 						fd, self._tabs_file = tempfile.mkstemp(prefix='browser-use-tabs-')
 						os.close(fd)
 					env['BU_TABS_FILE'] = self._tabs_file
+			if self.tokens:  # the worker refuses the CDP calls that would see a real value (repl/worker.py)
+				env['BU_TOKENS'] = '1'
 			self._env = env
 		elif self._local is not None and self._local.proc is not None and self._local.proc.poll() is not None:
 			await self._stop()  # the Chrome this Browser launched died (crash, OOM, kill): launch a new one
@@ -993,6 +1004,9 @@ class Browser:
 				if self.cdp_url:
 					await asyncio.to_thread(self._attach_open_page)
 				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, (self.id or '') if self.use_cloud else '')
+			if self.tokens:  # before the agent's first page: Chrome intercepts documents loaded after Fetch.enable
+				self._token_swap = TokenSwap(ws, self.tokens)
+				await asyncio.to_thread(self._token_swap.start)
 			if self.domains:
 				self._guard = Guard(ws, self.domains)
 				await asyncio.to_thread(self._guard.start)
@@ -1052,6 +1066,11 @@ class Browser:
 		key = self._key()
 		return (key,) if self._llm_key and key == self._llm_key else ()
 
+	def token_dummies(self) -> dict[str, str]:
+		"""The stand-ins the agent types for tokens= ({'card': '4242 4291 ...', 'card.cvc': '381', ...}); the real values
+		never leave this process except into requests to the hosts each token allows."""
+		return self.tokens.dummies()
+
 	def _daemon_name(self) -> str:
 		return self.name or os.environ.get('BU_NAME') or 'default'  # Browser('chrome'): the shared daemon
 
@@ -1104,6 +1123,9 @@ class Browser:
 			guard, self._guard = self._guard, None
 			if guard is not None:
 				guard.close()
+			swap, self._token_swap = self._token_swap, None
+			if swap is not None:
+				swap.close()
 			tabs_file, self._tabs_file = self._tabs_file, None
 			if tabs_file:
 				with contextlib.suppress(OSError):

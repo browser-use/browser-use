@@ -424,6 +424,7 @@ class Agent:
 						self.browser.domains.prompt(
 							browser_blocks=not self.browser._attached()
 						),  # '' without restrictions: the default prompt stays byte-identical
+						self.browser.tokens.prompt(),  # '' without tokens=
 						redact(self.extend_system_message, self.sensitive_data),
 					],
 				)
@@ -549,6 +550,7 @@ class Agent:
 					rotate_proxy_cdp=self.browser.can_rotate_proxy() and browser_module.CDP_ROTATE_SHIPPED,
 					highlight_actions=self.highlight_actions,
 					feedback=self._reports,
+					mask=self.browser.tokens.mask_text if self.browser.tokens else None,
 				)
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}
