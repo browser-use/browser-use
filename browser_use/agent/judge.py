@@ -234,6 +234,10 @@ async def judge_cached(
 	ask = f'{CACHED_ASK}\n\n<task>\n{_cut(task, MAX_TASK_CHARS)}\n</task>'
 	if judge_context:
 		ask += f'\n\n<judge_context>\n{_cut(judge_context, MAX_TASK_CHARS)}\n</judge_context>'
+	outcome = f'status: {result.status}\nsuccess reported by the agent: {result.success}\n'
+	if result.error:
+		outcome += f'error: {_cut(result.error)}\n'
+	ask += f'\n\n<final_result>\n{outcome}{_cut(as_text(result.text))}\n</final_result>'
 	ask = redact(ask, secrets)
 	content: list[UserContent] = [ask, 'The page as the run left it:', final] if final else [ask]
 	last = history[-1] if history else None

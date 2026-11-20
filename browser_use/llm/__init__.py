@@ -178,7 +178,12 @@ class ChatBrowserUse(_Chat):
 				f"{model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0."
 			)
 		key = (
-			clean_api_key(plain, 'ChatBrowserUse(api_key=...)', f'The model {model}', 'gateway_model')
+			clean_api_key(
+				plain,
+				'ChatBrowserUse(api_key=...)',
+				f'The model {model}',
+				'default_model' if model == DEFAULT_MODEL else 'gateway_model',
+			)
 			if (plain := _plain(api_key))
 			else None
 		)

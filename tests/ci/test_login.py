@@ -107,7 +107,7 @@ def _cli(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess[st
 	env = os.environ.copy()
 	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
 	env.pop('BH_DEVICE_NAME', None)
-	# a desktop session: without one (SSH, a Linux server) `login` signs in with a device code (test_key_funnel.py)
+	# a desktop session: without one (SSH, a Linux server) `login` signs in with a device code (test_missing_key.py)
 	env.update(DISPLAY=':0')
 	for var in ('SSH_CONNECTION', 'SSH_TTY'):
 		env.pop(var, None)
