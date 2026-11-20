@@ -94,6 +94,14 @@ def test_request_shape_and_result_parsing(endpoint):
 		search('  ')
 
 
+def test_oversized_charge_does_not_discard_results(endpoint):
+	endpoint.reply = (200, {**HITS, 'browser_use': {'charge_usd': 10**400}}, 0)
+	search = WebSearch(KEY, endpoint.url)
+
+	assert search('q')['count'] == HITS['count']
+	assert search.charges == []
+
+
 @pytest.mark.parametrize(
 	('reply', 'message'),
 	[

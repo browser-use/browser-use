@@ -42,7 +42,7 @@ def parse_usd(value: Any) -> float | None:
 		return None
 	try:
 		usd = float(value)
-	except ValueError:
+	except (ValueError, OverflowError):
 		return None
 	return usd if math.isfinite(usd) and usd >= 0 else None
 
