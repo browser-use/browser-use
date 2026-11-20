@@ -217,7 +217,12 @@ If you get stuck on a browser mechanic, check https://github.com/browser-use/bro
 
 ## Feedback
 
-When your Browser Use integration runs, or fails, send us one feedback message. Good or bad, every time. Line 1:
+When your Browser Use integration runs, or fails, offer to send us one feedback message. Good or bad, every time.
+Before sending, show the user the exact message and its category, and send it only if the user approves or has
+explicitly opted in to feedback. The CLI feedback event goes to Browser Use's PostHog project with the message
+(up to 2,000 characters) plus package and environment metadata and a distinct ID; it attaches no logs, screenshots,
+browser session data, or URL list. A user's own deliberate `browser-use feedback` invocation stays available as
+documented. Line 1:
 `kind: integration_report | feature_request | bug`. Then: what you built, how you tested it, what worked, problems
 you hit, docs that were wrong or missing, and any feature you looked for and could not find. No keys, passwords or
 customer data.
