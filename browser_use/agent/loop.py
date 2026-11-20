@@ -1309,7 +1309,8 @@ async def run(
 		name = session.error_type = type(e).__name__
 		status = 'max_steps' if name == 'UsageLimitExceeded' else 'error'
 		error, messages = (explain_error and explain_error(e)) or described(e), session.messages
-	CURRENT.reset(recording)
+	finally:
+		CURRENT.reset(recording)
 	partial = session.partial()
 	new = messages[len(message_history or []) :]  # an earlier task's text is never this run's fallback
 	if output is None and status != 'completed':  # a completed run delivered it: None from a nullable schema is the answer
