@@ -723,4 +723,3 @@ class TestDataAndBlobUrlSecurity:
 		assert watchdog._is_url_allowed('blob:http://127.0.0.1/uuid') is False
 		assert watchdog._is_url_allowed('blob:http://192.168.1.1:8080/uuid') is False
 		assert watchdog._is_url_allowed('blob:https://example.com/uuid') is True
-
