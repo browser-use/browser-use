@@ -752,8 +752,8 @@ class Browser:
 
 	def _send_downloads(self, downloads: Path) -> None:
 		"""Downloads of a Chrome this Browser launched land in downloads (workspace/downloads), not the real ~/Downloads.
-		Saved as <guid> and renamed once finished (utils.name_download): with 'allow' a repeated name overwrote the
-		earlier file. The REPL worker renames what finishes during a run, _finish_downloads what finishes after it."""
+		Chrome stages GUID files privately: with 'allow' a repeated name overwrote the earlier file. The parent publishes
+		completed files on listing, at the end of a keep_alive run, or while stopping; workers only record events."""
 		downloads.mkdir(parents=True, exist_ok=True)
 		staging = download_staging(downloads)
 		staging.mkdir(parents=True, exist_ok=True)
