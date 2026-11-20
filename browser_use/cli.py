@@ -1070,7 +1070,9 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		print(HELP)
 		return 0, 'help'
 	if args and args[0] == '--update':  # browser-harness's self-update would update it, not browser-use
-		print('browser-use does not update itself: uv tool upgrade browser-use (or pip install -U browser-use).', file=sys.stderr)
+		from browser_use.update_check import upgrade_command
+
+		print(f'browser-use does not update itself: {upgrade_command()}.', file=sys.stderr)
 		return 2, 'update'
 	if args in (['--version'], ['-V']):
 		from importlib.metadata import version as package_version
