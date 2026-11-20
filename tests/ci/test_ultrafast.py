@@ -1,6 +1,7 @@
 """Ultrafast mode (port of Browser Use Pi src/ax.ts) against a real headless Chrome; no provider calls."""
 
 import hashlib
+import json
 import re
 import threading
 import time
@@ -68,6 +69,9 @@ PAGES = {
 <footer style="position:fixed;bottom:0;left:0;right:0;height:120px;background:#eee">Site footer</footer>""",
 	# the-internet.herokuapp.com/basic_auth: a 401 Basic Auth challenge fails the navigation to a blank error page.
 	'/dead': '<title>Dead</title><a href="/auth">Staging site</a>',
+	'/research': '<title>Research</title>'
+	+ '<p>Page content</p>' * 800
+	+ '<p>First [A+B] detail</p><div hidden>secret [a+b]</div><p>Next [a+b] offer</p>',
 	'/long': '<title>Long</title>' + ''.join(f'<button>Item number {i}</button>' for i in range(60)),
 }
 
@@ -160,7 +164,7 @@ def test_default_prompt_unchanged():
 	tells the Browser Use team when browser-use gets in the agent's way, a missing helper included: library_feedback)."""
 	default = static_instructions(build_agent())
 	assert default == [SYSTEM_PROMPT] == static_instructions(build_agent(mode='default'))
-	assert hashlib.sha256(default[0].encode()).hexdigest() == '01cd1da6278fdb263bcca92a24adf61a949efd26445a54a8cfab373a1c506023'
+	assert hashlib.sha256(default[0].encode()).hexdigest() == '08fc15748389ced02cc39a8fcde12d557e46b653546c8051425b935541d6ee6c'
 	assert static_instructions(build_agent(instructions='X')) == [f'{SYSTEM_PROMPT}\nX']
 	assert static_instructions(build_agent(mode='ultrafast')) == [(SYSTEM_PROMPT + AX_PROMPT).rstrip()]
 	assert static_instructions(build_agent(mode='ultrafast', instructions='X')) == [f'{SYSTEM_PROMPT}{AX_PROMPT}\nX']
@@ -178,6 +182,25 @@ async def test_default_worker_has_no_bu(daemon, tmp_path, monkeypatch):
 
 
 # --- bu.state() ---
+
+
+@pytest.mark.parametrize('mode', ['default', 'ultrafast'])
+async def test_find_text_reads_rendered_matches_and_their_source(daemon, tmp_path, site, mode):
+	repl = Repl(tmp_path, daemon, mode=mode)
+	try:
+		code = f"""goto_url({site + '/research'!r})
+wait_for_element('p')
+import json
+print(json.dumps([find_text('[a+b]', limit=1), find_text('secret'), find_text('offer')]))"""
+		out, err = await cell(repl, code)
+		assert err is None, err
+		first, missing, last = json.loads(out.strip().splitlines()[-1])
+		assert first['url'] == site + '/research' and first['title'] == 'Research'
+		assert len(first['snippets']) == 1 and 'First [A+B] detail' in first['snippets'][0] and first['has_more']
+		assert missing['snippets'] == [] and not missing['has_more']
+		assert 'Next [a+b] offer' in last['snippets'][0] and not last['has_more']
+	finally:
+		await repl.close()
 
 
 async def test_state_format(repl, site):

@@ -739,6 +739,25 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		ext = p.suffix.lower().lstrip('.').replace('jpg', 'jpeg')
 		return _add_image(p.read_bytes(), f'image/{ext}')
 
+	def find_text(text: str, *, limit: int = 5):
+		"""Read literal matches in the current document's rendered body text, with surrounding text and source URL."""
+		if not isinstance(text, str) or not text.strip() or len(text) > 256:
+			raise ValueError('text must be a nonblank string of at most 256 characters')
+		if type(limit) is not int or not 1 <= limit <= 20:
+			raise ValueError('limit must be an integer from 1 to 20')
+		return helpers.js(
+			r"""((needle, limit) => {
+				const body = document.body?.innerText || '';
+				const pattern = new RegExp(needle.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&'), 'giu');
+				const snippets = [];
+				let match;
+				while ((match = pattern.exec(body)) && snippets.length < limit)
+					snippets.push(body.slice(Math.max(0, match.index - 100), pattern.lastIndex + 100));
+				return {url: location.href, title: document.title, snippets, has_more: !!match};
+			})"""
+			+ f'({json.dumps(text)}, {limit})'
+		)
+
 	def checkpoint(filename, value, partial=False):
 		"""Atomically save JSON to the workspace. partial=True also makes it the run's fallback result."""
 		path = Path(filename)
@@ -902,6 +921,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	ns.update(
 		screenshot=screenshot,
 		show_image=show_image,
+		find_text=find_text,
 		checkpoint=checkpoint,
 		type_secret=type_secret,
 		secret_names=secret_names,
@@ -1171,6 +1191,7 @@ def main() -> None:
 	for line in rfile:
 		msg = json.loads(line)
 		images.clear()
+		is_none = False
 		out_path = cells / f'{msg["n"]:04d}.txt'
 		error = value = error_type = error_message = (
 			None  # stats keeps events bu read between cells (a captcha solve while the model thinks)
@@ -1190,6 +1211,7 @@ def main() -> None:
 			else:  # 'eval': read an existing value for delivery
 				obj = compile(msg['code'], '<finish>', 'eval', flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
 				value = _run(obj, ns, loop) if obj.co_flags & inspect.CO_COROUTINE else eval(obj, ns)
+				is_none = value is None  # serialization alone cannot distinguish None from the literal text 'null'
 				value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=_jsonable)
 		except BaseException as e:  # - the agent sees every failure
 			error_type = error_class(e)  # telemetry: a class the model's code defined is 'custom'
@@ -1232,6 +1254,7 @@ def main() -> None:
 				'output': output,
 				'error': error,
 				'value': value,
+				'is_none': is_none,
 				'images': list(images),
 				'output_file': str(out_path),
 				'error_type': error_type,

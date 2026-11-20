@@ -41,6 +41,20 @@ async def go(env, tmp_path, steps, **kw):
 	return result, seen
 
 
+async def test_none_expression_gets_a_repair_but_literal_null_is_text(tmp_path):
+	result, seen = await go(
+		None,
+		tmp_path,
+		[
+			('python', {'code': "rows = []\nanswer = rows.append('observed')"}),
+			('finish_from_repl', {'expression': 'answer'}),
+			('finish_from_repl', {'expression': "'null'"}),
+		],
+	)
+	assert len(seen) == 3 and 'placeholder' in str(seen[-1])
+	assert result.output == 'null'
+
+
 async def test_browser_screenshot_and_finish_from_repl(daemon, tmp_path):
 	result, seen = await go(
 		daemon,

@@ -334,7 +334,7 @@ def _outputs(output_type: Any) -> list[Any]:
 			raise ModelRetry(f'Expression failed: {r["error"][-2000:]}')
 		if output_type is str:
 			value = _unquoted(r['value'], expression)
-			check_delivery(ctx, value)
+			check_delivery(ctx, None if r.get('is_none') else value)
 		else:
 			try:
 				value = adapter.validate_json(r['value'])
