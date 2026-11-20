@@ -155,11 +155,11 @@ def _base64_cores(b: bytes) -> list[str]:
 	return cores
 
 
-def secret_forms(values: Secrets) -> list[tuple[str, str]]:
+def secret_forms(values: Secrets, *, include_short_encodings: bool = False) -> list[tuple[str, str]]:
 	"""(form, name) for each secret value; its JSON-, repr()- and HTML-escaped forms (a value with quotes, backslashes,
 	newlines, & or < no longer matches once serialized); its lower- and upper-case forms (a site shows an email
 	lowercased); and its reversed, base64 (also inside a longer base64 string), hex and URL-encoded forms. Longest
-	first."""
+	first. include_short_encodings includes every nonempty form for audit logs, even for short secrets."""
 	forms: dict[str, str] = {}
 	for name, value, _ in scoped_secrets(values):
 		if not value:
@@ -170,16 +170,19 @@ def secret_forms(values: Secrets) -> list[tuple[str, str]]:
 			forms.setdefault(form, name)  # escapes only make a value longer: never a shorter, over-matching form
 		for form in (value.lower(), value.upper()):  # same length; a 1-3 character one only as a whole word (redact_forms)
 			forms.setdefault(form, name)
-		if len(value) >= 4:  # encodings of a 1-3 character value would redact ordinary text
+		if include_short_encodings or len(value) >= 4:  # encodings of a 1-3 character value would redact ordinary text
 			b = value.encode()
 			b64 = base64.b64encode(b).decode()
 			for form in (value[::-1], b64, b64.rstrip('='), base64.urlsafe_b64encode(b).decode(), b.hex(), b.hex().upper(),
 						 urllib.parse.quote(value, safe=''), urllib.parse.quote_plus(value)):  # fmt: skip
 				forms.setdefault(form, name)
-		if len(value) >= 6:  # shorter values give cores of 4-6 characters, which occur by chance in any base64 blob
+		if (
+			include_short_encodings or len(value) >= 6
+		):  # shorter values give cores of 4-6 characters, which occur by chance in any base64 blob
 			for text in dict.fromkeys((value, escaped[0])):  # as is, and as it sits in base64 of JSON
 				for form in _base64_cores(text.encode()):
-					forms.setdefault(form, name)
+					if form:
+						forms.setdefault(form, name)
 	return sorted(forms.items(), key=lambda kv: -len(kv[0]))
 
 
@@ -322,8 +325,10 @@ class Repl:
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		highlight_actions: bool = False,
 		feedback: Callable[[dict], str] | None = None,
+		audit_log: Path | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
+		self.audit_log = audit_log
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
 		self.feedback = feedback
@@ -427,6 +432,8 @@ class Repl:
 				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
 			self.reader, self.writer = connected.result()
 			init = {'secrets': self.secrets, 'search': self.search is not None, 'downloads': self.downloads is not None}
+			if self.audit_log is not None:
+				init['audit_log'] = str(self.audit_log)
 			self.writer.write(json.dumps(init).encode() + b'\n')
 			await self.writer.drain()
 			if not await asyncio.wait_for(self.reader.readline(), 60):

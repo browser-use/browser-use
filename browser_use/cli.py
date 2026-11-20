@@ -167,7 +167,9 @@ def _mcp_browser_options() -> dict[str, Any]:
 		profiles = []
 	profile = next((p for p in profiles if isinstance(p, dict) and p.get('default')), profiles[0] if profiles else {})
 	profile = profile if isinstance(profile, dict) else {}
-	options = {k: profile[k] for k in ('allowed_domains', 'prohibited_domains') if profile.get(k)}
+	options = {
+		k: profile[k] for k in ('allowed_domains', 'prohibited_domains', 'block_downloads', 'block_uploads') if profile.get(k)
+	}
 	if domains := os.environ.pop('BROWSER_USE_ALLOWED_DOMAINS', '').strip():  # Browser() raises on the variable itself
 		options['allowed_domains'] = [d.strip() for d in domains.split(',') if d.strip()]
 	proxy_env = [
@@ -204,7 +206,14 @@ def _run_mcp_server(command: str = 'browser-use --mcp') -> int:
 
 
 def _run_cli_mcp_server() -> None:
-	_run_mcp_stdio_server('browser_use.mcp.cli_mcp')
+	import os
+
+	options = {
+		name: True
+		for name in ('block_downloads', 'block_uploads')
+		if os.environ.get(f'BROWSER_USE_{name.upper()}', '').strip().lower() in ('1', 'true', 'yes')
+	}
+	_run_mcp_stdio_server('browser_use.mcp.cli_mcp', **options)
 
 
 def _run_mcp_error_server(message: str) -> None:
