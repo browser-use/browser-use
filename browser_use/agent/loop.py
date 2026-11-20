@@ -150,6 +150,7 @@ class Session:
 	overflowed_step: int | None = None  # Compaction: the request step a context-window error forced a compaction in
 	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
 	unforced: bool = False  # the model rejected the forced delivery tool choice: delivery requests stay auto
+	request_params: Any = None  # the last request's tool definitions: the judge resends them for the cached prefix
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
 	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step
 
@@ -451,6 +452,7 @@ class BrowserLoop(AbstractCapability[Session]):
 	async def prepare_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		"""The request's deadline, per attempt: a retry after the provider's Retry-After kept the deadline computed
 		before the sleep and ran past the delivery turn's start (status timeout, no answer)."""
+		ctx.deps.request_params = request_context.model_request_parameters
 		settings: dict[str, Any] = dict(request_context.model_settings or {})
 		_deadlines(ctx.deps, settings, request_context.model, MODEL_TIMEOUT_S)
 		if ctx.deps.finalizing and ctx.deps.unforced:  # each attempt starts from before_model_request's choice
