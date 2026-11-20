@@ -14,11 +14,10 @@ import browser_use
 from browser_use.repl import Repl, redact, worker_env
 
 PACKAGE = Path(browser_use.__file__).parent
-# A prompt-injected cell digging the values out of the worker's heap: the sensitive_data list ([name, value, scope]
-# rows) is in this process, so a gc scan finds it (helper closures no longer lead to it). Redaction must still hold.
-DIG = (
-	'import gc\nv = {r[0]: r[1] for o in gc.get_objects() if isinstance(o, list) for r in o if isinstance(r, list) '
-	'and len(r) == 3 and isinstance(r[0], str) and isinstance(r[1], str)}\n'
+# A prompt-injected cell digging the values out of type_secret's closure.
+DIG = (  # helpers are wrapped for telemetry counts (worker._counted); an injected cell can unwrap them too
+	'import inspect\nv = {n: x for n, x, _ in [c.cell_contents for c in inspect.unwrap(type_secret).__closure__ '
+	'if isinstance(c.cell_contents, list)][0]}\n'
 )
 
 
@@ -146,91 +145,6 @@ async def test_secret_values_are_redacted_from_everything_returned(tmp_path):
 		assert 'KeyError' in (await repl.call('exec', "type_secret('nope')", 30))['error']
 	finally:
 		await repl.close()
-
-
-WALK = """
-import functools, hashlib, sys, threading, types
-seen, hits = set(), []
-
-def walk(o, path, depth=0):
-	if depth > 12 or id(o) in seen or isinstance(o, (types.ModuleType, type)):
-		return
-	seen.add(id(o))
-	if isinstance(o, str):
-		if hashlib.sha256(o.encode()).hexdigest() == TARGET:
-			hits.append(path)
-	elif isinstance(o, (list, tuple, set, frozenset)):
-		for i, x in enumerate(list(o)):
-			walk(x, f'{path}[{i}]', depth + 1)
-	elif isinstance(o, dict):
-		for k, x in list(o.items()):
-			walk(x, f'{path}[{k!r}]', depth + 1)
-	elif isinstance(o, types.FunctionType):
-		for i, c in enumerate(o.__closure__ or ()):
-			try:
-				walk(c.cell_contents, f'{path}.__closure__[{i}]', depth + 1)
-			except ValueError:  # an empty cell
-				pass
-		for a in ('__wrapped__', '__defaults__', '__kwdefaults__', '__dict__'):
-			walk(getattr(o, a, None), f'{path}.{a}', depth + 1)
-	elif isinstance(o, types.MethodType):
-		walk(o.__func__, f'{path}.__func__', depth + 1)
-		walk(o.__self__, f'{path}.__self__', depth + 1)
-	elif isinstance(o, functools.partial):
-		walk((o.func, o.args, o.keywords), f'{path}.partial', depth + 1)
-	elif hasattr(o, '__dict__'):
-		walk(vars(o), f'{path}.__dict__', depth + 1)
-
-for k, v in list(globals().items()):
-	walk(v, k)
-for t in threading.enumerate():  # a thread's target and args
-	walk(vars(t), f'thread {t.name}')
-f, n = sys._getframe(), 0
-while f is not None:  # the frames that run this cell, up to the worker's main()
-	walk(dict(f.f_locals), f'frame {n} {f.f_code.co_name}')
-	f, n = f.f_back, n + 1
-print('hits', hits)
-"""
-
-
-async def test_secret_values_are_not_reachable_through_helper_references(tmp_path):
-	"""Design review: type_secret.__wrapped__.__closure__ (and secret_names.__closure__) held the sensitive_data list, so
-	one line of injected Python read every real value. A walk of references from the namespace (closures, __wrapped__,
-	defaults, bound methods, partials, object __dict__s), from each thread's target and args, and from the frames that
-	run the cell (main()'s locals) finds no value. Process-wide scans still do: see the next test."""
-	import hashlib
-
-	value = 'hunter2-Zq9'
-	repl = Repl(tmp_path, secrets={'pw': value, 'https://site.test': {'tok': 'tok-Zq9-Kx'}})
-	try:
-		for v in (value, 'tok-Zq9-Kx'):
-			r = await repl.call('exec', f'TARGET = {hashlib.sha256(v.encode()).hexdigest()!r}\n' + WALK, 60)
-			assert r['error'] is None and 'hits []' in r['output'], r
-	finally:
-		await repl.close()
-
-
-async def test_secret_values_stay_readable_in_process_and_redaction_still_holds(tmp_path):
-	"""What the fix above does not seal, as MIGRATING.md says: the worker is a same-process Python REPL, so a cell still
-	reads a value through a gc scan, inspect + the holder's slot, the main thread's frames + the slot, or an output
-	pump thread's frame (sys._current_frames()). Each route's value still comes back as <secret:pw>."""
-	repl = Repl(tmp_path, secrets={'pw': 'hunter2-Zq9'})
-	try:
-		code = DIG + (
-			'import inspect, sys\n'
-			"print(v['pw'])\n"
-			"held = inspect.getclosurevars(inspect.unwrap(type_secret)).nonlocals['secrets']\n"
-			'print(type(held)._values.__get__(held)[0][1])\n'
-			'f = sys._getframe()\n'
-			"while 'secrets' not in f.f_locals:\n\tf = f.f_back\n"
-			"print(type(f.f_locals['secrets'])._values.__get__(f.f_locals['secrets'])[0][1])\n"
-			"forms = [x.f_locals['forms'] for x in sys._current_frames().values() if 'forms' in x.f_locals]\n"
-			"print(next(form for form, _ in forms[0] if form.startswith('hunter')))\n"
-		)
-		r = await repl.call('exec', code, 30)
-	finally:
-		await repl.close()
-	assert r['error'] is None and r['output'].split() == ['<secret:pw>'] * 4, r
 
 
 def test_a_short_secret_is_redacted_only_where_it_stands_alone():

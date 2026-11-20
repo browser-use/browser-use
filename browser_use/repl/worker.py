@@ -51,6 +51,7 @@ from browser_use.repl.session import (
 	SECRET_PLACEHOLDER,
 	clip,
 	domain_matches,
+	redact,
 	redact_forms,
 	secret_forms,
 )
@@ -490,32 +491,7 @@ EDITABLE = """function () {
 }"""
 
 
-class _Secrets:
-	"""The sensitive_data values, in one slot: the helpers, the output pumps' thread args and main()'s locals hold this
-	object, never the list, so following a helper's __closure__ / __wrapped__ (type_secret.__wrapped__.__closure__ was
-	one line) does not reach a value. Not a sandbox: code in this process still reads it (gc.get_referents, the slot
-	itself, the pump threads' frames, a patched helpers.cdp while type_secret types); see MIGRATING.md, Trust model."""
-
-	__slots__ = ('_values',)
-
-	def __init__(self, values: list) -> None:
-		self._values = values
-
-	def names(self) -> list[str]:
-		return sorted({n for n, _, _ in self._values})
-
-	def candidates(self, name: str) -> list[tuple[str, str | None]]:
-		"""(value, domain scope or None) of each secret called name; a name ending in 'bu_2fa_code' types its TOTP code."""
-		return [(totp(v) if name.endswith('bu_2fa_code') else v, s) for n, v, s in self._values if n == name]
-
-	def forms(self) -> list[tuple[str, str]]:
-		return secret_forms(self._values)
-
-	def __repr__(self) -> str:
-		return f'<{len(self._values)} secrets>'
-
-
-def _install(ns: dict, secrets: _Secrets) -> tuple[ax.AxHelpers | None, Captcha]:
+def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	env = dict(os.environ)  # the allowlisted env the parent gave us
 	from browser_harness import helpers  # loads .env files and agent_helpers.py into this process
 
@@ -651,7 +627,7 @@ def _install(ns: dict, secrets: _Secrets) -> tuple[ax.AxHelpers | None, Captcha]
 		finally:
 			stats.timed('cdp_t', str(method)[:200], time.perf_counter_ns() - started, failed)
 
-	known_secrets = set(secrets.names())
+	known_secrets = {n for n, _, _ in secrets}
 
 	def refuse_placeholder(method, params) -> None:
 		"""0.x replaced <secret>name</secret> with the value, and cell output shows a typed value as <secret:name>: the
@@ -766,8 +742,8 @@ def _install(ns: dict, secrets: _Secrets) -> tuple[ax.AxHelpers | None, Captcha]
 	def checkpoint(filename, value, partial=False):
 		"""Atomically save JSON to the workspace. partial=True also makes it the run's fallback result."""
 		path = Path(filename)
-		value = redact_forms(
-			json.loads(json.dumps(value, default=_jsonable)), secrets.forms()
+		value = redact(
+			json.loads(json.dumps(value, default=_jsonable)), secrets
 		)  # the checkpoint file never holds a secret value
 		_write_atomic(path, json.dumps(value, ensure_ascii=False, indent=1))
 		if partial:
@@ -879,7 +855,7 @@ def _install(ns: dict, secrets: _Secrets) -> tuple[ax.AxHelpers | None, Captcha]
 		element. Its value is hidden from your text output.
 		A domain-scoped secret types only while the frame that receives the text matches its domain. A secret whose
 		name ends in 'bu_2fa_code' is a TOTP seed: the current 6-digit code is typed, never the seed (0.x)."""
-		candidates = secrets.candidates(name)
+		candidates = [(totp(v) if name.endswith('bu_2fa_code') else v, scope) for n, v, scope in secrets if n == name]
 		if not candidates:
 			raise KeyError(f'No secret named {name!r}; secret_names() lists them')
 		scoped = [(v, scope) for v, scope in candidates if scope is not None]
@@ -919,11 +895,9 @@ def _install(ns: dict, secrets: _Secrets) -> tuple[ax.AxHelpers | None, Captcha]
 			f'{url or "unknown"}. Focus a field on the right site first.'
 		)
 
-	names = secrets.names()
-
 	def secret_names():
 		"""Names of the secrets you can type with type_secret(name)."""
-		return list(names)
+		return sorted({n for n, _, _ in secrets})
 
 	ns.update(
 		screenshot=screenshot,
@@ -1039,10 +1013,10 @@ def _write_atomic(path: Path, text: str) -> None:
 	os.replace(tmp, path)  # a kill mid-write leaves the old file, never a truncated one
 
 
-def _pump(rfd: int, path: Path, secrets: _Secrets, mode: str = 'w') -> None:
+def _pump(rfd: int, path: Path, secrets: list, mode: str = 'w') -> None:
 	"""Copy a cell's output pipe into its file, redacting on the way, so secret values never reach the disk even
 	when the cell is killed. Holds back only the tail that could be the start of a secret."""
-	forms = secrets.forms()
+	forms = secret_forms(secrets)
 	keep = max((len(f) for f, _ in forms), default=1) - 1
 	by_line = not any('\n' in f for f, _ in forms)  # then a secret never spans a newline
 	decoder, buf = codecs.getincrementaldecoder('utf-8')('replace'), ''
@@ -1136,7 +1110,7 @@ def _watch_parent(parent: int) -> None:
 _OWN_JOB = None  # Windows: the worker's own kill-on-close job, held open for the worker's lifetime
 
 
-def _redact_between_cells(secrets: _Secrets) -> None:
+def _redact_between_cells(secrets: list) -> None:
 	"""Output written between cells (a thread or subprocess a cell left running, a warning) goes to worker.log through
 	the redacting pump too: it went there raw, with any secret value a background thread printed."""
 	rfd, wfd = os.pipe()
@@ -1171,7 +1145,7 @@ def main() -> None:
 	wfile.write(os.environ.pop('BU_REPL_TOKEN').encode() + b'\n')
 	wfile.flush()
 	init = json.loads(rfile.readline())
-	secrets = _Secrets(init.pop('secrets'))  # the list only in its slot, not in main()'s locals (a cell can walk frames)
+	secrets = init['secrets']
 	cells = STATE / 'cells'
 	cells.mkdir(parents=True, exist_ok=True)
 	sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
