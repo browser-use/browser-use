@@ -25,7 +25,7 @@ _EVENTS = (
 	"each step logs one INFO line to logging.getLogger('browser_use'); add a logging.Handler to stream progress, and "
 	'read result.messages after the run.'
 )
-_MCP_CLIENT = 'call the MCP server from a plain @tools.action function.'
+_MCP_CLIENT = 'use browser_use.mcp.client.MCPClient to connect and register MCP tools on browser-use Tools.'
 _MCP_SERVER = 'browser-use --cli-mcp (browser-use --mcp now serves the same browser_exec and browser_screenshot tools).'
 _CODE_AGENT = 'from browser_use import Agent: the 1.0 agent writes Python itself.'
 _CLI = 'the browser-use CLI pipes Python to browser-harness (browser-use --help), and browser-use --cli-mcp serves it over MCP.'
@@ -146,7 +146,6 @@ def _modules() -> dict[str, str]:
 				'browser_use.llm.models': "a Pydantic AI model string, e.g. llm='openai:gpt-6-luna'.",
 				'browser_use.llm.tests': '',
 				**_llm_modules(),
-				'browser_use.mcp.client': _MCP_CLIENT,
 				'browser_use.mcp.controller': _MCP_CLIENT,
 				'browser_use.mcp.server': _MCP_SERVER,
 				'browser_use.observability': _OBSERVABILITY,
@@ -251,7 +250,7 @@ _NAMES: dict[str, dict[str, str]] = {
 	),
 	'browser_use.mcp': {
 		'BrowserUseServer': _MCP_SERVER,
-		**dict.fromkeys(('MCPClient', 'MCPToolWrapper'), _MCP_CLIENT),
+		'MCPToolWrapper': _MCP_CLIENT,
 	},
 	'browser_use.skills': dict.fromkeys(('MissingCookieException', 'SkillService'), _SKILLS),
 	'browser_use.cli': dict.fromkeys(

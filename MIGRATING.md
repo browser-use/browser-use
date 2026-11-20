@@ -277,7 +277,8 @@ ActionResult, ChatBrowserUse, ChatOpenAI, ChatAnthropic, ChatGoogle`.
 | `browser_use.agent.prompts`, `.message_manager`, `.memory`, `.gif`, `.variable_detector` | removed: the 0.x loop internals. `Agent(extend_system_message=...)` adds to the fixed prompt; `result.success` is the agent's verdict |
 | `browser_use.agent.judge`: `JudgementResult`, `SimpleJudgeResult` | `result.judgement`, a `browser_use.agent.judge.Judgement` |
 | `browser_use.observability` (`observe`, `observe_debug`, Laminar) | see [Observability](#observability) |
-| `browser_use.mcp.client` (`MCPClient`), `browser_use.mcp.controller` | call the MCP server from a plain `@tools.action` function |
+| `browser_use.mcp.client` (`MCPClient`) | `async with MCPClient(name, command, args) as client: await client.register_to_tools(tools)`; MCP tools are discovered over stdio and registered as `@tools.action` functions |
+| `browser_use.mcp.controller` | use `browser_use.mcp.client.MCPClient` to connect and register MCP tools on browser-use `Tools` |
 | `browser_use.mcp.server` (`BrowserUseServer`) | `browser-use --cli-mcp` (see [CLI and MCP](#cli-and-mcp)) |
 | `browser_use.dom`, `browser_use.actor` (`Page`, `Element`, `Mouse`) | the agent drives the page with Python and raw CDP in its REPL |
 | `browser_use.filesystem` | `Agent(workspace=...)`, a plain directory |
