@@ -22,6 +22,13 @@ def local_paths(path) -> list[str]:
 		full = Path(p).expanduser().resolve()
 		if not full.is_file():
 			raise FileNotFoundError(f'upload_file: {str(p)!r} is not a file ({full})')
+		try:  # a local browser reads the path itself: only a file this process may read (Agent(sandbox=True))
+			open(full, 'rb').close()
+		except PermissionError:
+			raise PermissionError(
+				f'upload_file: {str(p)!r} is not readable here ({full})'
+				+ ('; with Agent(sandbox=True) only files in the workspace are' if os.environ.get('BU_SANDBOXED') else '')
+			) from None
 		out.append(str(full))
 	return out
 

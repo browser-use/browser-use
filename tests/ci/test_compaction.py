@@ -3,6 +3,7 @@
 import base64
 import json
 import logging
+import sys
 
 import pytest
 from pydantic_ai import BinaryContent
@@ -225,6 +226,21 @@ async def test_archive_is_written_redacted_and_without_images(tmp_path):
 	assert 'TASK-TEXT' in raw and 'step1' in raw and 'step2' not in raw  # messages before the kept groups
 	assert 'hunter2-secret' not in raw and '<secret:pw>' in raw
 	assert PNG not in raw and '[Image omitted from text archive]' in raw
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='symlinks need privileges on Windows (and Agent(sandbox=True) is POSIX)')
+async def test_archive_is_never_written_through_a_link_in_the_workspace(tmp_path):
+	"""Agent(sandbox=True): the worker can swap .browser-use/context for a link (to ~/.bashrc.d, say), and this
+	unconfined process wrote the summary, model-chosen text, there. Compaction now fails and the run goes on."""
+	outside = tmp_path / 'outside'
+	outside.mkdir()
+	ws = tmp_path / 'ws'
+	(ws / '.browser-use').mkdir(parents=True)
+	(ws / '.browser-use' / 'context').symlink_to(outside)
+	fn, _, summarizer_requests = scripted(big={3})
+	result = await go(ws, fn, compact_at_tokens=4700)
+	assert result.status == 'completed' and summarizer_requests, result.error
+	assert list(outside.iterdir()) == []
 
 
 async def test_summarizer_failure_keeps_the_history_and_is_tried_again(tmp_path, caplog, monkeypatch):
