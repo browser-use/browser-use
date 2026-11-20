@@ -40,6 +40,7 @@ from browser_use import search as web
 MODES = ('default', 'ultrafast')
 STREAM_LIMIT = 256 * 1024 * 1024
 MAX_OUTPUT_CHARS = 12_000  # per cell, cut in the worker so a huge print never crosses the channel
+MASK_OVERLAP = 4_000  # Browser(tokens=...): characters past the cut masked with it, so the cut never splits a value
 ENV_ALLOW = {
 	'PATH', 'PATHEXT', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'USER', 'USERNAME', 'LOGNAME', 'SHELL', 'TERM',
 	'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PROGRAMFILES',
@@ -210,11 +211,11 @@ def clip(text: str, path: Path | str) -> str:
 	return text if len(text) <= MAX_OUTPUT_CHARS else f'{text[:MAX_OUTPUT_CHARS]}\n[Truncated. Full captured output: {path}]'
 
 
-def _head(path: Path) -> str:
+def _head(path: Path | str, chars: int = MAX_OUTPUT_CHARS + 1) -> str:
 	"""The start of a cell's output file, enough for clip(): a cell may have printed gigabytes before it hung."""
 	try:
 		with open(path, encoding='utf-8', errors='replace') as f:
-			return f.read(MAX_OUTPUT_CHARS + 1)
+			return f.read(chars)
 	except FileNotFoundError:
 		return ''
 
@@ -308,7 +309,8 @@ class Repl:
 	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
 	worker, answered here (Browser.list_downloads). feedback: answers report_issue() with the confirmation the cell
 	gets (telemetry/feedback.RunReports); without it nothing is sent. highlight_actions: orange corner brackets around
-	what the agent clicks or types into (repl/highlight.py)."""
+	what the agent clicks or types into (repl/highlight.py). mask: applied to the text the model gets from a cell
+	(Browser(tokens=...): real values -> their stand-ins)."""
 
 	def __init__(
 		self,
@@ -322,12 +324,14 @@ class Repl:
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		highlight_actions: bool = False,
 		feedback: Callable[[dict], str] | None = None,
+		mask: Callable[[str], str] | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
 		self.feedback = feedback
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
+		self.mask = mask  # Browser(tokens=...): a real value in cell output reaches the model as its stand-in
 		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
 		# which a keep_alive Agent outlives (asyncio.run per run); killed after that loop closed, the worker was never
 		# reaped on Linux (pidfd watcher) and logged "Loop ... that handles pid ... is closed" on macOS
@@ -457,11 +461,24 @@ class Repl:
 			with contextlib.suppress(TimeoutError):  # reaped from any loop: SIGKILL ends it in milliseconds
 				await asyncio.wait_for(_exited(proc), 5)
 
+	def _mask_cut(self, r: dict[str, Any]) -> None:
+		"""Output cut at MAX_OUTPUT_CHARS can end in part of a real value ('123-45-67'), which masking no longer matches:
+		mask the file's head with MASK_OVERLAP more characters first, then cut."""
+		path, output = r.get('output_file'), r.get('output')
+		if not (isinstance(path, str) and isinstance(output, str) and self.mask is not None):
+			return
+		cut = clip(head := _head(path), path)
+		if head == cut or not output.endswith(cut):  # not cut, or not the file's text
+			return
+		r['output'] = output[: len(output) - len(cut)] + clip(self.mask(_head(path, MAX_OUTPUT_CHARS + MASK_OVERLAP)), path)
+
 	async def call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		if self._lock_loop is not (loop := asyncio.get_running_loop()):  # reused from a new loop (asyncio.run per run)
 			self.lock, self._lock_loop = asyncio.Lock(), loop
 		async with self.lock:
 			r = await self._call(op, code, timeout)
+			if self.mask is not None:
+				self._mask_cut(r)
 			if r.get('error_type') == 'BrowserConnectionLost' and self.reattach is not None:
 				try:
 					env = await self.reattach()
@@ -488,7 +505,12 @@ class Repl:
 				if blocks:
 					events = r.setdefault('stats', {}).setdefault('events', {})
 					events['domain_blocked'] = events.get('domain_blocked', 0) + blocks
-		return {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value', 'error_message')}}
+		out = {**r, **{k: redact(r.get(k), self.secrets) for k in ('output', 'error', 'value', 'error_message')}}
+		if self.mask is not None:
+			out.update(
+				{k: self.mask(v) for k in ('output', 'error', 'value', 'error_message') if isinstance(v := out.get(k), str)}
+			)
+		return out
 
 	async def _search(self, args: Any) -> dict[str, Any]:
 		"""{'value': the search result} or {'error': the message search() raises in the cell}."""
