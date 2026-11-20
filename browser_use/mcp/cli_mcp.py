@@ -71,6 +71,9 @@ STILL_RUNNING = (
 	'running. Call browser_exec with code "" to wait for it and get the rest of its output (new code would run beside it).'
 )
 NOTHING_RUNNING = 'Nothing is running: every earlier browser_exec has ended and returned all of its output.'
+BUSY = (
+	f'Not run: an earlier browser_exec or browser_screenshot call still held the browser after {CALL_SECONDS:.0f} s. Call again.'
+)
 NO_CLOUD_WITH_DOMAINS = (
 	"{name}() is off: this server's allowed_domains / prohibited_domains hold only on its own Chromium, and a cloud "
 	'browser would open any site'
@@ -152,6 +155,13 @@ _call_errors: contextvars.ContextVar[list[tuple[str, str]] | None] = contextvars
 	'browser_use_mcp_errors', default=None
 )
 TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login', 'browser_feedback')
+
+
+def _count(kind: str) -> None:
+	"""Telemetry for the tool call in progress: why browser_exec replied before its code ended, or failed without an
+	exception of its own. No text: an earlier cell's output can hold page data."""
+	if (errors := _call_errors.get()) is not None:
+		errors.append((kind, ''))
 
 
 def _client_gone(e: BaseException) -> bool:
@@ -636,45 +646,60 @@ class CLIMCPServer:
 
 	async def _exec_call(self, code: str) -> types.CallToolResult:
 		"""browser_exec: run code on its own thread (empty code: wait for the cells still running) and reply within
-		CALL_SECONDS whether it ended or not. The first block is the code's own output (a client may parse it as JSON);
-		then whether it still runs, what earlier cells printed since, and the browser note."""
+		CALL_SECONDS whether it ended or not. One call at a time: a call that cannot start before its deadline does not run."""
 		deadline = time.monotonic() + CALL_SECONDS
-		async with self._exec_lock:
-			earlier = list(self._running)
-			cell = None
-			if code.strip():
-				cell = _Cell()
-				self._running.append(cell)
-				run = contextvars.copy_context().run  # its failures go to this call's telemetry
-				threading.Thread(target=run, args=(self._run_cell, cell, code), daemon=True, name='browser-exec').start()
-			waited = [cell] if cell else earlier
-			await asyncio.to_thread(lambda: [c.done.wait(max(0.0, deadline - time.monotonic())) for c in waited])
-			blocks, failed = [], False
-			if cell is not None:
-				ended = cell.done.is_set()
-				blocks.append(_clipped(cell.new_output()) or '(no output)')
-				if ended:
-					self._running.remove(cell)
-					failed = cell.failed
-				else:
-					blocks.append(STILL_RUNNING.format(seconds=time.monotonic() - cell.started))
-					if (errors := _call_errors.get()) is not None:
-						errors.append(('still_running', ''))
-			elif not earlier:
-				blocks.append(NOTHING_RUNNING)
-			for c in earlier:
-				seconds = time.monotonic() - c.started
-				if c.done.is_set():  # before reading its output: an ended cell's output is complete
-					self._running.remove(c)
-					failed = failed or (cell is None and c.failed)
-					head = f'[earlier browser_exec {"failed" if c.failed else "ended"} after {seconds:.0f} s]'
-				else:
-					head = f'[earlier browser_exec still running ({seconds:.0f} s)]'
-				blocks.append(f'{head}\n{_clipped(c.new_output())}'.rstrip('\n'))
-			note, self._note = self._note, None
-			if note:
-				blocks.append(note)
-			return types.CallToolResult(content=[types.TextContent(type='text', text=b) for b in blocks], is_error=failed)
+		try:
+			async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+				await self._exec_lock.acquire()
+		except TimeoutError:
+			_count('busy')
+			return types.CallToolResult(content=[types.TextContent(type='text', text=BUSY)], is_error=True)
+		try:
+			return await self._exec_reply(code, deadline)
+		finally:
+			self._exec_lock.release()
+
+	async def _exec_reply(self, code: str, deadline: float) -> types.CallToolResult:
+		"""The first block is the code's own output (a client may parse it as JSON); then whether it still runs, what
+		earlier cells printed since and how they ended, and the browser note."""
+		earlier = list(self._running)
+		cell = None
+		if code.strip():
+			cell = _Cell()
+			self._running.append(cell)
+			run = contextvars.copy_context().run  # its failures go to this call's telemetry
+			threading.Thread(target=run, args=(self._run_cell, cell, code), daemon=True, name='browser-exec').start()
+		waited = [cell] if cell else earlier
+		await asyncio.to_thread(lambda: [c.done.wait(max(0.0, deadline - time.monotonic())) for c in waited])
+		blocks, failed = [], False
+		if cell is not None:
+			blocks.append(_clipped(cell.new_output()) or '(no output)')
+			if cell.done.is_set():
+				self._running.remove(cell)
+				failed = cell.failed
+			else:
+				blocks.append(STILL_RUNNING.format(seconds=time.monotonic() - cell.started))
+				_count('still_running')
+		elif not earlier:
+			blocks.append(NOTHING_RUNNING)
+		for c in earlier:
+			seconds = time.monotonic() - c.started
+			if c.done.is_set():  # before reading its output: an ended cell's output is complete
+				self._running.remove(c)
+				head = f'[earlier browser_exec {"failed" if c.failed else "ended"} after {seconds:.0f} s]'
+				if cell is None and c.failed:  # the wait's result is that failure; telemetry gets no text of it
+					failed = True
+					_count('earlier_failed')
+			else:
+				head = f'[earlier browser_exec still running ({seconds:.0f} s)]'
+				if cell is None:
+					_count('still_running')
+			output = _clipped(c.new_output())
+			blocks.append(f'{head}\n{output}' if output else head)
+		note, self._note = self._note, None
+		if note:
+			blocks.append(note)
+		return types.CallToolResult(content=[types.TextContent(type='text', text=b) for b in blocks], is_error=failed)
 
 	def _run_cell(self, cell: _Cell, code: str) -> None:
 		try:
