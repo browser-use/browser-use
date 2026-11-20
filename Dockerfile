@@ -2,7 +2,9 @@
 # check=skip=SecretsUsedInArgOrEnv
 
 # This is the Dockerfile for browser-use, it bundles the following dependencies:
-#     python3, pip, playwright, chromium, browser-use and its dependencies.
+#     python3, chromium, browser-use and its dependencies.
+# browser-use 1.0: Agent(..., browser=Browser('chromium')) launches the container's chromium headless, or use the
+# default cloud browser.
 # Usage:
 #     git clone https://github.com/browser-use/browser-use.git && cd browser-use
 #     docker build . -t browseruse --no-cache
@@ -17,7 +19,7 @@
 #########################################################################################
 
 
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 LABEL name="browseruse" \
     maintainer="Nick Sweeting <dockerfile@browser-use.com>" \
@@ -127,7 +129,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-$TARGETARCH$T
         # 3. frivolous CLI helpers to make debugging failed archiving easierL
         nano iputils-ping dnsutils jq \
         # tree yq procps \
-        # 4. browser dependencies: (auto-installed by playwright install --with-deps chromium)
+        # 4. browser dependencies: (installed with the chromium package below)
      #    libnss3 libxss1 libasound2 libx11-xcb1 \
      #    fontconfig fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-khmeros fonts-kacst fonts-symbola fonts-noto fonts-freefont-ttf \
      #    at-spi2-common fonts-liberation fonts-noto-color-emoji fonts-tlwg-loma-otf fonts-unifont libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libavahi-client3 \
@@ -138,7 +140,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-$TARGETARCH$T
      #    xfonts-scalable xfonts-utils xserver-common xvfb \
      && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.9@sha256:8b940d3a9d65bed080436972241af2e21c84b5e8c9193f7014ed71479ee795ff /uv /uvx /bin/
 
 # Copy only dependency manifest
 WORKDIR /app

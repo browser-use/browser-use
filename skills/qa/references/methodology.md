@@ -1,6 +1,6 @@
 # QA methodology
 
-The full test loop, gotchas, rubric, and output format for the `qa` skill. Everything below runs through **browser-harness** (the `browser-harness <<'PY' … PY` heredoc form — each call is a fresh shell, daemon auto-starts).
+The full test loop, gotchas, rubric, and output format for the `qa` skill. Everything below runs through the **Browser Use CLI** (the `browser-use <<'PY' … PY` heredoc form — each call is a fresh shell, daemon auto-starts).
 
 ## Always test on a cloud browser (tunnel localhost)
 
@@ -8,14 +8,14 @@ The full test loop, gotchas, rubric, and output format for the `qa` skill. Every
 
 This means a `localhost` site is **not** an exception that lets you skip the cloud browser — it's the case that *requires the tunnel*. A cloud browser lives on the public internet and cannot reach `localhost`, so you expose the dev server with a tunnel first, then point the cloud browser at the public URL. Do **not** fall back to the local daemon just because the site is local; tunnel it out.
 
-**0. Get a Browser Use API key — the only credential this skill uses.** The cloud browser authenticates with `BROWSER_USE_API_KEY`, and browser-harness is the single source of it: it auto-loads a `.env` (from its repo root and `agent-workspace/`) on every call, with the process env winning over that. Use *only* that key — never substitute another credential, and **never fall back to the user's local Chrome** if it's absent. Don't assume it's missing just because it isn't echoed in your shell; the authoritative test is whether a cloud browser starts (step 2's `start_remote_daemon(...)` returns a `liveUrl`).
+**0. Get a Browser Use API key — the only credential this skill uses.** The cloud browser authenticates with the Browser Use API key: `BROWSER_USE_API_KEY` from the process env, else the key `browser-use login` stored (`browser-use auth status` shows which). Use *only* that key — never substitute another credential, and **never fall back to the user's local Chrome** if it's absent. Don't assume it's missing just because it isn't echoed in your shell; the authoritative test is whether a cloud browser starts (step 2's `start_remote_daemon(...)` returns a browser instead of a "Not signed in" error).
 
 If no key is resolvable, do **not** proceed on local Chrome. Pick one of exactly two paths (ask the user which, if it's unclear), then make the key available and retry step 2:
 
 - **A — Wait for the user to provide one** (they grab one at `cloud.browser-use.com/new-api-key`).
-- **B — Self-sign-up, no human needed** — run the agent challenge-response flow documented in `docs.browser-use.com/llms.txt` (the browser-harness README links it under setup) to get a free key. The challenge is a *randomized, often obfuscated* word problem (leetspeak, foreign-language numerals, multi-step) — not always simple arithmetic. If one is hard to decode confidently, just re-request a fresh challenge; difficulty varies and re-rolling is the fastest unblock.
+- **B — Self-sign-up, no human needed** — run the agent challenge-response flow documented in `docs.browser-use.com/llms.txt` to get a free key. The challenge is a *randomized, often obfuscated* word problem (leetspeak, foreign-language numerals, multi-step) — not always simple arithmetic. If one is hard to decode confidently, just re-request a fresh challenge; difficulty varies and re-rolling is the fastest unblock.
 
-To make the key available, prefer the **inline form** — `export BROWSER_USE_API_KEY=bu_… ` at the top of every `browser-harness` call. This always works and sidesteps a real trap: the package that *runs* (a uv/pip install) often lives in a **different tree** than the skill/docs directory you're reading, so "browser-harness's `.env`" is ambiguous. If you do want to persist it via `.env`, write to the **running package's** repo root (`parents[2]` of the executing `helpers.py`/`admin.py`, e.g. `~/Developer/browser-harness/.env`) — not necessarily the folder these skill files live in.
+To make the key available, either store it once — `printf '%s' "$KEY" | browser-use login --api-key-stdin` (checked against the server, then used by every later `browser-use` call) — or use the **inline form**, `export BROWSER_USE_API_KEY=bu_… ` at the top of every `browser-use` call (it wins over the stored key).
 
 **A tunnel binary must also be installed and authed** — but only for a **localhost** target (a public URL skips the tunnel entirely, so don't block on this for public sites). Check before you rely on it, and recover if it's missing:
 
@@ -45,15 +45,15 @@ curl -s -H "ngrok-skip-browser-warning: true" "$PUBLIC_URL" | head -c 200
 
 For a **public** target, skip the tunnel — just use the URL directly in step 2.
 
-**2. Spin up a cloud browser — with the BU proxy DISABLED — and drive the public URL.** `start_remote_daemon` creates the cloud browser, prints its `liveUrl`, and wires the daemon to `BU_NAME`. **Pass `proxyCountryCode=None`:** Browser Use's default residential proxy mangles ngrok's TLS, so the cloud browser lands on `chrome-error://` / `ERR_SSL_PROTOCOL_ERROR` even though `curl` and other sites work fine. Disabling the proxy fixes it.
+**2. Spin up a cloud browser — with the BU proxy DISABLED — and drive the public URL.** `start_remote_daemon` creates the cloud browser and wires the daemon to `BU_NAME`; with `BH_OPEN_LIVE_URL=1` it also prints its `liveUrl` and opens it locally so the user can watch (off by default in `browser-use`: the URL grants control of the browser). **Pass `proxyCountryCode=None`:** Browser Use's default residential proxy mangles ngrok's TLS, so the cloud browser lands on `chrome-error://` / `ERR_SSL_PROTOCOL_ERROR` even though `curl` and other sites work fine. Disabling the proxy fixes it.
 
 ```bash
-browser-harness <<'PY'
+BH_OPEN_LIVE_URL=1 browser-use <<'PY'
 start_remote_daemon("qa", proxyCountryCode=None)   # proxy off — required for ngrok TLS to work
 PY
 
 PUBLIC_URL=$(cat /tmp/qa-public-url.txt)
-BU_NAME=qa browser-harness <<PY
+BU_NAME=qa browser-use <<PY
 new_tab("about:blank")
 # ngrok FREE shows a one-time interstitial; skip it by sending this header before navigating.
 cdp("Network.setExtraHTTPHeaders", headers={"ngrok-skip-browser-warning": "true"})
@@ -63,11 +63,11 @@ print(page_info())               # MUST show the app's real title — not chrome
 PY
 ```
 
-The bash `PUBLIC_URL` and the `browser-harness` Python heredoc are separate processes — interpolate the URL into the heredoc (note the **unquoted** `<<PY` above so `$PUBLIC_URL` expands), or read it from the temp file. On the cloud browser there's no user tab to clobber, so `goto_url` is fine. If you must change daemon options later (e.g. toggle the proxy), `restart_daemon("qa")` first — `start_remote_daemon` errors if a daemon for that name is already running.
+The bash `PUBLIC_URL` and the `browser-use` Python heredoc are separate processes — interpolate the URL into the heredoc (note the **unquoted** `<<PY` above so `$PUBLIC_URL` expands), or read it from the temp file. On the cloud browser there's no user tab to clobber, so `goto_url` is fine. If you must change browser options later (e.g. toggle the proxy), `stop_remote_daemon("qa")` first — `start_remote_daemon` errors if a daemon for that name is already running.
 
-**3. Run the QA loop below** with `BU_NAME=qa` on every `browser-harness` call.
+**3. Run the QA loop below** with `BU_NAME=qa` on every `browser-use` call.
 
-**4. Tear down when done.** Kill the tunnel (`pkill -f "ngrok http 3000"`) and stop the cloud browser — it bills until its timeout. Call **`stop_remote_daemon("qa")`** (that's the function name — *not* `stop_daemon`); it PATCHes the browser to stop via the saved `BU_BROWSER_ID`. Only touch the daemon/browser **you** created: stale numbered daemons or sockets from prior runs (`bu-qa1…`) may belong to other sessions — pick a clean, unique `BU_NAME` and don't stop browsers you didn't start.
+**4. Tear down when done.** Kill the tunnel (`pkill -f "ngrok http 3000"`) and stop the cloud browser — it bills until its timeout. Call **`stop_remote_daemon("qa")`** (that's the function name — *not* `stop_daemon`); it stops the browser `browser-use` recorded for that name, even if its daemon died. Only touch the daemon/browser **you** created: stale numbered daemons or sockets from prior runs (`bu-qa1…`) may belong to other sessions — pick a clean, unique `BU_NAME` and don't stop browsers you didn't start.
 
 Gotchas specific to this path (all field-hit — don't relearn them live):
 - **`403 host not allowed` → use `--host-header=rewrite`** (see step 1). The most common first failure against a Vite/Next/webpack dev server.
@@ -76,11 +76,11 @@ Gotchas specific to this path (all field-hit — don't relearn them live):
 - **Dev-instance config is not the app's fault.** A dev server may point at a staging/test backend via `.env` (e.g. `VITE_BU_API_BASE`), so a prod credential 401s. Confirm *which backend* the instance targets before scoring an auth failure as a bug — the app may be faithfully rendering a legitimate upstream error.
 - **The interstitial is not your app — and the skip header is per-tab.** `Network.setExtraHTTPHeaders` applies only to the *current* target, so any **new tab the app opens** (clicking a tile, `target=_blank`, OAuth popups, `window.open`) starts without it and lands on ngrok's `ERR_NGROK_6024` "You are about to visit" page. Re-apply `cdp("Network.setExtraHTTPHeaders", headers={"ngrok-skip-browser-warning":"true"})` on each new target before reading it — or sidestep the whole class by tunneling with **cloudflared**, which has no interstitial. Either way, don't QA the warning page.
 - **Latency is added.** Tunnel + cloud-browser adds round-trips; don't score raw load time harshly unless it's egregiously slow.
-- **Parallel targets:** one port → one tunnel → one `start_remote_daemon(name)` with a distinct `BU_NAME` each, run as separate subagents (browser-harness's SKILL.md covers the remote-browser fan-out pattern).
+- **Parallel targets:** one port → one tunnel → one `start_remote_daemon(name)` with a distinct `BU_NAME` each, run as separate subagents (the browser-use skill, `browser-use skill show`, covers the remote-browser fan-out pattern).
 
 ## The loop
 
-Run every `browser-harness` call below against the cloud browser you started above (i.e. with its `BU_NAME`, e.g. `BU_NAME=qa browser-harness <<'PY' …`), pointed at the tunnel's public URL (or the public site) — not the bare local daemon.
+Run every `browser-use` call below against the cloud browser you started above (i.e. with its `BU_NAME`, e.g. `BU_NAME=qa browser-use <<'PY' …`), pointed at the tunnel's public URL (or the public site) — not the bare local daemon.
 
 1. **Restate the goal as a concrete user task.** Turn "test the signup" into explicit steps a real user would take and a clear definition of success ("account created → lands on dashboard"). If the prompt is vague, pick the most obvious happy path and say so in the report.
 2. **Drive it like a user.** `new_tab(url)` → `wait_for_load()` → `capture_screenshot()`, then click/type your way through. Screenshot after every meaningful action and verify the page actually changed the way you expected — don't assume a click worked. Two reliability notes for cloud browsers: (a) **click from DOM coordinates, not scaled-screenshot pixels** — if you downscale a shot (e.g. `max_dim=1800` on a 1920-wide viewport) the pixels no longer map 1:1, so clicks miss; read targets with `js("…getBoundingClientRect()…")` and `click_at_xy` those. (b) **Clear an input before typing** (select-all + delete) — typing into an already-filled field concatenates and produces doubled values (a `bu_…bu_…` key), which then looks like an app auth failure but is your own artifact.
@@ -89,7 +89,7 @@ Run every `browser-harness` call below against the cloud browser you started abo
 5. **Score, with evidence.** Map what you saw onto the rubric and cite specific observations.
 
 ```python
-browser-harness <<'PY'
+BU_NAME=qa browser-use <<'PY'
 new_tab("https://example.com/signup")
 wait_for_load()
 capture_screenshot("/tmp/qa-01-landing.png", max_dim=1800)

@@ -1,33 +1,12 @@
-# Skills Module
+# browser_use.skills
 
-The Skills module provides integration with the Browser Use API to fetch and execute skills.
+The `browser-use` agent skill and its installer, behind the `browser-use skill` command:
 
-## Basic Usage
+- `browser-use/SKILL.md`: the skill. It is the `SKILL.md` of the pinned browser-harness release under the Browser Use
+  name; `scripts/sync_browser_harness_skill.py` regenerates it and the repo copy in `skills/browser-use/` from the
+  installed harness. Bump the pin, `uv sync`, rerun the script.
+- `browser_use.py`: the renaming (name, description, OpenClaw install metadata).
+- `install.py`: `browser-use skill show` prints the skill. `browser-use skill install` writes it to `~/.agents` and to
+  each supported agent you have installed; `--target NAME` picks one, `--path DIR` a custom location.
 
-```python
-import asyncio
-from browser_use.skills import SkillService
-
-async def main():
-    skill_ids = ['skill-id-1', 'skill-id-2']
-
-    # Initialize service
-    service = SkillService(skill_ids=skill_ids, api_key='your-api-key')
-
-    # Get all loaded skills (auto-initializes on first call)
-    skills = await service.get_all_skills()
-
-    # Execute a skill (auto-initializes if needed)
-    result = await service.execute_skill(
-        skill_id='skill-id-1',
-        parameters={'param1': 'value1'}
-    )
-
-    if result.success:
-        print(f'Success! Result: {result.result}')
-
-    # Cleanup
-    await service.close()
-
-asyncio.run(main())
-```
+The other skills (`cloud`, `open-source`, `qa`, `remote-browser`, `x402`) live in the repo's `skills/` directory.
