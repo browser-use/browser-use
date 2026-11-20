@@ -424,7 +424,7 @@ async def test_mcp_lists_browser_login():
 	from browser_use.mcp import cli_mcp
 
 	names = [tool.name for tool in cli_mcp.CLIMCPServer()._tool_definitions()]
-	assert names == ['browser_exec', 'browser_screenshot', 'browser_login', 'browser_feedback']
+	assert names == ['browser_exec', 'browser_screenshot', 'browser_login', 'browser_feedback', 'browser_report_run']
 
 
 def test_logout_prints_the_real_store_path_and_version_names_both_packages(store):

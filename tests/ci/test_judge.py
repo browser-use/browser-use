@@ -33,11 +33,13 @@ def fake_browser(monkeypatch):
 
 
 @pytest.fixture
-def sent(monkeypatch):
-	"""The properties each agent_event would send, built as the telemetry thread builds them."""
+def captured(monkeypatch):
+	"""The properties of each event that would be sent, by event name, built as the telemetry thread builds them."""
+	from collections import defaultdict
+
 	import browser_use.telemetry.service as telemetry
 
-	events = []
+	events: defaultdict[str, list[dict]] = defaultdict(list)
 
 	class FakeTelemetry:
 		enabled = True
@@ -46,10 +48,16 @@ def sent(monkeypatch):
 			pass
 
 		def capture_run(self, job):
-			events.append(job.build(200, 50))
+			events[job.name].append(job.build(200, 50))
 
 	monkeypatch.setattr(telemetry, 'telemetry', FakeTelemetry)
 	return events
+
+
+@pytest.fixture
+def sent(captured):
+	"""The properties each agent_event would send."""
+	return captured['agent_event']
 
 
 def agent(model, tmp_path, **kwargs):
@@ -360,3 +368,124 @@ def test_a_hidden_tab_is_not_captured(monkeypatch):
 	monkeypatch.setattr(browser_module, '_daemon_request', daemon)
 	assert Browser(local=True)._screenshot(10) is None
 	assert asked == ['Runtime.evaluate']  # never activated, never captured
+
+
+LIBRARY_JUDGEMENT_KEYS = {
+	'surface', 'judge_source', 'version', 'run_id', 'model', 'success', 'failure_reason', 'description',
+	'prompt_injection_detected', 'bot_block_or_captcha_detected', 'gotchas', 'hosts', 'cost_usd', 'texts_withheld',
+	'schema_version', 'is_internal',
+}  # fmt: skip
+
+
+async def test_a_judged_run_also_sends_library_judgement_with_the_same_scrubbed_answer(captured, fake_browser, tmp_path):
+	"""The one schema of every surface: library_judgement next to agent_event.judgement, which stays as it was."""
+	leaky = {**VERDICT, 'success': False, 'failure_reason': 'Mail jane.doe@example.com for the price is 10'}
+	leaky['gotchas'] = [f'g{i} https://shop.test/p?session=Zq9' for i in range(7)]
+	model, _ = script(FINISH, ('final_result', leaky))
+	await agent(model, tmp_path, judge_context='the price is 10').run()
+	(run,) = captured['agent_event']
+	(event,) = captured['library_judgement']
+	assert LIBRARY_JUDGEMENT_KEYS <= set(event)
+	assert (event['surface'], event['judge_source'], event['schema_version']) == ('python', 'judge', 1)
+	assert (event['run_id'], event['model'], event['version']) == (run['run_id'], run['model'], run['version'])
+	assert (event['success'], event['bot_block_or_captcha_detected'], event['texts_withheld']) == (False, True, False)
+	assert event['failure_reason'] == 'Mail <email> for <task>'
+	assert event['gotchas'] == [f'g{i} https://shop.test/p' for i in range(5)]
+	assert event['hosts'] == [] and event['cost_usd'] == run['judgement']['cost_usd']
+	assert {k: run['judgement'][k] for k in ('failure_reason', 'gotchas')} == {k: event[k] for k in ('failure_reason', 'gotchas')}
+	assert 'texts_withheld' not in run['judgement']  # agent_event.judgement unchanged without ZDR
+	assert 'Zq9' not in str(captured) and 'the price is 10' not in str(captured)
+
+
+def _cloud(status: int, zdr: str | None):
+	"""A local Browser Use Cloud stand-in: every reply has this status and, unless None, this ZDR header."""
+	import threading
+	from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+	class Handler(BaseHTTPRequestHandler):
+		def do_GET(self):
+			if n := int(self.headers.get('Content-Length') or 0):
+				self.rfile.read(n)
+			body = b'{"error": {"code": "project_policy", "message": "no"}}' if status >= 400 else b'{"data": [], "id": "b"}'
+			self.send_response(status)
+			if zdr is not None:
+				self.send_header('X-Browser-Use-Zero-Data-Retention', zdr)
+			self.send_header('Content-Length', str(len(body)))
+			self.end_headers()
+			self.wfile.write(body)
+
+		do_POST = do_GET
+
+		def log_message(self, *args):
+			pass
+
+	server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+	server.daemon_threads = True
+	threading.Thread(target=server.serve_forever, daemon=True).start()
+	return server, f'http://127.0.0.1:{server.server_address[1]}'
+
+
+@pytest.mark.parametrize(
+	('status', 'zdr', 'withheld'),
+	[(403, 'true', True), (200, 'TRUE', True), (200, 'false', False), (200, None, False), (403, None, False)],
+)
+def test_a_cloud_reply_that_says_zdr_withholds_texts_for_the_process(monkeypatch, status, zdr, withheld):
+	"""The gateway preflight (403 project_policy for a ZDR project) and the cloud browser API both carry the header;
+	missing or false is unknown and changes nothing."""
+	from browser_use import ChatBrowserUse
+	from browser_use.browser import browser as browser_mod
+	from browser_use.telemetry import stats
+
+	monkeypatch.delenv('BROWSER_USE_ZDR', raising=False)
+	key = 'bu_' + 'z' * 40
+	monkeypatch.setenv('BROWSER_USE_API_KEY', key)
+	server, url = _cloud(status, zdr)
+	monkeypatch.setattr(browser_mod, 'CLOUD_API', f'{url}/api/v4')
+	try:
+		for call in (
+			lambda: ChatBrowserUse('bu-fast', api_key=key, base_url=f'{url}/api/v4/llm/v1').preflight(),
+			lambda: browser_mod._cloud('/browsers', 'POST', {}),
+		):
+			monkeypatch.setattr(stats, '_cloud_zdr', False)
+			try:
+				call()
+			except RuntimeError:  # the cloud browser API's 403
+				pass
+			assert stats.zdr() is withheld
+			clean = stats.judged({**VERDICT, 'failure_reason': 'Zq9'}, None, lambda t: t)
+			assert clean is not None and clean.get('texts_withheld', False) is withheld
+	finally:
+		server.shutdown()
+		server.server_close()
+
+
+@pytest.mark.parametrize('source', ['env', 'cloud'])
+async def test_zdr_sends_both_judgements_without_their_texts(captured, fake_browser, tmp_path, monkeypatch, source):
+	from browser_use import ChatBrowserUse
+	from browser_use.telemetry import stats
+
+	monkeypatch.setattr(stats, '_cloud_zdr', False)
+	if source == 'env':
+		monkeypatch.setenv('BROWSER_USE_ZDR', '1')
+	else:  # no env var: the gateway preflight said the key's project is ZDR
+		monkeypatch.delenv('BROWSER_USE_ZDR', raising=False)
+		server, url = _cloud(403, 'true')
+		ChatBrowserUse('bu-fast', api_key='bu_' + 'z' * 40, base_url=f'{url}/api/v4/llm/v1').preflight()
+		server.shutdown()
+		server.server_close()
+	leaky = {**VERDICT, 'success': False, 'failure_reason': 'Zq9 reason', 'description': 'Zq9 did things'}
+	leaky['gotchas'] = ['Zq9 gotcha']
+	model, _ = script(FINISH, ('final_result', leaky))
+	await agent(model, tmp_path).run()
+	(run,) = captured['agent_event']
+	(event,) = captured['library_judgement']
+	for j in (run['judgement'], event):
+		assert (j['failure_reason'], j['description'], j['gotchas'], j['texts_withheld']) == (None, '', [], True)
+		assert (j['success'], j['bot_block_or_captcha_detected']) == (False, True)
+	assert 'Zq9' not in str(captured)
+
+
+async def test_an_unjudged_run_sends_no_library_judgement(captured, fake_browser, tmp_path):
+	model, _ = script(FINISH)
+	await agent(model, tmp_path, judge=False).run()
+	assert len(captured['agent_event']) == 1 and not captured['library_judgement']

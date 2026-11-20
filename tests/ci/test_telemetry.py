@@ -148,9 +148,10 @@ def posthog(monkeypatch, tmp_path):
 	"""A local PostHog: the real sender (thread, gzip, /batch/) posts here. events() waits for n agent_events. With
 	down set it answers 503 and keeps nothing; attempts counts the /batch/ posts either way."""
 	import browser_use.telemetry.service as service
-	from browser_use.telemetry import feedback
+	from browser_use.telemetry import feedback, judgement
 
 	monkeypatch.setattr(feedback, '_mcp_sent', 0)  # browser_feedback's per-process cap: each test is a new server
+	monkeypatch.setattr(judgement, '_sent', 0)  # report_run's, the same
 	bodies: list[str] = []
 	state = SimpleNamespace(down=False, attempts=0)
 
@@ -2519,3 +2520,134 @@ def test_a_home_outside_users_and_home_is_sent_as_tilde(monkeypatch):
 	monkeypatch.setenv('USERPROFILE', '/data/users/jane')  # Windows: expanduser reads USERPROFILE, not HOME
 	text = 'no file /data/users/jane/app/a.pdf, /data/users/janet/x, file:///data/users/jane/y, /Users/bob/z'
 	assert scrub(text, [], 500) == 'no file ~/app/a.pdf, /data/users/janet/x, file://~/y, /Users/<user>/z'
+
+
+def _judgements(events: list[dict]) -> list[dict]:
+	return [e['properties'] for e in events if e['event'] == 'library_judgement']
+
+
+async def test_the_mcp_report_run_tool_is_listed_and_sends_one_scrubbed_self_report(posthog):
+	"""browser_report_run: the MCP client's model reports its own run once, as library_judgement (surface cli-mcp,
+	judge_source self), through the real sender to a local PostHog. Scrubbed as feedback; 5 gotchas at most."""
+	from mcp import types
+
+	from browser_use.mcp import cli_mcp
+	from browser_use.telemetry import judgement
+
+	server = cli_mcp.CLIMCPServer()
+	(tool,) = (t for t in server._tool_definitions() if t.name == 'browser_report_run')
+	schema = tool.input_schema
+	assert schema['required'] == ['success'] and schema['properties']['gotchas']['maxItems'] == 5
+	assert set(schema['properties']) == {'success', 'failure_reason', 'gotchas', 'bot_block', 'description'}
+	assert 'no guesses' in (tool.description or '') and 'browser_report_run' in server._instructions()
+	assert 'browser_report_run' in cli_mcp.TOOLS and judgement.MCP_TOOL['name'] == 'browser_report_run'
+	handler = server.server._request_handlers['tools/call'].handler
+
+	async def call(arguments: dict):
+		return await handler(None, types.CallToolRequestParams(name='browser_report_run', arguments=arguments))  # pyright: ignore[reportArgumentType]
+
+	gotchas = ['The date field takes DD/MM/YYYY only; 2026-11-17 was rejected', 'Mail jane@zq9.test for access']
+	ok = await call({'success': False, 'failure_reason': 'Form at https://zq9.test/f?k=Zq9q rejected', 'gotchas': gotchas * 4})
+	assert not ok.is_error and ok.content[0].text == judgement.SENT  # pyright: ignore[reportAttributeAccessIssue]
+	assert (await call({'success': 'yes'})).is_error and (await call({'success': True, 'gotchas': 'x'})).is_error
+	events = posthog.events(4)
+	(p,) = _judgements(events)
+	assert (p['surface'], p['judge_source'], p['schema_version'], p['success']) == ('cli-mcp', 'self', 1, False)
+	assert (p['model'], p['run_id'], p['hosts'], p['cost_usd'], p['texts_withheld']) == (None, None, [], None, False)
+	assert p['failure_reason'] == 'Form at https://zq9.test/f rejected' and len(p['gotchas']) == 5
+	# a date is a run of 6+ digits to stats.scrub, as a phone or card number
+	assert p['gotchas'][:2] == ['The date field takes DD/MM/YYYY only; <number> was rejected', 'Mail <email> for access']
+	assert (p['bot_block_or_captcha_detected'], p['prompt_injection_detected'], p['description']) == (False, False, '')
+	assert not [b for b in posthog.bodies if 'Zq9q' in b or 'jane@' in b]
+	assert [e['properties']['tool_name'] for e in events if e['event'] == 'mcp_server_event'] == ['browser_report_run'] * 3
+
+
+def test_report_run_in_browser_exec_is_the_tools_report_not_browser_harness_own(posthog):
+	"""A browser-harness pin with its own report_run helper would send surface harness-cli from this server: browser_exec's
+	report_run is the browser_report_run tool's (surface cli-mcp, the same cap and switches)."""
+	from browser_use.mcp import cli_mcp
+	from browser_use.telemetry import judgement
+
+	ns = cli_mcp.CLIMCPServer()._ensure_namespace()
+	assert ns['report_run'](False, 'Zq9 blocked https://zq9.test/a?k=Zq9q', ['Mail jane@zq9.test']) == judgement.SENT
+	with pytest.raises(TypeError, match='success'):
+		ns['report_run']('yes')
+	(p,) = _judgements(posthog.events(1))
+	assert (p['surface'], p['judge_source'], p['gotchas']) == ('cli-mcp', 'self', ['Mail <email>'])
+	assert 'Zq9q' not in p['failure_reason']
+
+
+def test_report_run_sends_at_most_three_per_process(posthog):
+	from browser_use.telemetry import judgement
+
+	texts = [judgement.report('cli-mcp', True, description=f'run {i}') for i in range(5)]
+	assert texts[:3] == [(judgement.SENT, False)] * 3
+	assert texts[3:] == [('Already reported 3 runs: nothing more was sent.', False)] * 2
+	assert [p['description'] for p in _judgements(posthog.events(3))] == [f'run {i}' for i in range(3)]
+
+
+async def test_with_usage_stats_off_report_run_sends_nothing(posthog, monkeypatch):
+	"""As browser_feedback: the coding agent's model is not the user."""
+	from mcp import types
+
+	from browser_use import cli
+	from browser_use.mcp import cli_mcp
+	from browser_use.telemetry import judgement
+
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	handler = cli_mcp.CLIMCPServer().server._request_handlers['tools/call'].handler
+	result = await handler(None, types.CallToolRequestParams(name='browser_report_run', arguments={'success': True}))  # pyright: ignore[reportArgumentType]
+	assert result.content[0].text == judgement.OFF and not result.is_error  # pyright: ignore[reportAttributeAccessIssue]
+	assert cli._report_run(True, gotchas=['x']) == judgement.OFF
+	assert posthog.telemetry._thread is None and not posthog.state.attempts
+
+
+def test_the_cli_gives_the_piped_code_report_run_with_surface_cli(posthog, monkeypatch):
+	from browser_harness import run
+
+	from browser_use import cli
+
+	got = []
+	monkeypatch.setattr(run, 'report_run', None, raising=False)  # put back after the test
+	monkeypatch.setattr(run, 'main', lambda: got.append(vars(run)['report_run'](True, gotchas=['Cookie banner covers the form'])))
+	monkeypatch.setattr(sys, 'argv', ['browser-use'])
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	cli._run_browser_harness('report_run(True)')
+	assert got == ['Reported this run to the Browser Use team. Thanks.']
+	with pytest.raises(TypeError, match='success'):
+		cli._report_run('yes')  # pyright: ignore[reportArgumentType]
+	(p,) = _judgements(posthog.events(1))
+	assert (p['surface'], p['judge_source'], p['success'], p['gotchas']) == (
+		'cli',
+		'self',
+		True,
+		['Cookie banner covers the form'],
+	)
+
+
+async def test_offline_sends_nothing_at_all_feedback_included(posthog, tmp_path, monkeypatch):
+	"""BROWSER_USE_OFFLINE=1: no event, no thread, no file, not even feedback the user sends themselves."""
+	from browser_harness import telemetry as harness_telemetry
+
+	from browser_use import cli
+	from browser_use.telemetry import feedback, judgement
+	from browser_use.telemetry.service import Job
+
+	monkeypatch.setenv('BROWSER_USE_OFFLINE', '1')
+	no_browser(monkeypatch)
+	model, seen = script(
+		('python', {'code': 'print(report_issue("goto_url hangs"))'}),
+		('finish', {'success': True, 'result': 'ok'}),
+	)
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()).status == 'completed'
+	assert feedback.OFFLINE in str(seen[-1][-1])
+	assert browser_use.feedback('the docs are wrong') is False
+	assert feedback.mcp_call({'message': 'x'}) == (feedback.OFFLINE, False)
+	assert judgement.report('cli-mcp', True) == (judgement.OFF, False)
+	posthog.telemetry.capture_run(Job('library_feedback', lambda steps, keys: {'x': 1}, consent=True))
+	assert cli._run_feedback_command(['the', 'docs', 'are', 'wrong']) == 1
+	cli._scrub_harness_telemetry()
+	assert harness_telemetry.is_enabled() is False and posthog.telemetry.enabled is False
+	posthog.telemetry._at_exit()
+	assert posthog.telemetry._thread is None and not posthog.state.attempts and not posthog.bodies
+	assert not [p for p in posthog.config.rglob('*') if p.is_file()]

@@ -3,6 +3,7 @@ import logging
 import os
 import ssl
 import threading
+import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from functools import cache
@@ -95,8 +96,17 @@ _keyed_opener = urllib.request.build_opener(_NoRedirect, TLSHandler)
 
 def urlopen_keyed(request: urllib.request.Request, timeout: float) -> Any:
 	"""urlopen for a request that carries an API key. It never follows a redirect: urllib copies every header to the new
-	URL, so a redirect to another origin would hand it the key. A 3xx raises HTTPError, as httpx does for the model calls."""
-	return _keyed_opener.open(request, timeout=timeout)
+	URL, so a redirect to another origin would hand it the key. A 3xx raises HTTPError, as httpx does for the model calls.
+	Notes Browser Use Cloud's ZDR header from every reply, errors too (the gateway refuses a ZDR project with 403)."""
+	from browser_use.telemetry.stats import note_zdr
+
+	try:
+		response = _keyed_opener.open(request, timeout=timeout)
+	except urllib.error.HTTPError as e:
+		note_zdr(e.headers)
+		raise
+	note_zdr(response.headers)
+	return response
 
 
 def raise_fd_limit() -> None:

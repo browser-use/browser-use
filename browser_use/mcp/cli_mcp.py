@@ -38,7 +38,7 @@ from browser_use.harness_cloud import CloudBrowserError
 from browser_use.repl.capture import install as install_capture
 from browser_use.repl.page_info import install as install_page_info
 from browser_use.repl.session import MAX_OUTPUT_CHARS, clip
-from browser_use.telemetry import feedback
+from browser_use.telemetry import feedback, judgement
 from browser_use.update_check import upgrade_hint
 from browser_use.utils import get_browser_use_version
 
@@ -47,6 +47,16 @@ _NAMESPACE_IMPORTS = (
 	'daemon_alive, ensure_daemon, restart_daemon, start_remote_daemon, stop_remote_daemon)\n'
 	'from browser_harness.helpers import *\n'
 )
+
+
+def _report_run(
+	success: bool, failure_reason: str | None = None, gotchas: Any = (), bot_block: bool = False, description: str = ''
+) -> str:
+	"""report_run() in browser_exec: the browser_report_run tool's report (surface cli-mcp, its per-process cap)."""
+	text, failed = judgement.report('cli-mcp', success, failure_reason, gotchas, bot_block, description)
+	if failed:
+		raise TypeError(text.removeprefix('Error: '))
+	return text
 
 
 _INTERNAL = tuple(os.path.dirname(m.__file__ or '') + os.sep for m in (browser_harness, browser_use))
@@ -94,6 +104,9 @@ These rules override the skill below where they differ:
 - The live view and CDP URLs grant control of the browser, so they are not shown. Only if the user asks to watch, run
   `os.environ["BH_OPEN_LIVE_URL"] = "1"` before start_remote_daemon: the live view then opens in their browser, and
   both are returned.
+- When the task is done (or abandoned), call the browser_report_run tool once (not report_run() in browser_exec) with
+  honest success and up to 5 gotchas about the sites: what you observed (the action or condition and its result), not
+  guesses; never secrets or personal data.
 
 """
 
@@ -154,7 +167,7 @@ _cell = threading.local()  # .buffer: where the cell running on this thread prin
 _call_errors: contextvars.ContextVar[list[tuple[str, str]] | None] = contextvars.ContextVar(
 	'browser_use_mcp_errors', default=None
 )
-TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login', 'browser_feedback')
+TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login', 'browser_feedback', 'browser_report_run')
 
 
 def _count(kind: str) -> None:
@@ -553,6 +566,7 @@ class CLIMCPServer:
 				},
 			),
 			types.Tool(**feedback.MCP_TOOL),
+			types.Tool(**judgement.MCP_TOOL),
 		]
 
 	def _register_handlers(self):
@@ -601,6 +615,9 @@ class CLIMCPServer:
 				return types.CallToolResult(content=[types.TextContent(type='text', text=text)])
 			if name == 'browser_feedback':
 				text, failed = feedback.mcp_call(arguments)
+				return types.CallToolResult(content=[types.TextContent(type='text', text=text)], is_error=failed)
+			if name == 'browser_report_run':
+				text, failed = judgement.mcp_call(arguments)
 				return types.CallToolResult(content=[types.TextContent(type='text', text=text)], is_error=failed)
 			text = removed(f'The MCP tool {name} (the 0.x browser-use --mcp server)', OLD_TOOL_HINT) if name in OLD_TOOLS else ''
 			return types.CallToolResult(
@@ -732,6 +749,8 @@ class CLIMCPServer:
 				for name in harness_cloud.CLOUD_ADMIN:  # a cloud browser has no Guard: it would go anywhere
 					ns[name] = functools.partial(_refuse_cloud, name)
 			ns['http_get'] = _local_http_get(rules)
+			# browser-harness's own report_run (a later pin) would send surface harness-cli past this server's switches
+			ns['report_run'] = _report_run
 			self._namespace = ns
 		return self._namespace
 

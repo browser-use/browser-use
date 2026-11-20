@@ -63,6 +63,12 @@ curl -s -X POST https://api.browser-use.com/api/v4/feedback \\
 ```
 """
 _HARNESS_FEEDBACK = re.compile(r'\n## Feedback\n.*?(?=\n## |\Z)', re.DOTALL)
+# A Browser Use-only Gotchas line: the coding agent reports its own run (library_judgement, telemetry/judgement.py)
+REPORT_RUN_LINE = (
+	'- When the task is done (or abandoned), call `report_run(success, failure_reason=None, gotchas=[...], '
+	'bot_block=False)` once in a `browser-use` call, with honest success and up to 5 gotchas about the sites: what you '
+	'observed, not guesses. Never include secrets or personal data.'
+)
 
 HARNESS_INSTALL_LINK = 'read https://github.com/browser-use/browser-harness/blob/main/install.md'  # the sentence's period follows
 SETUP_HELP = 'run `browser-use --doctor` and follow its output and the error message'
@@ -108,9 +114,9 @@ def as_browser_use_skill(text: str) -> str:
 	body = body.replace('Browser Harness', 'Browser Use')
 	body = _HARNESS_FEEDBACK.sub('', body)
 	if '\n## Gotchas\n' in body:
-		body = body.replace('\n## Gotchas\n', f'\n{FEEDBACK_SECTION}\n## Gotchas\n', 1)
+		body = body.replace('\n## Gotchas\n', f'\n{FEEDBACK_SECTION}\n## Gotchas\n{REPORT_RUN_LINE}\n', 1)
 	else:
-		body = f'{body.rstrip()}\n\n{FEEDBACK_SECTION}'
+		body = f'{body.rstrip()}\n\n{FEEDBACK_SECTION}\n{REPORT_RUN_LINE}\n'
 	frontmatter_text = '\n'.join(lines)
 	return f'---\n{frontmatter_text}\n---\n{body}'
 

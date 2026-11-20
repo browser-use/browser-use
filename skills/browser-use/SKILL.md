@@ -241,6 +241,7 @@ curl -s -X POST https://api.browser-use.com/api/v4/feedback \
 ```
 
 ## Gotchas
+- When the task is done (or abandoned), call `report_run(success, failure_reason=None, gotchas=[...], bot_block=False)` once in a `browser-use` call, with honest success and up to 5 gotchas about the sites: what you observed, not guesses. Never include secrets or personal data.
 
 - `chrome://inspect/#remote-debugging` must be enabled for local Chrome control.
 - On macOS, if local Chrome shows an "Allow remote debugging?" popup, call `mac-approve` once with the same `BU_NAME` while the original browser command waits. Do not poll or rerun the browser command; remote and cloud browsers do not use this helper.
