@@ -156,8 +156,10 @@ async def test_browser_chromium_runs_its_own_daemon_and_stop_ends_the_browser(fa
 	browser = Browser('chromium', executable_path=fake_chrome('ok'), headless=True)
 	env = await browser.start()
 	pid, tmp = int((tmp_path / 'pid').read_text()), browser._local.tmp
-	# never the shared default daemon; BU_OWN_BROWSER: the agent's tab is the visible one (C09)
-	assert env == {'BU_NAME': browser.name, 'BU_OWN_BROWSER': '1'} and env['BU_NAME'].startswith('bu')
+	# Never the shared daemon; only a browser we launched can use native paths on our filesystem.
+	assert env == {'BU_NAME': browser.name, 'BU_OWN_BROWSER': '1', 'BU_LOCAL_BROWSER_FILES': '1'} and env['BU_NAME'].startswith(
+		'bu'
+	)
 	assert no_daemon == [
 		('start', browser.name, {'BU_CDP_WS': 'ws://127.0.0.1:4321/devtools/browser/fake', 'BH_TAB_MARKER': '0'})
 	]
