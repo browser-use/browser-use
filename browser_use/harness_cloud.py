@@ -9,7 +9,7 @@ Rules browser-harness alone does not keep for them:
   BH_OPEN_LIVE_URL is on.
 - A recorded cloud browser is never forgotten while it may still bill: its id stays recorded until a stop succeeds, a
   new start under the same name stops it first, and stop_remote_daemon stops it even when its daemon was killed.
-- upload_file sends the file's bytes through the page while a cloud browser is attached (its host has no local paths).
+- upload_file sends client bytes through the page: a daemon's browser need not share the CLI/MCP host's filesystem.
 
 Which names ran a cloud browser is kept in a `.cloud` file next to the daemon's pid file, holding the browser id until
 it is stopped, so a later process (the next CLI call) knows it too.
@@ -298,6 +298,7 @@ def install(namespace: dict[str, Any]) -> None:
 
 	start_remote_daemon.__doc__ = admin.start_remote_daemon.__doc__
 	namespace['ensure_daemon'] = ensure_daemon
-	namespace['upload_file'] = uploader(helpers.cdp, lambda: was_cloud(admin.NAME))
+	# A named daemon may attach to a remote CDP browser: its local paths are not necessarily ours.
+	namespace['upload_file'] = uploader(helpers.cdp, lambda: True)
 	namespace['start_remote_daemon'] = start_remote_daemon
 	namespace['stop_remote_daemon'] = stop

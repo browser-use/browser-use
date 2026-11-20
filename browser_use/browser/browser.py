@@ -896,7 +896,7 @@ class Browser:
 				) from None
 			# A daemon that was already running (started by `browser-use`, the MCP server, browser-harness itself or an
 			# older browser-use) keeps its own BH_TAB_MARKER: the worker strips the horse it adds to the agent's tabs.
-			return {'BU_SHARED_DAEMON': '1'}
+			return {'BU_SHARED_DAEMON': '1', 'BU_LOCAL_BROWSER_FILES': '0'}
 		if self.use_cloud:
 			await asyncio.to_thread(browser_use_api_key, 'Browser() (a Browser Use Cloud browser)', auto_login=True)
 			if ((self.id and not self.stopped) or self._creating is not None) and not await asyncio.to_thread(self._stop_now):
@@ -962,6 +962,8 @@ class Browser:
 					webbrowser.open(self.live_url, new=2)
 		# BU_OWN_BROWSER: not the user's Chrome, so the agent's tab may be the visible one (repl/worker.py)
 		env = {'BU_NAME': self.name, 'BU_OWN_BROWSER': '1', **({'BU_REMOTE_BROWSER': '1'} if self.use_cloud else {})}
+		# A CDP URL (even loopback through a tunnel) does not prove the browser shares our filesystem.
+		env['BU_LOCAL_BROWSER_FILES'] = '1' if self._local is not None else '0'
 		if self.use_cloud and not self.captcha_solver:
 			env['BU_CAPTCHA_SOLVER'] = 'off'  # solve_captcha() must not turn it back on (repl/captcha.py)
 		return env
