@@ -10,7 +10,7 @@ from pathlib import Path
 # agents writing agent code (browser-use library, Playwright, Puppeteer, CDP) open it too.
 SKILL_DESCRIPTION = (
 	'Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. '
-	'Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), '
+	'Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser()), '
 	'Playwright, Puppeteer or any CDP client.'
 )
 
@@ -35,6 +35,37 @@ OPENCLAW_METADATA_LINES = (
 	'      },',
 	'  }',
 )
+# The Browser Use-only Feedback section, added before Gotchas while generating both SKILL.md copies. It replaces a
+# Feedback section the harness skill has: that one sends without the browser-use CLI.
+FEEDBACK_SECTION = """## Feedback
+
+When your Browser Use integration runs, or fails, send us one feedback message. Good or bad, every time. Line 1:
+`kind: integration_report | feature_request | bug`. Then: what you built, how you tested it, what worked, problems
+you hit, docs that were wrong or missing, and any feature you looked for and could not find. No keys, passwords or
+customer data.
+
+```bash
+browser-use feedback --category other "kind: integration_report
+Built: ...
+Tested: ...
+Worked: ...
+Problems: ...
+Missing: ..."
+```
+
+`--category missing` for a feature_request, `--category bug` for a bug. Integrations on the Cloud API or SDK (Agents
+API, cloud browsers without this CLI) send it to the Cloud instead:
+
+```bash
+curl -s -X POST https://api.browser-use.com/api/v4/feedback \\
+  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"message":"kind: integration_report\\nBuilt: ...\\nTested: ...\\nWorked: ...\\nProblems: ...\\nMissing: ..."}'
+```
+"""
+_HARNESS_FEEDBACK = re.compile(r'\n## Feedback\n.*?(?=\n## |\Z)', re.DOTALL)
+
+HARNESS_INSTALL_LINK = 'read https://github.com/browser-use/browser-harness/blob/main/install.md'  # the sentence's period follows
+SETUP_HELP = 'run `browser-use --doctor` and follow its output and the error message'
 
 
 def as_browser_use_skill(text: str) -> str:
@@ -70,9 +101,16 @@ def as_browser_use_skill(text: str) -> str:
 		lines.extend(OPENCLAW_METADATA_LINES)
 
 	body = body.replace('# browser-harness', '# Browser Use', 1).replace('# Browser Harness', '# Browser Use', 1)
+	# browser-harness's install.md installs and runs `browser-harness`, which `uv tool install browser-use` does not provide
+	body = body.replace(HARNESS_INSTALL_LINK, SETUP_HELP)
 	# Rebrand every mention except repo URLs (github.com/browser-use/browser-harness/...)
 	body = re.sub(r'(?<!/)browser-harness', 'browser-use', body)
 	body = body.replace('Browser Harness', 'Browser Use')
+	body = _HARNESS_FEEDBACK.sub('', body)
+	if '\n## Gotchas\n' in body:
+		body = body.replace('\n## Gotchas\n', f'\n{FEEDBACK_SECTION}\n## Gotchas\n', 1)
+	else:
+		body = f'{body.rstrip()}\n\n{FEEDBACK_SECTION}'
 	frontmatter_text = '\n'.join(lines)
 	return f'---\n{frontmatter_text}\n---\n{body}'
 
@@ -87,6 +125,6 @@ def skill_text() -> str:
 		text = resources.files('browser_harness').joinpath('SKILL.md').read_text(encoding='utf-8')
 	except ModuleNotFoundError as exc:
 		raise RuntimeError(
-			'The Browser Use skill relies on the browser-harness package. Install browser-use again or install `browser-harness`.'
+			'The Browser Use skill relies on the browser-harness package. Install browser-use again: uv tool install --force browser-use'
 		) from exc
 	return as_browser_use_skill(text)

@@ -37,6 +37,7 @@ repos:
     rev: v1.1.404
     hooks:
     - id: pyright
+      pass_filenames: false  # check what [tool.pyright] includes
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
