@@ -16,17 +16,21 @@ value over the dummy in the body when all of these hold:
 	   only; punycode, on dot boundaries; https, or http to loopback, localhost, *.localhost and *.test);
 	2. its Origin (else the Referer's origin) matches one of them too: a page elsewhere that learned the dummy cannot
 	   post it to an allowed host;
-	3. every 'require' pin is present and equal wherever it occurs (form, top-level JSON and multipart fields, headers);
-	   mandatory for multi-tenant processors (Stripe, Braintree, Adyen, ...): an attacker's own key there would tokenize
-	   the real card into the attacker's account.
+	3. every 'require' pin is in the form or JSON body or the URL query and equal wherever its name occurs (body,
+	   query, a header of that name, duplicate JSON keys), and no credential header names another account; pinned
+	   tokens are swapped in form and JSON bodies only. Mandatory for multi-tenant processors (Stripe, Braintree,
+	   Adyen, ...): an attacker's own key there would tokenize the real card into the attacker's account.
 Only the body is rewritten (a rewritten URL or header shows in the Network events the agent reads). Anything it cannot
-match safely goes out as the dummy: a Content-Encoding body, a body without postData (blob, stream), base64 or
-client-side encrypted fields, a card split over several inputs, WebSocket frames. Responses on the token hosts'
-registrable domains (documents, XHR, fetch; textual types) are masked back, real -> dummy, before the page sees them.
+match safely goes out as the dummy: a Content-Encoding body, a body without postData (blob, stream) or with a file part
+Chrome gives without its bytes, base64 or client-side encrypted fields, a card split over several inputs, WebSocket
+frames. A redirect that would re-send a swapped body to a host the token does not allow is failed. Responses of every
+type on the token hosts' registrable domains are paused: textual ones masked back, real -> dummy, before the page sees
+them; streams and binary bodies holding a real value failed; images, audio, video and fonts passed unread.
 
-Scope: page and model-context isolation, not host isolation. Model code runs as your user and can open its own CDP
-connection, read Chrome's disk cache or this process's memory. Browser Use Cloud's server-side secure tokens keep the
-real value out of the browser entirely.
+Scope: accidental exposure to an aligned model, not a sandbox against a prompt-injected one. Model code runs as your
+user: it can talk to the browser-harness daemon socket or Chrome itself (around the worker's deny list), read Chrome's
+disk cache or this process's memory. Browser Use Cloud's server-side secure tokens keep the real value out of the
+browser entirely.
 """
 
 from __future__ import annotations
@@ -40,13 +44,15 @@ import json
 import logging
 import random
 import re
+import time
 import urllib.parse
+from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from email.message import Message
 from typing import TYPE_CHECKING, Any
 
-from browser_use.domains import BrowserFetch, canonical_host, is_ip
+from browser_use.domains import GUARD_START_S, BrowserFetch, canonical_host, is_ip
 
 logger = logging.getLogger(__name__)
 # 0.x's browser_use.tokens was a package (tokens.service, tokens.views): an empty __path__ lets those imports reach the
@@ -58,15 +64,62 @@ KEYS = {
 	'card': {'type', 'value', 'hosts', 'require', 'cvc', 'exp'},
 	**{k: {'type', 'value', 'hosts', 'require'} for k in KINDS if k != 'card'},
 }
-# Multi-tenant processors: anyone can post a card there with their own key. require= is mandatory on these.
-MULTI_TENANT = re.compile(r'(^|\.)(stripe\.com|adyen\.com|checkout\.com|paypal\.com|shopifycs\.com|braintree[a-z0-9-]*\.com)$')
+# Multi-tenant processors and vaults: anyone can post a card there with their own key. require= is mandatory on these.
+# Not complete (no list can be): pin your account with require= on any processor.
+MULTI_TENANT = re.compile(
+	r'(^|\.)(stripe\.com|stripe\.network|adyen\.com|adyenpayments\.com|checkout\.com|paypal\.com|paypalobjects\.com|'
+	r'braintreegateway\.com|braintree[a-z0-9-]*\.com|shopifycs\.com|squareup\.com|squareupsandbox\.com|squarecdn\.com|'
+	r'authorize\.net|razorpay\.com|mollie\.com|worldpay\.com|spreedly\.com|verygoodvault\.com|vgs\.io|'
+	r'cybersource\.com|recurly\.com|chargebee\.com|paddle\.com|gocardless\.com|klarna\.com|bluesnap\.com|'
+	r'nmi\.com|globalpay\.com|paysafe\.com|payu\.com|mercadopago\.com|rapyd\.net|dlocal\.com|xendit\.co|'
+	r'flutterwave\.com|paystack\.co|2checkout\.com|evervault\.com|basistheory\.com)$'
+)
+# '*.' at these is anyone's subdomain (a public suffix, or a hosting platform that hands subdomains to anyone)
+OPEN_SUFFIXES = {
+	'github.io',
+	'gitlab.io',
+	'vercel.app',
+	'netlify.app',
+	'pages.dev',
+	'workers.dev',
+	'herokuapp.com',
+	'appspot.com',
+	'web.app',
+	'firebaseapp.com',
+	'blogspot.com',
+	'cloudfront.net',
+	'azurewebsites.net',
+	'amazonaws.com',
+	'onrender.com',
+	'fly.dev',
+	'glitch.me',
+	'repl.co',
+	'ngrok.io',
+	'ngrok-free.app',
+	'trycloudflare.com',
+	'surge.sh',
+}
 HTTP_OK = re.compile(r'(^|\.)(localhost|test)$')  # http (not https) is swapped only to these, loopback IPs and 'localhost'
 SEP = r'(?:[ .\-+]|%20|%2[dD])'  # between two characters of a digit or IBAN token: '4242 4242', '123-45-6789', '+'
 MAX_SEPS = 3
+# Response masking matches more than requests: what servers format a value with. Whitespace (also U+00A0 and its
+# entities), dashes (also U+2010-2015 and U+2212), ( ) / . +, JSON escapes and short inline tags ('<b>123</b>-45').
+MASK_SEP = (
+	r'(?:[\s.\-+()/_\u2010-\u2015\u2212]|%20|%2[dD]|%2[fF]|%28|%29|%C2%A0|%c2%a0|&nbsp;|&#160;|&#[xX]0*[aA]0;|'
+	r'\\u00[aA]0|\\u0020|\\u002[dD]|\\[nrt]|</?[A-Za-z][^<>]{0,40}>)'
+)
+MASK_MAX_SEPS = 6
+# between the words of a text value in a response: any run of whitespace, its encodings and inline tags
+TEXT_SEP = r'(?:\s|&nbsp;|&#160;|&#[xX]0*[aA]0;|\\u00[aA]0|\\u0020|\\[nrt]|%20|%C2%A0|\+|</?[A-Za-z][^<>]{0,40}>)+'
 TEXTUAL = re.compile(
-	r'^(text/|application/(json|javascript|x-javascript|ecmascript|xml|xhtml\+xml|x-www-form-urlencoded)$|'
+	r'^(text/|application/(json|javascript|x-javascript|ecmascript|xml|xhtml\+xml|x-www-form-urlencoded|'
+	r'x-ndjson|ndjson|jsonl|json-seq|x-json|graphql|graphql-response|csv|x-csv|rtf)$|'
 	r'application/[\w.+-]+\+(json|xml)$)'
 )
+MEDIA = re.compile(r'^(image|audio|video|font)/')  # passed without reading the body: a value in pixels is not masked
+STREAMING = {'text/event-stream', 'multipart/x-mixed-replace'}  # never complete: failed on the masked sites
+# A credential in one of these headers picks the account; a pinned token is not swapped with one that is not pinned.
+CREDENTIAL_HEADERS = ('authorization', 'proxy-authorization', 'x-api-key', 'api-key', 'x-auth-token', 'x-client-key')
 SAFE_RAW = re.compile(r'[A-Za-z0-9 \-]*')  # needs no escaping in any body
 SECOND_LEVEL = {'co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'or', 'ne', 'go', 'gob', 'mil'}  # example.co.uk
 
@@ -189,15 +242,39 @@ class Host:
 		subdomains = e.startswith('*.')
 		if subdomains:
 			e = e[2:]
-		host, _, port = e.rpartition(':') if re.search(r':\d+$', e) else (e, '', '')
-		if '*' in host or not host or (port and not port.isdigit()):
+		if m := re.fullmatch(r'\[([0-9a-f:.]+)\](?::(\d+))?', e):  # '[::1]', '[::1]:8443'
+			host, port = m[1], m[2] or ''
+		elif e.count(':') > 1:  # a bare IPv6 address has no port
+			host, port = e, ''
+		else:
+			host, _, port = e.rpartition(':') if re.search(r':\d+$', e) else (e, '', '')
+		if '*' in host or not host or (port and not port.isdigit()) or (':' in host and not is_ip(host)):
 			raise ValueError(f"{where}: {entry!r}: only a leading '*.' is allowed ('*.stripe.com')")
-		return cls(canonical_host(host), subdomains, port)
+		host = canonical_host(host)
+		if subdomains and (is_ip(host) or '.' not in host or _open_suffix(host)):
+			raise ValueError(
+				f"{where}: {entry!r} would allow anyone's site: '*.' needs a domain you trust with every subdomain, "
+				"such as '*.stripe.com', not a public suffix ('*.com', '*.co.uk') or a hosting platform ('*.github.io')"
+			)
+		return cls(host, subdomains, port)
+
+	def pattern(self) -> str:
+		"""The host as a Fetch urlPattern host part."""
+		host = f'[{self.host}]' if ':' in self.host else self.host
+		return f'{"*." if self.subdomains else ""}{host}{":" + self.port if self.port else ""}'
 
 	def matches(self, host: str, port: str) -> bool:
 		if self.port and port != self.port:
 			return False
 		return host.endswith(f'.{self.host}') if self.subdomains else host == self.host
+
+
+def _open_suffix(host: str) -> bool:
+	"""A public suffix ('com', 'co.uk', 'test') or a platform whose subdomains anyone can get ('github.io')."""
+	labels = host.split('.')
+	if len(labels) == 2 and len(labels[-1]) == 2 and labels[0] in SECOND_LEVEL:
+		return True
+	return host in OPEN_SUFFIXES or host.endswith('.amazonaws.com')  # s3, elb, ...: per-region buckets anyone can make
 
 
 def http_ok(host: str) -> bool:
@@ -243,7 +320,9 @@ def registrable(host: str) -> str:
 # ---------------------------------------------------------------------------------------------------- bodies
 
 
-def body_kind(content_type: str) -> str:
+def body_kind(content_type: str, text: str = '') -> str:
+	"""form | json | multipart | xml | text | unknown. A text/plain body that parses as JSON (no-cors fetches and beacons
+	send JSON that way) is json."""
 	ct = content_type.split(';', 1)[0].strip().lower()
 	if ct == 'application/x-www-form-urlencoded':
 		return 'form'
@@ -251,19 +330,28 @@ def body_kind(content_type: str) -> str:
 		return 'json'
 	if ct == 'multipart/form-data':
 		return 'multipart'
+	if ct in ('text/xml', 'text/html', 'application/xml', 'application/xhtml+xml') or ct.endswith('+xml'):
+		return 'xml'
 	if ct.startswith('text/'):
+		if text.lstrip()[:1] in ('{', '['):
+			with contextlib.suppress(ValueError):
+				json.loads(text)
+				return 'json'
 		return 'text'
 	return 'unknown'
 
 
 def encode_for(kind: str, real: str, space: str | None) -> str | None:
-	"""The real value as it must sit in a body of this kind; None when it cannot be written safely (unknown type)."""
+	"""The real value as it must sit in a body of this kind; None when it cannot be written safely (plain text and
+	unknown types: only a value that needs no escaping anywhere)."""
 	if kind == 'form':
 		quoted = urllib.parse.quote(real, safe='')
 		return quoted.replace('%20', '+') if space in (None, '+') else quoted
 	if kind == 'json':
 		return json.dumps(real, ensure_ascii=False)[1:-1]
-	if kind in ('multipart', 'text'):
+	if kind == 'xml':
+		return html.escape(real, quote=True)
+	if kind == 'multipart':
 		return real
 	return real if SAFE_RAW.fullmatch(real) else None
 
@@ -272,34 +360,28 @@ def _headers(headers: dict[str, Any]) -> dict[str, str]:
 	return {str(k).lower(): str(v) for k, v in (headers or {}).items()}
 
 
-def field_values(kind: str, text: str, content_type: str) -> list[tuple[str, str]]:
-	"""(name, value) of every field: form pairs, top-level JSON keys (strings and numbers), multipart parts."""
+def _form_pairs(text: str) -> list[tuple[str, str]]:
+	"""Form pairs split on '&' and also on ';' (servers that split on both see 'a=1;key=x' as key=x)."""
+	return [
+		*urllib.parse.parse_qsl(text, keep_blank_values=True),
+		*urllib.parse.parse_qsl(text, keep_blank_values=True, separator=';'),
+	]
+
+
+def field_values(kind: str, text: str) -> list[tuple[str, str]] | None:
+	"""(name, value) of every field a server could read a pin from: form pairs, every top-level JSON key (a duplicate
+	key is kept twice: servers differ on which one wins). None for a body a pin cannot be checked in."""
 	if kind == 'form':
-		return urllib.parse.parse_qsl(text, keep_blank_values=True)
+		return _form_pairs(text)
 	if kind == 'json':
-		with contextlib.suppress(ValueError):
-			data = json.loads(text)
-			if isinstance(data, dict):
-				return [
-					(k, v if isinstance(v, str) else json.dumps(v))
-					for k, v in data.items()
-					if isinstance(v, str | int | float) and not isinstance(v, bool)
-				]
-		return []
-	if kind == 'multipart':
-		m = Message()
-		m['content-type'] = content_type
-		boundary = m.get_param('boundary')
-		if not isinstance(boundary, str):
-			return []
-		out = []
-		for part in text.split(f'--{boundary}')[1:]:
-			head, sep, value = part.partition('\r\n\r\n')
-			name = re.search(r'(?im)^content-disposition:.*?\bname="([^"]*)"', head)
-			if sep and name and 'filename=' not in head.lower():
-				out.append((name[1], value.removesuffix('\r\n')))
-		return out
-	return []
+		try:
+			data = json.loads(text, object_pairs_hook=lambda pairs: pairs)
+		except ValueError:
+			return None
+		if not isinstance(data, list) or not all(isinstance(p, tuple) for p in data):
+			return None  # a top-level array or scalar
+		return [(k, v if isinstance(v, str) else json.dumps(v)) for k, v in data]
+	return None
 
 
 # ---------------------------------------------------------------------------------------------------- tokens
@@ -309,7 +391,7 @@ def field_values(kind: str, text: str, content_type: str) -> list[tuple[str, str
 class Token:
 	name: str  # 'card', 'card.cvc'
 	kind: str  # card | cvc | ssn | digits | iban | text
-	real: str  # digit kinds: digits only; iban: upper-case alphanumerics; text: as given
+	real: str = field(repr=False)  # digit kinds: digits only; iban: upper-case alphanumerics; text: as given
 	dummy: str  # as the model sees and types it
 	hosts: tuple[Host, ...]
 	require: tuple[tuple[str, str], ...] = ()
@@ -321,10 +403,13 @@ class Token:
 		chars = re.sub(r'[^A-Za-z0-9]', '', self.dummy)
 		if self.kind == 'text':
 			self._find = _text_pattern(self.dummy)
-			self._mask = None  # text masking matches encoded forms: mask_text
+			self._mask = _text_mask_pattern(self.real)
 		else:
 			self._find = _char_pattern(chars, alnum=self.kind == 'iban')
-			self._mask = None if self.kind == 'cvc' else _char_pattern(self.real, alnum=self.kind == 'iban')
+			self._mask = None if self.kind == 'cvc' else _mask_char_pattern(self.real, alnum=self.kind == 'iban')
+
+	def __reduce__(self):  # pickle, copy: a real value never leaves this process in a pickle
+		raise TypeError('Browser(tokens=...) values are not picklable')
 
 
 def _char_pattern(chars: str, alnum: bool) -> re.Pattern:
@@ -332,6 +417,43 @@ def _char_pattern(chars: str, alnum: bool) -> re.Pattern:
 	edge = '[A-Za-z0-9]' if alnum else r'\d'
 	parts = [f'([{c.lower()}{c.upper()}])' if c.isalpha() else f'({c})' for c in chars]
 	return re.compile(rf'(?<!{edge})' + f'{SEP}{{0,{MAX_SEPS}}}'.join(parts) + rf'(?!{edge})')
+
+
+def _mask_char_pattern(chars: str, alnum: bool) -> re.Pattern:
+	"""As _char_pattern, for a response: each character also JSON-escaped ('\\u0031'), and MASK_SEP between."""
+
+	def alts(c: str) -> str:
+		codes = {f'{ord(v):04x}' for v in {c.lower(), c.upper()}}
+		esc = '|'.join(rf'\\u{"".join(f"[{h.lower()}{h.upper()}]" if h.isalpha() else h for h in code)}' for code in codes)
+		return f'([{c.lower()}{c.upper()}]|{esc})' if c.isalpha() else f'({c}|{esc})'
+
+	edge = '[A-Za-z0-9]' if alnum else r'\d'
+	return re.compile(rf'(?<!{edge})' + f'{MASK_SEP}{{0,{MASK_MAX_SEPS}}}'.join(map(alts, chars)) + rf'(?!{edge})')
+
+
+def _char_forms(c: str) -> str:
+	"""A regex for one character of a text value as a response may carry it: itself, JSON-, HTML- or URL-encoded."""
+	o = ord(c)
+	forms = {
+		re.escape(c),
+		re.escape(json.dumps(c)[1:-1]),
+		re.escape(json.dumps(c, ensure_ascii=False)[1:-1]),
+		rf'\\u0*{o:x}',
+		re.escape(html.escape(c, quote=True)),
+		f'&#0*{o};',
+		f'&#x0*{o:x};',
+		re.escape(urllib.parse.quote(c, safe='')),
+	}
+	forms |= {'&apos;'} if c == "'" else {r'\\/'} if c == '/' else set()
+	return '(?:' + '|'.join(sorted(forms, key=len, reverse=True)) + ')'
+
+
+def _text_mask_pattern(real: str) -> re.Pattern:
+	"""A text value in a response: its words, each character in any encoding, case-insensitive; any run of whitespace
+	(or its entities and escapes, '+', inline tags) between them. Each word is a group: masking keeps the separators."""
+	words = real.split()
+	body = TEXT_SEP.join('(' + ''.join(map(_char_forms, w)) + ')' for w in words)
+	return re.compile(r'(?<![A-Za-z0-9])' + body + r'(?![A-Za-z0-9])', re.IGNORECASE)
 
 
 def _text_pattern(dummy: str) -> re.Pattern:
@@ -357,7 +479,7 @@ def _write_chars(m: re.Match, chars: str) -> str:
 		s, e = m.span(i)
 		out.append(text[pos : s - start])
 		got = text[s - start : e - start]
-		out.append(c.lower() if got.islower() else c.upper() if c.isalpha() else c)
+		out.append(c if got.startswith('\\') else c.lower() if got.islower() else c.upper() if c.isalpha() else c)
 		pos = e - start
 	out.append(text[pos:])
 	return ''.join(out)
@@ -370,6 +492,23 @@ def _cased(matched: str, real: str) -> str:
 	if letters and all(c.islower() for c in letters) and any(c.isupper() for c in real):
 		return real.lower()
 	return real
+
+
+def _write_words(m: re.Match, real: str, dummy: str) -> str:
+	"""A text value's match with each word group replaced by the dummy's word, in the case of the whole match;
+	the separators (whitespace, entities, tags) kept."""
+	cased = _cased(re.sub(r'&#?\w+;|\\u[0-9a-fA-F]{4}|\\[nrt]|%[0-9a-fA-F]{2}|<[^>]*>', '', m.group(0)), dummy)
+	words = cased.split(' ')
+	if len(words) != len(m.groups()):  # not one dummy word per real word: the whole match
+		return cased
+	text, start, out, pos = m.group(0), m.start(), [], 0
+	for i, word in enumerate(words, 1):
+		s, e = m.span(i)
+		out.append(text[pos : s - start])
+		out.append(word)
+		pos = e - start
+	out.append(text[pos:])
+	return ''.join(out)
 
 
 def _whole_value(kind: str, dummy: str) -> re.Pattern | None:
@@ -393,6 +532,16 @@ class Tokens:
 
 	def __bool__(self) -> bool:
 		return bool(self.tokens)
+
+	def __repr__(self) -> str:  # tracebacks with locals, debug logs: names and dummies only
+		return f'Tokens({", ".join(f"{t.name}={t.dummy!r}" for t in self.tokens)})'
+
+	def __reduce__(self):
+		raise TypeError('Browser(tokens=...) values are not picklable')
+
+	def named(self, names: Iterable[str]) -> list[Token]:
+		want = set(names)
+		return [t for t in self.tokens if t.name in want]
 
 	@classmethod
 	def of(cls, config: Any, rng: random.Random = _rng) -> Tokens:
@@ -465,7 +614,7 @@ class Tokens:
 			return ''
 		lines = []
 		for t in self.tokens:
-			sites = ', '.join(('*.' if h.subdomains else '') + h.host + (f':{h.port}' if h.port else '') for h in t.hosts)
+			sites = ', '.join(h.pattern() for h in t.hosts)
 			lines.append(f'{t.name} ({t.kind}): {json.dumps(t.dummy)} (only for {sites})')
 		lines += [f'{name}.exp (card expiry, the real value): {json.dumps(e)}' for name, e in self.exp.items()]
 		return (
@@ -478,21 +627,17 @@ class Tokens:
 	# -------------------------------------------------------------------------------- interception
 
 	def fetch_patterns(self) -> list[dict[str, str]]:
-		"""Fetch.enable patterns: every request to a token host (Request stage), and documents, XHR and fetch on their
-		registrable domains (Response stage, for masking). Glob patterns only narrow what pauses; every rule is checked
-		again in code."""
+		"""Fetch.enable patterns: every request to a token host (Request stage), and every response of any type on their
+		registrable domains (Response stage: masking, and a swapped request's redirect). Glob patterns only narrow what
+		pauses; every rule is checked again in code."""
 		hosts = {h for t in self.tokens for h in t.hosts}
 		patterns = [
-			{
-				'urlPattern': f'*://{"*." if h.subdomains else ""}{h.host}{":" + h.port if h.port else ""}*',
-				'requestStage': 'Request',
-			}
+			{'urlPattern': f'*://{h.pattern()}*', 'requestStage': 'Request'}
 			for h in sorted(hosts, key=lambda h: (h.host, h.subdomains, h.port))
 		]
-		for site in sorted({registrable(h.host) for h in hosts}):
-			for rtype in ('Document', 'XHR', 'Fetch'):
-				for host in (site, f'*.{site}'):
-					patterns.append({'urlPattern': f'*://{host}*', 'resourceType': rtype, 'requestStage': 'Response'})
+		for site in sorted(self.mask_domains()):
+			site = f'[{site}]' if ':' in site else site
+			patterns += [{'urlPattern': f'*://{host}*', 'requestStage': 'Response'} for host in (site, f'*.{site}')]
 		return patterns
 
 	def mask_domains(self) -> set[str]:
@@ -508,9 +653,8 @@ class Tokens:
 		if not origin or origin == 'null':
 			ref = urllib.parse.urlsplit(h.get('referer', ''))
 			origin = f'{ref.scheme}://{ref.netloc}' if ref.scheme and ref.netloc else ''
-		ctype = h.get('content-type', '')
-		kind = body_kind(ctype)
 		text = body.decode('utf-8', 'surrogateescape')
+		kind = body_kind(h.get('content-type', ''), text)
 		fields: list[tuple[str, str]] | None = None
 		swapped: list[str] = []
 		for t in self.tokens:
@@ -520,8 +664,8 @@ class Tokens:
 				continue
 			if t.require:
 				if fields is None:
-					fields = field_values(kind, text, ctype)
-				if not _pins_ok(t.require, fields, h):
+					fields = field_values(kind, text)
+				if fields is None or not _pins_ok(t.require, fields, _form_pairs(urllib.parse.urlsplit(url).query), h):
 					continue
 			new = self._swap_one(t, kind, text)
 			if new is not None and new != text:
@@ -553,15 +697,16 @@ class Tokens:
 		return t._find.sub(lambda m: _write_chars(m, t.real), text)
 
 	def mask_text(self, text: str) -> str:
-		"""Real -> dummy in a response (or any text): digit runs with any separators, text values as they are, in any
-		case, and JSON-, HTML- and URL-encoded."""
+		"""Real -> dummy in a response (or any text): digit runs with the separators servers format them with, text
+		values word by word with any whitespace between, in any case; JSON-, HTML- and URL-encoded characters too."""
 		for t in self.tokens:
-			if t._mask is not None:
+			if t._mask is None:
+				continue
+			if t.kind == 'text':
+				text = t._mask.sub(lambda m, t=t: _write_words(m, t.real, t.dummy), text)
+			else:
 				dummy_chars = re.sub(r'[^A-Za-z0-9]', '', t.dummy)
 				text = t._mask.sub(lambda m, d=dummy_chars: _write_chars(m, d), text)
-			elif t.kind == 'text':
-				for form, dummy in _text_forms(t.real, t.dummy):
-					text = re.sub(re.escape(form), lambda m, d=dummy: _cased(m.group(0), d), text, flags=re.IGNORECASE)
 		return text
 
 	def mask_bytes(self, body: bytes, charset: str | None = None) -> bytes:
@@ -575,24 +720,21 @@ class Tokens:
 			return self.mask_text(body.decode('utf-8', 'surrogateescape')).encode('utf-8', 'surrogateescape')
 
 
-def _text_forms(real: str, dummy: str) -> list[tuple[str, str]]:
-	"""(form of the real value, the dummy in the same encoding), longest first."""
-	forms = {
-		real: dummy,
-		json.dumps(real)[1:-1]: dummy,
-		json.dumps(real, ensure_ascii=False)[1:-1]: dummy,
-		html.escape(real, quote=True): dummy,
-		html.escape(real, quote=False): dummy,
-		real.replace("'", '&#39;').replace('"', '&#34;'): dummy,
-		urllib.parse.quote(real, safe=''): urllib.parse.quote(dummy, safe=''),
-		urllib.parse.quote_plus(real, safe=''): urllib.parse.quote_plus(dummy, safe=''),
-	}
-	return sorted(forms.items(), key=lambda kv: -len(kv[0]))
-
-
-def _pins_ok(require: tuple[tuple[str, str], ...], fields: list[tuple[str, str]], headers: dict[str, str]) -> bool:
+def _pins_ok(
+	require: tuple[tuple[str, str], ...], fields: list[tuple[str, str]], query: list[tuple[str, str]], headers: dict[str, str]
+) -> bool:
+	"""Every pin is in the body or the URL query (a credential header pin: in that header), equal wherever its name
+	occurs (body, query, header); and no credential header the pins do not name: a server could pick the account from
+	any of these, so all of them must agree."""
+	pinned = {name.lower() for name, _ in require}
+	if any(h in headers and h not in pinned for h in CREDENTIAL_HEADERS):
+		return False
 	for name, want in require:
-		got = [v for k, v in fields if k == name]
+		got = [v for k, v in (*fields, *query) if k == name]
+		if name.lower() in CREDENTIAL_HEADERS and name.lower() not in headers:
+			return False
+		if not got and name.lower() not in CREDENTIAL_HEADERS:
+			return False  # only in a header of its own name: a server need not read it there
 		if name.lower() in headers:
 			got.append(headers[name.lower()])
 		if not got or any(v != want for v in got):
@@ -629,9 +771,14 @@ def _real_and_dummy(kind: str, value: str, where: str, rng: random.Random) -> tu
 class TokenSwap(BrowserFetch):
 	"""Writes real values into request bodies to the token hosts and masks them out of responses, for every tab,
 	iframe and service worker: browser-level Fetch.enable with patterns built only from the token hosts, on a CDP
-	connection of its own. Chrome applies a browser-level interception to documents loaded after it starts: a page
-	loaded before (or during a reconnect) sends the dummy until it navigates. Every failure sends the dummy: a request
-	this cannot handle is continued unchanged; a response it cannot mask is failed, never passed through."""
+	connection of its own.
+
+	Chrome applies a browser-level interception only to documents loaded after it starts: on every (re)connect, before
+	start() returns, tabs and iframes that show a page on a masked site are navigated again (a GET of their URL), so
+	no page keeps fetching unmasked responses. Requests: anything this cannot handle goes out as it is (the dummy).
+	Responses on the masked sites: textual ones are masked; images, audio, video and fonts pass unread; a stream, or a
+	binary body that holds a real value, is failed; a masking error fails it. A redirect that would carry a swapped
+	body (307, 308) to a host the token does not allow is failed."""
 
 	what = 'Browser(tokens=...)'
 	thread_name = 'browser-use-tokens'
@@ -641,10 +788,47 @@ class TokenSwap(BrowserFetch):
 		self.tokens = tokens
 		self.swaps = 0  # requests that carried a real value
 		self.masked = 0  # responses with a real value masked
+		self.failed = 0  # responses and redirects failed instead of passed
+		self.renavigated = 0  # tabs and frames navigated again on a (re)connect
 		self._on_response = on_response  # tests and the live check: (url, body before masking)
+		self._swapped: OrderedDict[str, tuple[str, ...]] = OrderedDict()  # requestId -> tokens written into it
 
 	def _setup(self) -> list[tuple[str, dict[str, Any]]]:
+		self._swapped.clear()
 		return [('Fetch.enable', {'patterns': self.tokens.fetch_patterns()})]
+
+	def _connected(self) -> None:
+		"""Navigate again every tab and frame showing a page on a masked site: it was loaded before this interception
+		(or during a reconnect) and Chrome would not intercept what it fetches."""
+		sites = self.tokens.mask_domains()
+		deadline = time.monotonic() + GUARD_START_S
+		targets = self._call('Target.getTargets', deadline).get('targetInfos', [])
+		for t in targets:
+			url = str(t.get('url') or '')
+			parsed = _url_host(url)
+			if t.get('type') not in ('page', 'iframe') or parsed is None or registrable(parsed[1]) not in sites:
+				continue
+			try:
+				sid = self._call('Target.attachToTarget', deadline, targetId=t['targetId'], flatten=True)['sessionId']
+				self._send(
+					'Page.navigate', sid, lambda _r, sid=sid: self._send('Target.detachFromTarget', sessionId=sid), url=url
+				)
+				self.renavigated += 1
+			except Exception as e:  # - a tab that closed meanwhile
+				logger.debug('Browser(tokens=...): could not navigate %s again (%s)', url[:80], e)
+		if self.renavigated:
+			logger.info(f'Browser(tokens=...): navigated {self.renavigated} open page(s) on the token sites again')
+
+	def _call(self, method: str, deadline: float, session_id: str | None = None, **params: Any) -> dict:
+		"""One command, answered before the next: while setting up, before the event loop runs."""
+		mid = self._send(method, session_id, **params)
+		while True:
+			msg = json.loads(self._ws.recv(timeout=max(0.1, deadline - time.monotonic())))
+			if msg.get('id') == mid:
+				if 'error' in msg:
+					raise RuntimeError(str(msg['error'].get('message', msg['error'])))
+				return msg.get('result') or {}
+			self._dispatch(msg)
 
 	def _handle(self, msg: dict) -> None:
 		if msg.get('method') != 'Fetch.requestPaused':
@@ -659,45 +843,96 @@ class TokenSwap(BrowserFetch):
 		except Exception as e:  # - a request goes out as it is (the dummy); a response is failed (never unmasked)
 			logger.warning('Browser(tokens=...): %s on %s', type(e).__name__, str(p.get('request', {}).get('url'))[:80])
 			if 'responseStatusCode' in p:
-				self._send('Fetch.failRequest', requestId=rid, errorReason='Failed')
+				self._fail(rid)
 			else:
 				self._send('Fetch.continueRequest', requestId=rid)
 
 	def _request(self, p: dict) -> None:
 		req = p.get('request') or {}
 		entries = req.get('postDataEntries') or []
-		body = b''.join(base64.b64decode(e.get('bytes') or '') for e in entries)
+		# a part Chrome gives without its bytes (a file chosen from disk): a rewritten body would drop it
+		whole = all('bytes' in e for e in entries)
+		body = _post_body(req) if whole else b''
 		out = self.tokens.swap(str(req.get('url', '')), req.get('headers') or {}, body) if body else None
+		inherited = self._swapped.get(str(p.get('redirectedRequestId') or ''), ())
 		if out is None:
+			if inherited:
+				self._remember(p['requestId'], inherited)
 			self._send('Fetch.continueRequest', requestId=p['requestId'])
 			return
 		new, names = out
+		self._remember(p['requestId'], (*inherited, *names))
 		with self._lock:
 			self.swaps += 1
 		host = (_url_host(str(req.get('url', ''))) or ('', '?', ''))[1]
 		logger.info(f'Browser(tokens=...): wrote {", ".join(names)} into a request to {host}')
 		self._send('Fetch.continueRequest', requestId=p['requestId'], postData=base64.b64encode(new).decode())
 
+	def _remember(self, rid: str, names: tuple[str, ...]) -> None:
+		self._swapped[rid] = names
+		while len(self._swapped) > 1000:  # requests that never reached their response (aborted, failed)
+			self._swapped.popitem(last=False)
+
+	def _fail(self, rid: str) -> None:
+		with self._lock:
+			self.failed += 1
+		self._send('Fetch.failRequest', requestId=rid, errorReason='BlockedByClient')
+
+	def _redirect_leaks(self, p: dict, status: int, headers: list[dict]) -> bool:
+		"""A redirect Chrome follows with the same body (307, 308; 301 and 302 except for a POST) to a URL the tokens in
+		that body do not allow."""
+		req = p.get('request') or {}
+		method = str(req.get('method', 'GET')).upper()
+		if not (status in (307, 308) or (status in (301, 302) and method != 'POST')):
+			return False
+		location = next((str(h.get('value', '')) for h in headers if str(h.get('name', '')).lower() == 'location'), '')
+		if not location:
+			return False
+		target = urllib.parse.urljoin(str(req.get('url', '')), location)
+		body = _post_body(req).decode('utf-8', 'surrogateescape')
+		names = set(self._swapped.get(p['requestId'], ()))
+		carried = [t for t in self.tokens.tokens if t.name in names or (body and t._mask is not None and t._mask.search(body))]
+		return any(not hosts_allow(t.hosts, target) for t in carried)
+
 	def _response(self, p: dict) -> None:
 		rid, status = p['requestId'], int(p.get('responseStatusCode') or 0)
 		headers = p.get('responseHeaders') or []
 		if 'responseErrorReason' in p and 'responseStatusCode' not in p:
+			self._swapped.pop(rid, None)
 			self._send('Fetch.continueRequest', requestId=rid)
 			return
+		url = str((p.get('request') or {}).get('url', ''))
+		if 300 <= status < 400 and self._redirect_leaks(p, status, headers):
+			self._swapped.pop(rid, None)
+			logger.warning(
+				f'Browser(tokens=...): failed a {status} redirect from {url[:80]}: it would re-send real values elsewhere'
+			)
+			self._fail(rid)
+			return
+		if not 300 <= status < 400:
+			self._swapped.pop(rid, None)
 		# the body Fetch.getResponseBody returns is decoded: its length and encoding headers no longer apply
 		kept = [h for h in headers if str(h.get('name', '')).lower() not in ('content-length', 'content-encoding')]
 		masked_headers = [{'name': h['name'], 'value': self.tokens.mask_text(str(h.get('value', '')))} for h in kept]
 		headers_changed = any(m['value'] != str(h.get('value', '')) for m, h in zip(masked_headers, kept, strict=True))
+		masked_all = [{'name': h['name'], 'value': self.tokens.mask_text(str(h.get('value', '')))} for h in headers]
 		ctype = next((str(h.get('value', '')) for h in headers if h['name'].lower() == 'content-type'), '')
 		mime = ctype.split(';', 1)[0].strip().lower()
-		textual = not mime or (bool(TEXTUAL.match(mime)) and mime != 'text/event-stream')
-		if 300 <= status < 400 or not textual:  # a redirect's body is never shown; binary bodies are not masked
+
+		def pass_unread() -> None:  # the body as it is; headers masked
 			if headers_changed:
-				self._fulfill(rid, status, masked_headers, b'')
+				self._send('Fetch.continueResponse', requestId=rid, responseCode=status, responseHeaders=masked_all)
 			else:
 				self._send('Fetch.continueRequest', requestId=rid)
+
+		if 300 <= status < 400 or MEDIA.match(mime):  # a redirect's body is never shown; pixels are not masked
+			pass_unread()
 			return
-		url = str((p.get('request') or {}).get('url', ''))
+		if mime in STREAMING:  # never complete: getResponseBody would hold it forever
+			logger.warning(f'Browser(tokens=...): failed a {mime} response from {url[:80]}: a stream cannot be masked')
+			self._fail(rid)
+			return
+		textual = not mime or bool(TEXTUAL.match(mime))
 		m = Message()
 		m['content-type'] = ctype or 'text/plain'
 		charset = m.get_param('charset')
@@ -708,21 +943,22 @@ class TokenSwap(BrowserFetch):
 				if self._on_response is not None:
 					self._on_response(url, raw)
 				body = self.tokens.mask_bytes(raw, charset if isinstance(charset, str) else None)
-				if body == raw and not headers_changed:
-					self._send('Fetch.continueRequest', requestId=rid)
+				if body == raw:
+					pass_unread()
+					return
+				if not textual:  # a PDF, a zip, protobuf: a value in it cannot be rewritten safely
+					logger.warning(f'Browser(tokens=...): failed a {mime} response from {url[:80]}: it holds a real value')
+					self._fail(rid)
 					return
 				with self._lock:
 					self.masked += 1
 				self._fulfill(rid, status, masked_headers, body)
 			except Exception as e:  # - failed, never passed through unmasked
 				logger.warning('Browser(tokens=...): could not mask a response from %s (%s)', url[:80], type(e).__name__)
-				self._send('Fetch.failRequest', requestId=rid, errorReason='Failed')
+				self._fail(rid)
 
 		def no_body(error: dict) -> None:  # 204, HEAD, a body Chrome no longer has: nothing to mask but headers
-			if headers_changed:
-				self._fulfill(rid, status, masked_headers, b'')
-			else:
-				self._send('Fetch.continueRequest', requestId=rid)
+			pass_unread()
 
 		self._send('Fetch.getResponseBody', reply=got, error=no_body, requestId=rid)
 
@@ -734,6 +970,11 @@ class TokenSwap(BrowserFetch):
 			responseHeaders=headers,
 			body=base64.b64encode(body).decode(),
 		)
+
+
+def _post_body(req: dict) -> bytes:
+	"""A paused request's body, from its postDataEntries."""
+	return b''.join(base64.b64decode(e.get('bytes') or '') for e in req.get('postDataEntries') or [])
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here

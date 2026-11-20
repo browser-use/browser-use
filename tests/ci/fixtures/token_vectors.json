@@ -16,6 +16,9 @@
 		{"name": "text inside a longer word is not swapped", "kind": "text", "real": "742 Evergreen Terrace", "dummy": "318 Qmwpxzkrb Hvtdsqj", "content_type": "text/plain", "body": "x318 Qmwpxzkrb Hvtdsqjy", "expected": "x318 Qmwpxzkrb Hvtdsqjy"},
 		{"name": "unknown type: a real value that needs escaping is not written", "kind": "text", "real": "742 Evergreen \"Terrace\"", "dummy": "318 Qmwpxzkrb Hvtdsqjel", "content_type": "application/octet-stream", "body": "318 Qmwpxzkrb Hvtdsqjel", "expected": "318 Qmwpxzkrb Hvtdsqjel"},
 		{"name": "unknown type: a plain value is written", "kind": "ssn", "real": "123456789", "dummy": "301-52-7788", "content_type": "", "body": "s=301-52-7788", "expected": "s=123-45-6789"},
+		{"name": "text in JSON sent as text/plain is JSON-escaped", "kind": "text", "real": "742 Evergreen \"Terrace\" #5 Ü", "dummy": "318 Qmwpxzkrb Hvtdsqjel a8 K", "content_type": "text/plain;charset=UTF-8", "body": "{\"street\":\"318 Qmwpxzkrb Hvtdsqjel a8 K\"}", "expected": "{\"street\":\"742 Evergreen \\\"Terrace\\\" #5 Ü\"}"},
+		{"name": "text in XML is entity-escaped", "kind": "text", "real": "742 Evergreen \"Terrace\" & <5>", "dummy": "318 Qmwpxzkrb Hvtdsqjel a8 K", "content_type": "text/xml", "body": "<s>318 Qmwpxzkrb Hvtdsqjel a8 K</s>", "expected": "<s>742 Evergreen &quot;Terrace&quot; &amp; &lt;5&gt;</s>"},
+		{"name": "plain text: a value that needs escaping is not written", "kind": "text", "real": "742 Evergreen \"Terrace\" #5 Ü", "dummy": "318 Qmwpxzkrb Hvtdsqjel a8 K", "content_type": "text/plain", "body": "street 318 Qmwpxzkrb Hvtdsqjel a8 K", "expected": "street 318 Qmwpxzkrb Hvtdsqjel a8 K"},
 		{"name": "base64 body is not decoded", "kind": "ssn", "real": "123456789", "dummy": "301-52-7788", "content_type": "text/plain", "body": "MzAxLTUyLTc3ODg=", "expected": "MzAxLTUyLTc3ODg="}
 	]
 }

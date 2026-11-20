@@ -364,6 +364,11 @@ class Agent:
 			raise AttributeError(removed(f'Agent.{name}', REMOVED_ATTRS[name]))
 		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
 
+	def _masked(self, text: str) -> str:
+		"""Browser(tokens=...): a real value in text the model gets (task, extend_system_message, judge context) as its
+		stand-in."""
+		return self.browser.tokens.mask_text(text) if self.browser.tokens and text else text
+
 	def add_new_task(self, task: str) -> None:
 		"""The next run() continues this conversation with a new task."""
 		_check_task_arg(task)
@@ -425,7 +430,7 @@ class Agent:
 							browser_blocks=not self.browser._attached()
 						),  # '' without restrictions: the default prompt stays byte-identical
 						self.browser.tokens.prompt(),  # '' without tokens=
-						redact(self.extend_system_message, self.sensitive_data),
+						self._masked(redact(self.extend_system_message, self.sensitive_data)),
 					],
 				)
 			),
@@ -495,7 +500,7 @@ class Agent:
 		self._reports.start(run_id, rec, model_id(self._model_name), list(dict.fromkeys(self._tasks)), self.sensitive_data)
 		_ACTIVE[0] += 1
 		try:
-			logger.info(f'Task: {redact(self.task, self.sensitive_data)[:200]} (workspace {self.workspace})')
+			logger.info(f'Task: {self._masked(redact(self.task, self.sensitive_data))[:200]} (workspace {self.workspace})')
 			if self._repl is None:
 				check_loop()  # before the browser starts: a cloud browser bills from its create
 				# a dead gateway, a rejected key, a bad model or a missing search endpoint fails before any browser starts
@@ -561,7 +566,7 @@ class Agent:
 			phase = 'loop'
 			result = await run(
 				self._agent,
-				self.task,
+				self._masked(self.task),  # a real value written into the task reaches the model as its stand-in
 				session,
 				self._model_ref,
 				message_history=history,
@@ -638,7 +643,7 @@ class Agent:
 		self._judge_cost = None
 		if not (self.judge and result is not None and result.steps and self._agent is not None):
 			return
-		task, context = (redact(t, self.sensitive_data) for t in (self.task, self.judge_context))
+		task, context = (self._masked(redact(t, self.sensitive_data)) for t in (self.task, self.judge_context))
 		final, self._final_page = self._final_page, None
 		judgement, messages = None, []
 		history, params = self._judge_prefix
