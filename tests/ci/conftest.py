@@ -25,6 +25,11 @@ os.environ['BH_AUTH_PATH'] = str(Path(tempfile.gettempdir()) / 'browser-use-test
 # The 0.x config.json `browser-use --mcp` reads: never the developer's own.
 os.environ['BROWSER_USE_CONFIG_DIR'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-config')
 os.environ['BROWSER_USE_TELEMETRY_INTERNAL'] = '1'
+# A missing key never starts a login, even under `pytest -s` at a terminal (tests that need one turn it on).
+os.environ['BROWSER_USE_AUTO_LOGIN'] = '0'
+# Which login a missing key starts (browser or device code) never depends on how the developer reached this machine.
+for _ssh in ('SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT'):
+	os.environ.pop(_ssh, None)
 # browser-harness's telemetry.json (`browser-use telemetry disable`) turns the library's events off: never the developer's.
 os.environ['BH_CONFIG_DIR'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-bh-config')
 
