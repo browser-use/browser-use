@@ -1,0 +1,141 @@
+import { test, before, after, mock } from 'node:test';
+import assert from 'node:assert/strict';
+import { CDP, Page } from '../dist/index.js';
+import { openBrowser } from '../dist/browser.js';
+
+let chrome, cdp, page;
+before(async () => {
+  chrome = await openBrowser();
+  cdp = await CDP.connect(chrome.endpoint, 1000);
+  const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+  page = await Page.attach(cdp, targetId);
+});
+after(async () => {
+  cdp?.close();
+  await chrome?.close();
+});
+
+test('protocol errors are recoverable; event names are not magically commands', async () => {
+  await assert.rejects(cdp.send('MadeUp.method'), /CDP -32601/);
+  assert.equal(cdp.on, undefined);
+  assert.match((await cdp.send('Browser.getVersion')).product, /Chrome/);
+});
+test('event timeouts and aborts are bounded and explicit', async () => {
+  await assert.rejects(
+    cdp.waitFor('Browser.downloadWillBegin', { timeoutMs: 30 }),
+    /exceeded 30 ms/,
+  );
+  const controller = new AbortController();
+  const waiting = cdp.waitFor('Browser.downloadWillBegin', { signal: controller.signal });
+  controller.abort();
+  await assert.rejects(waiting, /cancelled/);
+  assert.throws(
+    () => cdp.waitFor('Browser.downloadWillBegin', { timeoutMs: { timeout: 20 } }),
+    /positive integer/,
+  );
+});
+test('tab event waits are session scoped and commands remain usable', async () => {
+  const waiting = cdp.waitFor('Page.loadEventFired', { sessionId: page.sessionId });
+  await page.goto('data:text/html,<h1>events</h1>');
+  await waiting;
+  assert.equal(await page.evaluate(() => document.querySelector('h1').textContent), 'events');
+});
+test('AX node IDs support trusted raw input, coordinates, unicode and stale-node errors', async () => {
+  await page.goto(
+    'data:text/html,' +
+      encodeURIComponent(
+        '<meta charset="utf-8"><label>Email <input value="old"></label><button onclick="window.trusted=event.isTrusted">Save</button>',
+      ),
+  );
+  const nodes = (await page.snapshot()).nodes;
+  const input = nodes.find((n) => n.role === 'textbox').id;
+  await page.cdp('DOM.focus', { backendNodeId: input });
+  await page.cdp('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key: 'a',
+    code: 'KeyA',
+    commands: ['selectAll'],
+  });
+  await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA' });
+  await page.cdp('Input.insertText', { text: '中文 é' });
+  assert.equal(await page.evaluate(() => document.querySelector('input').value), '中文 é');
+  const id = nodes.find((n) => n.role === 'button').id;
+  const q = (await page.cdp('DOM.getBoxModel', { backendNodeId: id })).model.content;
+  await page.clickAt((q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) / 4);
+  assert.equal(await page.evaluate(() => window.trusted), true);
+  await assert.rejects(page.clickAt(NaN, 0), /finite/);
+  await page.goto('data:text/html,new document');
+  await assert.rejects(page.cdp('DOM.focus', { backendNodeId: input }), /CDP/);
+  await assert.rejects(
+    page.waitFor(() => false, undefined, { timeoutMs: 30 }),
+    /exceeded 30 ms/,
+  );
+});
+test('a failed domain enable does not fail the attach (Python 1.0.5 _enable_default_domains)', async () => {
+  for (const failingMethod of ['Page.enable', 'Runtime.enable']) {
+    const failure = new Error(`Injected ${failingMethod} timeout`);
+    const send = cdp.send.bind(cdp);
+    let attached;
+    const patch = mock.method(cdp, 'send', async (method, params, sessionId) => {
+      if (method === failingMethod && sessionId === attached) throw failure;
+      const result = await send(method, params, sessionId);
+      if (method === 'Target.attachToTarget') attached = result.sessionId;
+      return result;
+    });
+    try {
+      const other = await Page.attach(cdp, page.targetId);
+      assert.equal(other.sessionId, attached);
+      assert.equal((await other.info()).url, 'data:text/html,new document');
+      // The caller's existing session remains usable.
+      assert.equal((await page.info()).url, 'data:text/html,new document');
+      await cdp.send('Target.detachFromTarget', { sessionId: attached });
+    } finally {
+      patch.mock.restore();
+    }
+  }
+});
+test('command deadline rejects; closing rejects pending commands without crashing host', async () => {
+  const short = await CDP.connect(chrome.endpoint, 100);
+  const other = await Page.attach(short, page.targetId);
+  await assert.rejects(other.evaluate('new Promise(() => {})'), /exceeded 100 ms/);
+  const pending = other.evaluate('new Promise(() => {})');
+  short.close();
+  await assert.rejects(pending, /closed/);
+  assert.match((await cdp.send('Browser.getVersion')).product, /Chrome/);
+});
+
+test('response taps are passive, single-delivery and bound to the dispatched command', async () => {
+  const lazy = CDP.lazy(chrome.endpoint, 1000);
+  let observed = 0;
+  try {
+    lazy.observeResponse = (method, _params, result) => {
+      assert.equal(method, 'Browser.getVersion');
+      assert.match(result.product, /Chrome/);
+      observed++;
+      throw new Error('observer failure must not fail the command');
+    };
+    assert.match((await lazy.send('Browser.getVersion')).product, /Chrome/);
+    assert.equal(observed, 1);
+    await assert.rejects(lazy.send('MadeUp.method'), /CDP/);
+    assert.equal(observed, 1);
+    let original = 0,
+      replacement = 0;
+    cdp.observeResponse = () => original++;
+    const pending = cdp.send(
+      'Runtime.evaluate',
+      {
+        expression: 'new Promise(resolve => setTimeout(() => resolve(42), 50))',
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      page.sessionId,
+    );
+    cdp.observeResponse = () => replacement++;
+    assert.equal((await pending).result.value, 42);
+    assert.equal(original, 1);
+    assert.equal(replacement, 0);
+  } finally {
+    cdp.observeResponse = undefined;
+    lazy.close();
+  }
+});

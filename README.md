@@ -179,6 +179,16 @@ Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI 
 - **Judge:** after each run that took a step, one more request to the same model judges it against the task, from the trace and, unless `use_vision=False`, the last few screenshots and the final page, sent as they are (only the text is redacted; a model that rejects images gets one more, text-only request): `result.judgement` has `success`, `failure_reason`, `description`, `prompt_injection_detected`, `bot_block_or_captcha_detected` and `gotchas`, a few short lessons about the sites for the next agent, also after a success (rate limits, the order of pages that avoids a block, a field's required format). Its tokens and cost are counted in `result.usage` and `result.cost_usd`. `Agent(task, judge_context='the answer is 42')` gives it your criteria; `Agent(task, judge=False)` turns it off. With usage stats on, the judgement is sent with the run's event, scrubbed like the result (no emails, secrets or credentials).
 - **Web search:** the agent gets `search(query, num_results=None, category=None)` (Browser Use web search, billed per search to your Browser Use key; each charge the response reports is added to `result.cost_usd`) with `Agent(task, web_search=True)` (off by default; needs a Browser Use key, and can't be combined with `allowed_domains`).
 
+## TypeScript
+
+Browser Use JS is Browser Use in TypeScript, built on Pi Mono: the model writes JavaScript in a persistent V8 REPL with raw CDP. It lives in [`js/`](https://github.com/browser-use/browser-use/tree/main/js) in this repo. Node 22.19+ or Bun 1.3.14+.
+
+```bash
+npm install @browser_use/core
+```
+
+See [js/README.md](https://github.com/browser-use/browser-use/blob/main/js/README.md).
+
 <br/>
 
 # Browser Use Benchmark v2
@@ -283,7 +293,6 @@ You can also host the Python library and browsers on your own infrastructure.
 
 | Repository | What it's for |
 | --- | --- |
-| [Browser Use Pi](https://github.com/browser-use/browser-use-pi) | Run a TypeScript browser agent built on Pi. |
 | [Cloud SDK](https://github.com/browser-use/sdk) | Integrate Browser Use Cloud into your application. |
 | [Video Use](https://github.com/browser-use/video-use) | Edit videos with your coding agent. |
 | [macOS Harness](https://github.com/browser-use/macos-harness) | Give your agent control of Mac apps, browsers, and files. |

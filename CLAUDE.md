@@ -48,3 +48,16 @@ uv run pyright
 - 0.x options 1.0 cannot honor raise a `TypeError` naming the option before any browser starts; keep MIGRATING.md in
   sync when you add or remove one.
 - Never create example files to show off a feature.
+
+## JavaScript (`js/`)
+
+`js/` is Browser Use JS (npm `@browser_use/core`, imported from browser-use-pi with history). Layout, CI and releases are in
+MONOREPO.md.
+
+- Work inside `js/`: `npm ci && npm run build && npm run check && npm run format:check`. Build before check: examples
+  import the package by name.
+- Use npm and the committed `package-lock.json`; prettier formats `js/` (Python tooling skips it).
+- `npm test` needs Chrome. Tests use a local fixture server and scripted models; never call paid APIs or create cloud
+  browsers in tests.
+- The JS system prompt is `js/src/prompt.ts`; like the Python one it is evaluated, do not edit it casually.
+- JS releases are `js-vX.Y.Z` tags only (`publish-js.yml`). Never create a bare `X.Y.Z` tag for JS.

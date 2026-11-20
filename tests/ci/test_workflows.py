@@ -37,12 +37,20 @@ def event(name: str, ref: str, prerelease: bool = False) -> NS:
 		(event('push', 'refs/tags/1.0.0'), True),
 		(event('push', 'refs/heads/main'), True),
 		(event('push', 'refs/heads/releases/source-fix'), True),  # a branch name containing 'rc' still builds
+		(event('release', 'refs/tags/js-v0.2.0'), False),  # JS releases (publish-js.yml) are not Python images
 	],
 )
 def test_docker_images_are_never_built_for_a_release_candidate(github, builds):
 	"""Fable r4-6: tagging 1.0.0rc1 built and pushed browseruse/browseruse:1.0.0rc1 from a Dockerfile nobody ran on 1.0."""
 	job = yaml.safe_load((WORKFLOWS / 'docker.yml').read_text())['jobs']['build_publish_image']
 	assert gha_if(job.get('if', 'true'), github) is builds
+
+
+def test_js_releases_run_no_docker_job():
+	jobs = yaml.safe_load((WORKFLOWS / 'docker.yml').read_text())['jobs']
+	assert gha_if(jobs['smoke']['if'], event('release', 'refs/tags/js-v0.2.0')) is False
+	assert gha_if(jobs['smoke']['if'], event('release', 'refs/tags/1.0.6')) is True
+	assert gha_if(jobs['smoke']['if'], event('pull_request', 'refs/pull/6420/merge')) is True
 
 
 def test_pull_requests_never_push_docker_images():

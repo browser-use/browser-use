@@ -65,6 +65,7 @@ skip = "*.json"
 
 [tool.ruff]
 line-length = 130
+extend-exclude = ["js"]
 fix = true
 
 [tool.ruff.lint]
