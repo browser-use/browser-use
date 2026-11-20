@@ -63,6 +63,17 @@ OLD_TOOLS = {  # the 0.x browser-use --mcp server's tools (it ran the removed en
 OLD_TOOL_HINT = 'browser_exec runs Python with the browser-harness helpers (goto_url, click_at_xy, js, list_tabs, ...).'
 CLOUD_TIMEOUT_MINUTES = 30  # default lifetime of a cloud browser this server starts; start_remote_daemon(timeout=) overrides
 INSTALL_TIMEOUT_S = 600  # Playwright's Chromium (~150 MB) and, as root on Linux, its system libraries
+# browser_exec replies within this: Cursor and the other clients on the MCP TypeScript SDK cancel a tool call at 60 s, and
+# the model then got nothing back from code that ran on
+CALL_SECONDS = 50.0
+STILL_RUNNING = (
+	'Still running after {seconds:.0f} s, so this reply comes before the MCP client gives up on the call; the code keeps '
+	'running. Call browser_exec with code "" to wait for it and get the rest of its output (new code would run beside it).'
+)
+NOTHING_RUNNING = 'Nothing is running: every earlier browser_exec has ended and returned all of its output.'
+BUSY = (
+	f'Not run: an earlier browser_exec or browser_screenshot call still held the browser after {CALL_SECONDS:.0f} s. Call again.'
+)
 NO_CLOUD_WITH_DOMAINS = (
 	"{name}() is off: this server's allowed_domains / prohibited_domains hold only on its own Chromium, and a cloud "
 	'browser would open any site'
@@ -144,6 +155,13 @@ _call_errors: contextvars.ContextVar[list[tuple[str, str]] | None] = contextvars
 	'browser_use_mcp_errors', default=None
 )
 TOOLS = ('browser_exec', 'browser_screenshot', 'browser_login', 'browser_feedback')
+
+
+def _count(kind: str) -> None:
+	"""Telemetry for the tool call in progress: why browser_exec replied before its code ended, or failed without an
+	exception of its own. No text: an earlier cell's output can hold page data."""
+	if (errors := _call_errors.get()) is not None:
+		errors.append((kind, ''))
 
 
 def _client_gone(e: BaseException) -> bool:
@@ -323,6 +341,37 @@ def _capture(buffer: StringIO):
 		_cell.buffer = None
 
 
+class _Cell:
+	"""One browser_exec cell on its own thread, which no call can stop. One that outlives its call (CALL_SECONDS, or a
+	client that cancelled sooner) keeps running: later calls return what it prints from then on, and its end."""
+
+	def __init__(self) -> None:
+		self.buffer = StringIO()
+		self.started = time.monotonic()
+		self.failed = True
+		self.done = threading.Event()
+		self._shown = 0
+
+	def new_output(self) -> str:
+		"""What it printed since the last call returned its output."""
+		text = self.buffer.getvalue()
+		text, self._shown = text[self._shown :], len(text)
+		return text
+
+
+def _clipped(output: str) -> str:
+	"""The agent's cap on a cell's output (MAX_OUTPUT_CHARS); the full text stays readable on disk."""
+	if len(output) <= MAX_OUTPUT_CHARS:
+		return output
+	# utf-8: Windows' locale encoding (cp1252) failed the whole call on an emoji, after the cell ran; newline='': the file
+	# holds the output as captured (Windows wrote each \n as \r\n)
+	with tempfile.NamedTemporaryFile(
+		'w', encoding='utf-8', errors='replace', newline='', prefix='browser_exec_', suffix='.txt', delete=False
+	) as f:
+		f.write(output)
+	return clip(output, f.name)
+
+
 def _open_url(url: str) -> bool:
 	"""Open url in the user's browser without letting a child process write to stdout (the MCP channel)."""
 	command = {'darwin': ['open', url], 'linux': ['xdg-open', url]}.get(sys.platform)
@@ -428,6 +477,7 @@ class CLIMCPServer:
 		)
 		self._namespace: dict[str, Any] | None = None
 		self._exec_lock = asyncio.Lock()
+		self._running: list[_Cell] = []  # cells that outlived their call, oldest first
 		self._login: _Login | None = None
 		self._login_lock = threading.Lock()
 		# _attach from a cell the client gave up on and from the next call: one Browser.start() at a time (its asyncio
@@ -453,13 +503,18 @@ class CLIMCPServer:
 					'should be new_tab(url). Drives the local Chrome (the first result names it) until '
 					'start_remote_daemon() starts a cloud browser; then every call drives that one until it ends '
 					'(stopped when this server exits). '
+					f'A call replies within {CALL_SECONDS:.0f} s: code still running then keeps running, and '
+					'browser_exec with code "" waits for it and returns the rest of its output. '
 					"A cloud browser's downloads stay on the remote host, never in ~/Downloads (a file there is not its "
 					'download): GET https://api.browser-use.com/api/v4/browsers/{id}/downloads lists them.'
 				),
 				input_schema={
 					'type': 'object',
 					'properties': {
-						'code': {'type': 'string', 'description': 'Python code to execute'},
+						'code': {
+							'type': 'string',
+							'description': 'Python code to execute; "" waits for code an earlier call left running',
+						},
 					},
 					'required': ['code'],
 				},
@@ -521,25 +576,12 @@ class CLIMCPServer:
 		async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
 			if name == 'browser_exec':
 				code = arguments.get('code')
-				if not isinstance(code, str) or not code.strip():
+				if not isinstance(code, str):
 					return types.CallToolResult(
-						content=[types.TextContent(type='text', text="Error: 'code' must be a non-empty string")],
+						content=[types.TextContent(type='text', text="Error: 'code' must be a string")],
 						is_error=True,
 					)
-				output, failed = await self._locked(self._execute, code)
-				note, self._note = self._note, None
-				if len(output) > MAX_OUTPUT_CHARS:  # same cap as the agent's cells; the full text stays readable on disk
-					# utf-8: Windows' locale encoding (cp1252) failed the whole call on an emoji, after the cell ran; newline='':
-					# the file holds the output as captured (Windows wrote each \n as \r\n)
-					with tempfile.NamedTemporaryFile(
-						'w', encoding='utf-8', errors='replace', newline='', prefix='browser_exec_', suffix='.txt', delete=False
-					) as f:
-						f.write(output)
-					output = clip(output, f.name)
-				content = [types.TextContent(type='text', text=output or '(no output)')]
-				if note:  # its own block: a client that parses the code's output (JSON) gets only that in the first
-					content.append(types.TextContent(type='text', text=note))
-				return types.CallToolResult(content=content, is_error=failed)
+				return await self._exec_call(code)
 			if name == 'browser_screenshot':
 				max_dim = arguments.get('max_dim')
 				if max_dim is not None and (isinstance(max_dim, bool) or not isinstance(max_dim, int) or max_dim < 1):
@@ -601,6 +643,69 @@ class CLIMCPServer:
 			telemetry().capture(event)
 		except Exception:  # - telemetry never breaks a tool call
 			pass
+
+	async def _exec_call(self, code: str) -> types.CallToolResult:
+		"""browser_exec: run code on its own thread (empty code: wait for the cells still running) and reply within
+		CALL_SECONDS whether it ended or not. One call at a time: a call that cannot start before its deadline does not run."""
+		deadline = time.monotonic() + CALL_SECONDS
+		try:
+			async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+				await self._exec_lock.acquire()
+		except TimeoutError:
+			_count('busy')
+			return types.CallToolResult(content=[types.TextContent(type='text', text=BUSY)], is_error=True)
+		try:
+			return await self._exec_reply(code, deadline)
+		finally:
+			self._exec_lock.release()
+
+	async def _exec_reply(self, code: str, deadline: float) -> types.CallToolResult:
+		"""The first block is the code's own output (a client may parse it as JSON); then whether it still runs, what
+		earlier cells printed since and how they ended, and the browser note."""
+		earlier = list(self._running)
+		cell = None
+		if code.strip():
+			cell = _Cell()
+			self._running.append(cell)
+			run = contextvars.copy_context().run  # its failures go to this call's telemetry
+			threading.Thread(target=run, args=(self._run_cell, cell, code), daemon=True, name='browser-exec').start()
+		waited = [cell] if cell else earlier
+		await asyncio.to_thread(lambda: [c.done.wait(max(0.0, deadline - time.monotonic())) for c in waited])
+		blocks, failed = [], False
+		if cell is not None:
+			blocks.append(_clipped(cell.new_output()) or '(no output)')
+			if cell.done.is_set():
+				self._running.remove(cell)
+				failed = cell.failed
+			else:
+				blocks.append(STILL_RUNNING.format(seconds=time.monotonic() - cell.started))
+				_count('still_running')
+		elif not earlier:
+			blocks.append(NOTHING_RUNNING)
+		for c in earlier:
+			seconds = time.monotonic() - c.started
+			if c.done.is_set():  # before reading its output: an ended cell's output is complete
+				self._running.remove(c)
+				head = f'[earlier browser_exec {"failed" if c.failed else "ended"} after {seconds:.0f} s]'
+				if cell is None and c.failed:  # the wait's result is that failure; telemetry gets no text of it
+					failed = True
+					_count('earlier_failed')
+			else:
+				head = f'[earlier browser_exec still running ({seconds:.0f} s)]'
+				if cell is None:
+					_count('still_running')
+			output = _clipped(c.new_output())
+			blocks.append(f'{head}\n{output}' if output else head)
+		note, self._note = self._note, None
+		if note:
+			blocks.append(note)
+		return types.CallToolResult(content=[types.TextContent(type='text', text=b) for b in blocks], is_error=failed)
+
+	def _run_cell(self, cell: _Cell, code: str) -> None:
+		try:
+			_, cell.failed = self._execute(code, buffer=cell.buffer)
+		finally:
+			cell.done.set()
 
 	async def _locked(self, fn: Any, *args: Any) -> Any:
 		"""fn(*args) in a thread, one at a time. A call the client cancels (its timeout) lets go of the lock at once: its
@@ -744,14 +849,14 @@ class CLIMCPServer:
 			)
 		return browser
 
-	def _execute(self, code: str, connect: bool = True) -> tuple[str, bool]:
+	def _execute(self, code: str, connect: bool = True, buffer: StringIO | None = None) -> tuple[str, bool]:
 		"""Run code in the persistent namespace, capturing stdout/stderr. Returns (output, whether it failed): a
 		failure is the tool result's is_error, not only a traceback in its text.
 
 		Runs in a worker thread: harness helpers are synchronous socket IPC. Output is
 		captured because stdout carries the MCP protocol.
 		"""
-		buffer, failed = StringIO(), True
+		buffer, failed = StringIO() if buffer is None else buffer, True
 		with _capture(buffer):
 			try:
 				ns = self._ensure_namespace()
