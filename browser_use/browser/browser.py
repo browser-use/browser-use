@@ -206,6 +206,32 @@ _POOL = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='browser-use-cl
 _atexit_installed = _signals_installed = False
 
 
+def harness_cdp_deny() -> bool:
+	"""The installed browser-harness has the BH_CDP_DENY=tokens CDP filter (browser-harness#1054). Detected by feature,
+	not version: the daemon's filter (daemon.cdp_denied) and ensure_daemon's check that a live daemon reports the mode
+	(admin.check_deny_mode) ship together."""
+	from browser_harness import admin, daemon
+
+	return callable(getattr(daemon, 'cdp_denied', None)) and callable(getattr(admin, 'check_deny_mode', None))
+
+
+def require_harness_cdp_deny() -> None:
+	"""Browser(tokens=...) never runs on a daemon that passes every CDP call through: an older browser-harness lets the
+	model's CDP reach the swapped real value (Fetch.enable, Network.*ExtraInfo, the DevTools frontend)."""
+	if not harness_cdp_deny():
+		from importlib.metadata import PackageNotFoundError, version
+
+		try:
+			installed = version('browser-harness')
+		except PackageNotFoundError:
+			installed = 'unknown'
+		raise RuntimeError(
+			f'Browser(tokens=...) needs a browser-harness with the BH_CDP_DENY=tokens CDP filter; the installed one '
+			f'({installed}) has none, so the agent could read the real values. Upgrade it: pip install -U browser-harness '
+			'(or uv add browser-harness@latest).'
+		)
+
+
 class _Default(str):
 	"""A default value that Browser() tells apart from the same value passed explicitly."""
 
@@ -618,6 +644,8 @@ class Browser:
 				"Browser('chrome') (your open Chrome) does not take tokens= yet: it would need a second remote-debugging "
 				"connection to your Chrome. Use Browser('chromium'), Browser('chrome', profile=...), Browser() or cdp_url."
 			)
+		if self.tokens:
+			require_harness_cdp_deny()  # before anything starts: never a tokens browser on an unfiltered daemon
 		launches = self.kind == 'chromium' or (self.kind == 'chrome' and profile is not None)
 		where = {'cloud': 'Browser() (a cloud browser)', 'chrome': "Browser('chrome') (your open Chrome)"}.get(
 			self.kind, f'Browser({self.kind!r})'
@@ -724,6 +752,8 @@ class Browser:
 					env['BU_TABS_FILE'] = self._tabs_file
 			if self.tokens:  # the worker refuses the CDP calls that would see a real value (repl/worker.py)
 				env['BU_TOKENS'] = '1'
+				# the worker's browser-harness then refuses our daemon unless it reports the mode (check_deny_mode)
+				env['BH_CDP_DENY'] = 'tokens'
 			self._env = env
 		elif self._local is not None and self._local.proc is not None and self._local.proc.poll() is not None:
 			await self._stop()  # the Chrome this Browser launched died (crash, OOM, kill): launch a new one
@@ -944,6 +974,8 @@ class Browser:
 			# BU_BROWSER_ID: the daemon knows the cloud browser is its own, so it attaches to its visible tab (a background
 			# tab is hidden, and a cloud browser never answers a hidden tab's screenshot) and stops it when it shuts down.
 			self._daemon_env = {'BU_CDP_WS': ws, 'BH_TAB_MARKER': '0', **({'BU_BROWSER_ID': self.id} if self.id else {})}
+			if self.tokens:  # the daemon filters the model's CDP (browser-harness#1054); this env wins over os.environ's
+				self._daemon_env['BH_CDP_DENY'] = 'tokens'
 			await asyncio.to_thread(self._ensure_daemon)
 			# this process dying uncleanly (SIGKILL, OOM) left the daemon, and Chrome or a cloud browser billing until its timeout
 			from browser_harness import _ipc as ipc
@@ -1072,6 +1104,11 @@ class Browser:
 			name, self.name, self._agent_tab = self.name, None, None
 			if name and _shutdown_daemon(name) and self.id and self._daemon_env.get('BU_BROWSER_ID') == self.id:
 				self.stopped = True  # the daemon stopped it before it acknowledged
+			if name and self._daemon_env.get('BH_CDP_DENY'):  # the daemon's sticky-mode marker: its name is never reused
+				from browser_harness import _ipc as ipc
+
+				with contextlib.suppress(Exception):
+					ipc.deny_path(name).unlink(missing_ok=True)  # pyright: ignore[reportAttributeAccessIssue]  # #1054
 			launched, self._local = self._local, None
 			if launched is not None:  # after the daemon: it never reconnects to a Chrome that is going away
 				launched.stop()

@@ -26,6 +26,7 @@ import pytest
 from pydantic_ai.messages import ModelRequest
 
 from browser_use import Agent, Browser
+from browser_use.browser.browser import harness_cdp_deny
 from browser_use.repl import Repl
 from browser_use.tokens import (
 	Host,
@@ -63,6 +64,16 @@ def config(port_suffix: str = '') -> dict:
 		'iban': {'type': 'iban', 'value': IBAN, 'hosts': [shop]},
 		'acct': {'type': 'digits', 'value': ACCT, 'hosts': [shop]},
 	}
+
+
+@pytest.fixture(autouse=True)
+def harness_with_cdp_deny(monkeypatch):
+	"""Browser(tokens=...) refuses a browser-harness without BH_CDP_DENY (browser-harness#1054). Until the pinned one has
+	it, these tests stand in for it; with it installed they run on the real filter."""
+	from browser_use.browser import browser as browser_module
+
+	if not browser_module.harness_cdp_deny():
+		monkeypatch.setattr(browser_module, 'harness_cdp_deny', lambda: True)
 
 
 def leaks(text: str) -> list[str]:
@@ -121,6 +132,91 @@ def test_config_errors_raise_before_anything_starts():
 	with pytest.raises(ValueError, match=r"Browser\('chrome'\) \(your open Chrome\) does not take tokens="):
 		Browser('chrome', tokens={'x': ok})
 	Tokens.of({'x': {'type': 'card', 'value': PAY_CARD, 'hosts': ['*.stripe.com'], 'require': {'key': 'pk_live_1'}}})
+
+
+def test_tokens_refuse_a_harness_without_the_cdp_deny_list(monkeypatch):
+	"""An older browser-harness passes every CDP call through: Browser(tokens=...) raises before anything starts, never
+	runs without the filter. Without tokens= nothing changes."""
+	from browser_use.browser import browser as browser_module
+
+	monkeypatch.setattr(browser_module, 'harness_cdp_deny', lambda: False)
+	with pytest.raises(RuntimeError, match=r'Browser\(tokens=\.\.\.\) needs a browser-harness with the BH_CDP_DENY.*Upgrade'):
+		Browser('chromium', tokens=config())
+	with pytest.raises(RuntimeError, match='BH_CDP_DENY'):
+		Browser(cdp_url='http://127.0.0.1:9', tokens=config())
+	Browser('chromium')  # no tokens=: no check
+
+
+def test_cdp_deny_feature_check_reads_the_installed_harness(monkeypatch):
+	"""The check is by feature: the daemon's filter and ensure_daemon's mode check, both from browser-harness#1054
+	(harness_cdp_deny as imported, before the autouse fixture stands in for it)."""
+	from browser_harness import admin, daemon
+
+	monkeypatch.setattr(daemon, 'cdp_denied', lambda method, params: None, raising=False)
+	monkeypatch.setattr(admin, 'check_deny_mode', lambda name=None, env=None: None, raising=False)
+	assert harness_cdp_deny()
+	monkeypatch.delattr(admin, 'check_deny_mode')
+	assert not harness_cdp_deny()
+
+
+@pytest.mark.parametrize('tokens', [True, False])
+async def test_tokens_start_the_daemon_with_bh_cdp_deny(chrome, monkeypatch, tokens):
+	"""tokens=: our daemon is started with BH_CDP_DENY=tokens (over the parent's own BH_CDP_DENY=off) and the worker env
+	carries it, so the worker's browser-harness refuses a daemon that does not report the mode. No tokens=: neither."""
+	from browser_harness import _ipc as ipc
+	from browser_harness import admin
+
+	monkeypatch.setenv('BH_CDP_DENY', 'off')  # the user's shell, or a cell that set it: the env we pass wins
+	started: list[dict] = []
+	real = admin.ensure_daemon
+
+	def spy(wait=None, name=None, env=None):
+		started.append(dict(env or {}))
+		return real(wait=wait, name=name, env=env)
+
+	monkeypatch.setattr(admin, 'ensure_daemon', spy)
+	browser = Browser(cdp_url=chrome['http'], tokens=config() if tokens else None)
+	try:
+		env = await browser.start()
+		name = browser.name
+		assert name and started
+		if tokens:
+			assert all(e.get('BH_CDP_DENY') == 'tokens' for e in started), started
+			assert env['BH_CDP_DENY'] == 'tokens'
+		else:
+			assert not any('BH_CDP_DENY' in e for e in started) and 'BH_CDP_DENY' not in env
+		if hasattr(admin, 'daemon_deny_mode'):  # browser-harness#1054: the live daemon reports its mode
+			assert admin.daemon_deny_mode(name) == ('tokens' if tokens else None)  # pyright: ignore[reportAttributeAccessIssue]
+		environ = Path(f'/proc/{ipc.identify(name, 5.0)}/environ')
+		if environ.exists():  # Linux: what the daemon process actually runs with
+			daemon_env = dict(kv.split('=', 1) for kv in environ.read_text().split('\0') if '=' in kv)
+			assert daemon_env.get('BH_CDP_DENY') == ('tokens' if tokens else 'off')
+	finally:
+		await browser.stop()
+	if hasattr(ipc, 'deny_path'):  # browser-harness#1054's sticky-mode marker, removed with our daemon
+		assert not ipc.deny_path(name).exists()  # pyright: ignore[reportAttributeAccessIssue]
+
+
+@pytest.mark.skipif(not harness_cdp_deny(), reason='the installed browser-harness has no BH_CDP_DENY')
+async def test_the_worker_cannot_turn_the_cdp_deny_list_off(chrome, tmp_path):
+	"""The mode lives in our daemon's process: a cell that sets BH_CDP_DENY=off and goes around the worker's own guard
+	(the daemon socket itself) still has Fetch.enable refused."""
+	browser = Browser(cdp_url=chrome['http'], tokens=config())
+	try:
+		repl = Repl(tmp_path, await browser.start())
+		try:
+			r = await repl.call(
+				'exec',
+				"import os; os.environ['BH_CDP_DENY'] = 'off'; from browser_harness import _ipc as ipc; "
+				"c, t = ipc.connect(os.environ['BU_NAME'], timeout=5); "
+				"print(ipc.request(c, t, {'method': 'Fetch.enable', 'params': {}, 'session_id': None}))",
+				30,
+			)
+		finally:
+			await repl.close()
+	finally:
+		await browser.stop()
+	assert 'Fetch.enable is blocked by BH_CDP_DENY=tokens' in (r['output'] or '') + str(r['error']), r
 
 
 def test_host_rules():
