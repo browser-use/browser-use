@@ -19,15 +19,17 @@ TIMEOUT_SECONDS = 2.0
 def upgrade_hint(e: BaseException, mcp: bool = False) -> str:
 	"""One line naming the newer version and the command that installs it (mcp: then the server restart that loads
 	it), for an error attaching a browser; '' when up to date, unknown, offline, in CI, opted out
-	(BROWSER_USE_NO_UPDATE_CHECK=1), from a checkout, or for an error an upgrade does not fix. Never raises, and waits at
-	most TIMEOUT_SECONDS (once a day: the answer is cached)."""
+	(BROWSER_USE_NO_UPDATE_CHECK=1 or BROWSER_USE_OFFLINE=1), from a checkout, or for an error an upgrade does not fix.
+	Never raises, and waits at most TIMEOUT_SECONDS (once a day: the answer is cached)."""
 	try:
 		from browser_harness.auth import CloudAuthRequired
 
+		from browser_use.config import CONFIG
 		from browser_use.utils import get_browser_use_version, get_install_source
 
 		if (
-			os.environ.get('BROWSER_USE_NO_UPDATE_CHECK', '').strip().lower() in ('1', 'true', 'yes')
+			CONFIG.BROWSER_USE_OFFLINE
+			or os.environ.get('BROWSER_USE_NO_UPDATE_CHECK', '').strip().lower() in ('1', 'true', 'yes')
 			or os.environ.get('CI', '').strip().lower() not in ('', '0', 'false')
 			or isinstance(e, CloudAuthRequired)  # signing in fixes it
 			or str(e).startswith('daemon-starting:')  # a retry fixes it

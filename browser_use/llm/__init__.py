@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 from pydantic import SecretStr
 
 from browser_use.auth import browser_use_api_key, clean_api_key
+from browser_use.config import is_browser_use_host
 from browser_use.utils import urlopen_keyed
 
 logger = logging.getLogger(__name__)
@@ -505,6 +506,16 @@ def gateway_alias(llm: Any) -> str | None:
 		return llm.model
 	llm = gateway_llm(llm) or llm
 	return llm.model if isinstance(llm, ChatBrowserUse) else None
+
+
+def browser_use_model_url(llm: Any) -> str | None:
+	"""The URL of a model Browser Use serves (a host on browser-use.com): the default model, any gateway form, or any
+	other model pointed there; None for every other endpoint (ChatBrowserUse(base_url=<your own host>) included)."""
+	try:
+		url = llm.url if isinstance(llm, ChatOpenAI) else getattr(gateway_llm(llm) or llm, 'base_url', None)
+	except Exception:  # a Pydantic AI model whose client cannot be built here: its own error comes at run()
+		return None
+	return str(url) if url and is_browser_use_host(str(url)) else None
 
 
 def as_chat_model(llm: Any) -> Any:
