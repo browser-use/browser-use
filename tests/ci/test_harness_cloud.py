@@ -760,6 +760,35 @@ async def _exec(mcp, code: str) -> tuple[list[str], bool]:
 	return [c.text for c in r.content], r.is_error
 
 
+async def test_browser_exec_recovers_output_written_after_the_reply_snapshot(monkeypatch):
+	"""A worker can finish while the reply is being built from a partial output snapshot."""
+	from threading import Event
+
+	from browser_use.mcp import cli_mcp
+
+	printed, finish = Event(), Event()
+	mcp = cli_mcp.CLIMCPServer()
+	monkeypatch.setattr(mcp, '_namespace', {'printed': printed, 'finish': finish})
+	monkeypatch.setattr(mcp, '_ensure_daemon', lambda code: None)
+	monkeypatch.setattr(cli_mcp, 'CALL_SECONDS', 0.01)
+	new_output = cli_mcp._Cell.new_output
+
+	def finish_after_snapshot(cell):
+		assert printed.wait(5)
+		output = new_output(cell)
+		finish.set()
+		assert cell.done.wait(5)
+		return output
+
+	with monkeypatch.context() as sample:
+		sample.setattr(cli_mcp._Cell, 'new_output', finish_after_snapshot)
+		blocks, failed = await _exec(mcp, 'print("first")\nprinted.set()\nassert finish.wait(5)\nprint("last")')
+	assert not failed and blocks[0] == 'first\n'
+	(later,), failed = await _exec(mcp, '')
+	assert not failed and later.startswith('[earlier browser_exec ended after') and later.endswith('\nlast\n'), later
+	assert await _exec(mcp, '') == ([cli_mcp.NOTHING_RUNNING], False)
+
+
 async def test_cli_mcp_on_a_headless_box_drives_its_own_chromium_and_says_so(headless_box):
 	"""1.0.1: 144 headless Linux devices got only "remote-debugging-setup: none of your browsers has remote debugging on
 	... start_remote_daemon()" from every browser_exec, with no Chrome to set up and no key for a cloud browser."""
