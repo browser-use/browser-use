@@ -117,11 +117,21 @@ def raise_fd_limit() -> None:
 
 
 def singleton(cls):
+	"""Thread-safe singleton decorator.
+
+	The original implementation used a list-based holder without a lock, which
+	could create duplicate instances when two threads entered ``wrapper``
+	simultaneously during the first call. This version uses a ``threading.Lock``
+	to ensure only one instance is ever created.
+	"""
 	instance = [None]
+	lock = threading.Lock()
 
 	def wrapper(*args, **kwargs):
 		if instance[0] is None:
-			instance[0] = cls(*args, **kwargs)
+			with lock:
+				if instance[0] is None:  # double-checked locking
+					instance[0] = cls(*args, **kwargs)
 		return instance[0]
 
 	return wrapper
