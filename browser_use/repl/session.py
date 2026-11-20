@@ -40,6 +40,7 @@ from browser_use import search as web
 MODES = ('default', 'ultrafast')
 STREAM_LIMIT = 256 * 1024 * 1024
 MAX_OUTPUT_CHARS = 12_000  # per cell, cut in the worker so a huge print never crosses the channel
+MASK_OVERLAP = 4_000  # Browser(tokens=...): characters past the cut masked with it, so the cut never splits a value
 ENV_ALLOW = {
 	'PATH', 'PATHEXT', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'USER', 'USERNAME', 'LOGNAME', 'SHELL', 'TERM',
 	'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PROGRAMFILES',
@@ -210,11 +211,11 @@ def clip(text: str, path: Path | str) -> str:
 	return text if len(text) <= MAX_OUTPUT_CHARS else f'{text[:MAX_OUTPUT_CHARS]}\n[Truncated. Full captured output: {path}]'
 
 
-def _head(path: Path) -> str:
+def _head(path: Path | str, chars: int = MAX_OUTPUT_CHARS + 1) -> str:
 	"""The start of a cell's output file, enough for clip(): a cell may have printed gigabytes before it hung."""
 	try:
 		with open(path, encoding='utf-8', errors='replace') as f:
-			return f.read(MAX_OUTPUT_CHARS + 1)
+			return f.read(chars)
 	except FileNotFoundError:
 		return ''
 
@@ -460,11 +461,24 @@ class Repl:
 			with contextlib.suppress(TimeoutError):  # reaped from any loop: SIGKILL ends it in milliseconds
 				await asyncio.wait_for(_exited(proc), 5)
 
+	def _mask_cut(self, r: dict[str, Any]) -> None:
+		"""Output cut at MAX_OUTPUT_CHARS can end in part of a real value ('123-45-67'), which masking no longer matches:
+		mask the file's head with MASK_OVERLAP more characters first, then cut."""
+		path, output = r.get('output_file'), r.get('output')
+		if not (isinstance(path, str) and isinstance(output, str) and self.mask is not None):
+			return
+		cut = clip(head := _head(path), path)
+		if head == cut or not output.endswith(cut):  # not cut, or not the file's text
+			return
+		r['output'] = output[: len(output) - len(cut)] + clip(self.mask(_head(path, MAX_OUTPUT_CHARS + MASK_OVERLAP)), path)
+
 	async def call(self, op: str, code: str, timeout: float) -> dict[str, Any]:
 		if self._lock_loop is not (loop := asyncio.get_running_loop()):  # reused from a new loop (asyncio.run per run)
 			self.lock, self._lock_loop = asyncio.Lock(), loop
 		async with self.lock:
 			r = await self._call(op, code, timeout)
+			if self.mask is not None:
+				self._mask_cut(r)
 			if r.get('error_type') == 'BrowserConnectionLost' and self.reattach is not None:
 				try:
 					env = await self.reattach()

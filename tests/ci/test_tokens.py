@@ -2,11 +2,15 @@
 the way to a host the token allows, and masks it out of responses. Unit tests need no browser; the rest run a local
 checkout on shop.test / pay.test / evil.test (Chrome's --host-resolver-rules maps them to this machine)."""
 
+import asyncio
 import base64
 import gzip
+import html
 import http.server
 import json
+import pickle
 import random
+import re
 import shutil
 import socket
 import subprocess
@@ -103,6 +107,12 @@ def test_config_errors_raise_before_anything_starts():
 		({'x': {'type': 'card', 'value': PAY_CARD, 'hosts': ['*.stripe.com']}}, 'multi-tenant'),
 		({'x': {'type': 'card', 'value': PAY_CARD, 'hosts': ['payments.braintree-api.com']}}, 'multi-tenant'),
 		({'x': {'type': 'card', 'value': PAY_CARD, 'hosts': ['checkout-live.adyen.com']}}, 'multi-tenant'),
+		({'x': {'type': 'card', 'value': PAY_CARD, 'hosts': ['*.squareup.com']}}, 'multi-tenant'),
+		({'x': {'type': 'card', 'value': PAY_CARD, 'hosts': ['api.razorpay.com']}}, 'multi-tenant'),
+		({'x': {**ok, 'hosts': ['*.com']}}, "anyone's site"),
+		({'x': {**ok, 'hosts': ['*.co.uk']}}, "anyone's site"),
+		({'x': {**ok, 'hosts': ['*.github.io']}}, "anyone's site"),
+		({'x': {**ok, 'hosts': ['*.127.0.0.1']}}, "anyone's site"),
 		({'x': {'type': 'card', 'value': PAY_CARD, 'hosts': ['a.com'], 'cvc': '12'}}, '3 or 4 digits'),
 		({'bad name': ok}, 'identifiers'),
 	):
@@ -127,12 +137,24 @@ def test_host_rules():
 	local = (Host.parse('shop.test', 'w'), Host.parse('127.0.0.1', 'w'), Host.parse('shop.localhost', 'w'))
 	assert all(hosts_allow(local, u) for u in ('http://shop.test:81/', 'http://127.0.0.1/', 'http://shop.localhost/'))
 	assert registrable('api.shop.example.co.uk') == 'example.co.uk' and registrable('js.stripe.com') == 'stripe.com'
+	v6 = (Host.parse('[::1]:8443', 'w'), Host.parse('::1', 'w'))
+	assert v6[0] == Host('::1', False, '8443') and v6[1] == Host('::1', False, '') and v6[0].pattern() == '[::1]:8443'
+	assert hosts_allow(v6[:1], 'http://[::1]:8443/') and not hosts_allow(v6[:1], 'http://[::1]:8444/')
+
+
+def test_token_reprs_and_pickles_hold_no_real_value():
+	"""Tracebacks with locals, debug logs and pickles (Sentry, rich, pytest) never carry a real value."""
+	t = unit_tokens()
+	assert leaks(repr(t) + repr(t.tokens)) == [] and t.dummies()['ssn'] in repr(t)
+	for obj in (t, t.tokens[0]):
+		with pytest.raises(TypeError, match='not picklable'):
+			pickle.dumps(obj)
 
 
 # ------------------------------------------------------------------------------------------------ unit: matching
 
 
-VECTORS = json.loads((Path(__file__).parent / 'fixtures' / 'token_vectors.json').read_text())['vectors']
+VECTORS = json.loads((Path(__file__).parent / 'fixtures' / 'token_vectors.json').read_text(encoding='utf-8'))['vectors']
 
 
 @pytest.mark.parametrize('v', VECTORS, ids=[v['name'] for v in VECTORS])
@@ -178,15 +200,57 @@ def test_origin_rule_and_require_pins():
 	assert swap(t, 'http://pay.test/v1', card.replace('pk_good', 'pk_evil'), **pay) is None
 	assert swap(t, 'http://pay.test/v1', card.replace('key=pk_good', 'x=1'), **pay) is None  # missing pin
 	assert swap(t, 'http://pay.test/v1', card + '&key=pk_evil', **pay) is None  # every occurrence must equal
-	assert swap(t, 'http://pay.test/v1', card.replace('key=pk_good', 'x=1'), **pay, KEY='pk_good') is not None  # header pin
 	js = json.dumps({'card': {'number': d['card']}, 'key': 'pk_good'})
 	assert '4242 4242 4242 4242' in swapped(t, 'http://pay.test/v1', js, 'application/json', **pay)
+
+
+def test_require_pins_refuse_what_a_server_could_parse_differently():
+	"""A pin is checked in every place a server might read the key from: the URL query, credential headers, duplicate
+	JSON keys, ';'-separated form pairs. Bodies a pin cannot be checked in (multipart, text) are refused, and so is a
+	pin that is only a header of its own name."""
+	t = unit_tokens()
+	d = t.dummies()
+	pay = {'Origin': 'http://pay.test'}
+	card = urllib.parse.urlencode({'card[number]': d['card'], 'key': 'pk_good'})
+	assert swap(t, 'http://pay.test/v1', card, **pay) is not None
+	assert swap(t, 'http://pay.test/v1?key=pk_evil', card, **pay) is None
+	assert swap(t, 'http://pay.test/v1?key=pk_good', card, **pay) is not None
+	assert swap(t, 'http://pay.test/v1', card, Authorization='Bearer pk_evil', **pay) is None
+	assert swap(t, 'http://pay.test/v1', card, X_Api_Key='pk_evil', **pay) is None
+	assert swap(t, 'http://pay.test/v1', 'a=1;key=pk_evil&' + card, **pay) is None
+	dup = '{"key": "pk_evil", "n": "%s", "key": "pk_good"}' % d['card']
+	assert swap(t, 'http://pay.test/v1', dup, 'application/json', **pay) is None
+	assert swap(t, 'http://pay.test/v1', json.dumps([d['card'], 'pk_good']), 'application/json', **pay) is None
+	no_key = urllib.parse.urlencode({'card[number]': d['card']})
+	assert swap(t, 'http://pay.test/v1', no_key, KEY='pk_good', **pay) is None  # a custom header the server may ignore
 	boundary = 'XyZ'
 	mp = f'--{boundary}\r\nContent-Disposition: form-data; name="key"\r\n\r\npk_good\r\n--{boundary}\r\nContent-Disposition: form-data; name="n"\r\n\r\n{d["card"]}\r\n--{boundary}--\r\n'
-	assert '4242 4242 4242 4242' in swapped(t, 'http://pay.test/v1', mp, f'multipart/form-data; boundary={boundary}', **pay)
-	assert (
-		swap(t, 'http://pay.test/v1', mp.replace('pk_good', 'pk_evil'), f'multipart/form-data; boundary={boundary}', **pay)
-		is None
+	assert swap(t, 'http://pay.test/v1', mp, f'multipart/form-data; boundary={boundary}', **pay) is None
+	assert swap(t, 'http://pay.test/v1', f'key=pk_good n={d["card"]}', 'text/plain', **pay) is None
+	# a credential header that is itself the pin
+	auth = Tokens.of(
+		{'c': {'type': 'card', 'value': PAY_CARD, 'hosts': ['pay.test'], 'require': {'Authorization': 'Bearer pk_good'}}},
+		random.Random(1),
+	)
+	body = 'n=' + auth.dummies()['c']
+	assert swap(auth, 'http://pay.test/v1', body, Authorization='Bearer pk_good', **pay) is not None
+	assert swap(auth, 'http://pay.test/v1', body, Authorization='Bearer pk_evil', **pay) is None
+	assert swap(auth, 'http://pay.test/v1', body, **pay) is None
+	# the shop's own tokens have no pin: multipart and text still work there
+	assert SSN in swapped(t, 'http://shop.test/a', mp.replace(d['card'], d['ssn']), f'multipart/form-data; boundary={boundary}')
+
+
+def test_text_values_are_encoded_for_the_body_they_land_in():
+	"""JSON sent as text/plain (no-cors fetches, beacons) is JSON-escaped; XML and HTML are entity-escaped; other
+	plain text only takes a value that needs no escaping, else the dummy goes out."""
+	t = unit_tokens()
+	d = t.dummies()
+	js = swapped(t, 'http://shop.test/a', json.dumps({'street': d['street'], 'ssn': d['ssn']}), 'text/plain;charset=UTF-8')
+	assert json.loads(js) == {'street': STREET, 'ssn': SSN}
+	xml = swapped(t, 'http://shop.test/a', f'<a s="{d["street"]}">{d["street"]}</a>', 'text/xml')
+	assert xml == f'<a s="{html.escape(STREET)}">{html.escape(STREET)}</a>'
+	assert swapped(t, 'http://shop.test/a', f'ssn {d["ssn"]} street {d["street"]}', 'text/plain') == (
+		f'ssn {SSN} street {d["street"]}'
 	)
 
 
@@ -223,6 +287,37 @@ def test_mask_text_finds_real_values_in_every_form():
 	assert leaks(masked) == [], masked
 	assert d['street'] in masked and d['street'].upper() in masked and d['ssn'].replace('-', ' ') in masked
 	assert masked.endswith('ending 4444')  # PCI-permitted truncation is not a full value: left as it is
+
+
+def test_mask_text_finds_values_as_servers_format_them():
+	"""Ordinary server formatting, not just the separators a request uses: (), /, runs of whitespace, U+00A0 and its
+	entities, non-ASCII dashes, inline tags, JSON \\u escapes and newlines; separators are kept."""
+	t = Tokens.of({**config(), 'phone': {'type': 'digits', 'value': '5551234567', 'hosts': ['shop.test']}}, random.Random(3))
+	d = t.dummies()
+	for page in (
+		'(555) 123-4567',
+		'555/123/4567',
+		'123 45 6789',
+		'123&nbsp;45&nbsp;6789',
+		'123&#160;45&#xA0;6789',
+		'123\u00a045\u00a06789',
+		'<b>123</b>-45-6789',
+		'<span>123</span> <span>45</span> <span>6789</span>',
+		'123\u201145\u20136789',
+		'{"ssn": "\\u0031\\u0032\\u0033-45-6789"}',
+		'742  Evergreen "Terrace"   #5 Ü',
+		'742 Evergreen\n"Terrace" #5\r\nÜ',
+		json.dumps({'s': '742 Evergreen\n"Terrace" #5 Ü'}),
+		'742&nbsp;Evergreen&nbsp;&quot;Terrace&quot;&#160;#5 &Uuml;'.replace('&Uuml;', '&#220;'),
+		'<p>742 <b>Evergreen</b> &#34;Terrace&#34;<br>#5 Ü</p>',
+		'742\tEVERGREEN "TERRACE" #5 Ü',
+	):
+		masked = t.mask_text(page)
+		assert leaks(masked) == [] and '5551234567' not in re.sub(r'\D', '', masked), (page, masked)
+	p = d['phone']
+	assert t.mask_text('(555) 123-4567') == f'({p[:3]}) {p[3:6]}-{p[6:]}'
+	assert t.mask_text('<b>742</b>  Evergreen "Terrace" #5 Ü') == '<b>' + d['street'].replace(' ', '</b>  ', 1)
+	assert t.mask_text('742 Evergreen "Terrace"') == '742 Evergreen "Terrace"'  # part of a value is not the value
 
 
 # ------------------------------------------------------------------------------------------------ the local checkout
@@ -282,6 +377,22 @@ class Shop(http.server.BaseHTTPRequestHandler):
 			)
 		if path == '/order.json':
 			return self._reply(json.dumps({'street': STREET, 'acct': ACCT, 'card': SHOP_CARD}), 'application/json')
+		if path == '/order.js':
+			return self._reply(f'window.ORDER = {json.dumps({"ssn": SSN, "street": STREET})};', 'text/javascript')
+		if path == '/order.ndjson':
+			return self._reply(json.dumps({'ssn': SSN}) + '\n' + json.dumps({'street': STREET}) + '\n', 'application/x-ndjson')
+		if path == '/order.sse':
+			return self._reply(f'data: {SSN}\n\n', 'text/event-stream')
+		if path == '/phone':
+			nbsp = STREET.replace(' ', '&nbsp;').replace('"', '&quot;')
+			return self._reply(f'<p>SSN 123&nbsp;45&nbsp;6789</p><p>{nbsp}</p><p>acct (001) 2345/6789</p>')
+		if path == '/statement.pdf':
+			return self._reply(f'%PDF-1.4 SSN {SSN} %%EOF'.encode(), 'application/pdf')
+		if path == '/logo.png':
+			return self._reply(b'\x89PNG\r\n\x1a\n' + ACCT.encode(), 'image/png')
+		if path == '/report.bin':
+			headers = {'Content-Disposition': f'attachment; filename="acct-{ACCT}.bin"', 'Access-Control-Expose-Headers': '*'}
+			return self._reply(b'\x00\x01BINARY\xff', 'application/octet-stream', headers=headers)
 		return self._reply(f'<title>{host}{self.path}</title>')
 
 	def do_POST(self):
@@ -289,6 +400,16 @@ class Shop(http.server.BaseHTTPRequestHandler):
 		host = self._record(body)
 		if self.path == '/submit-form':
 			return self._reply('<title>thanks</title>')
+		p = Shop.port
+		redirects = {
+			'/r307': (307, f'http://evil.test:{p}/catch'),
+			'/r308': (308, f'http://evil.test:{p}/catch'),
+			'/r307same': (307, '/landing'),
+			'/r302': (302, f'http://evil.test:{p}/landing'),
+		}
+		if self.path in redirects:
+			status, location = redirects[self.path]
+			return self._reply(b'', 'text/plain', status, {'Location': location})
 		return self._reply(f'{host} ok', 'text/plain')
 
 
@@ -492,7 +613,8 @@ def channel(names, method, key):
 	assert form == {'card': SHOP_CARD, 'ssn': SSN, 'street': STREET, 'iban': IBAN, 'acct': ACCT}
 	mp = hits('/submit-multipart')[0]['body'].decode()
 	assert all(v in mp for v in (SHOP_CARD, SSN, STREET, IBAN, ACCT)), mp
-	assert hits('/submit-text')[0]['body'].decode() == f'card {SHOP_CARD} ssn {SSN} street {STREET}'
+	# plain text takes only a value that needs no escaping: the street (", #, Ü) goes out as its dummy
+	assert hits('/submit-text')[0]['body'].decode() == f'card {SHOP_CARD} ssn {SSN} street {d["street"]}'
 	assert hits('/submit-unknown')[0]['body'].decode() == f'ssn={SSN}&street={d["street"]}'  # street needs escaping: dummy
 	assert json.loads(hits('/submit-sw')[0]['body']) == {'ssn': SSN}  # 8. a service worker's request is swapped
 	# 7. a swap that changes the length: Chrome sends the new Content-Length, the body parses
@@ -527,7 +649,7 @@ def channel(names, method, key):
 	page, bodies = outputs[8].strip().rsplit('\n', 1)
 	assert leaks(page) == [] and 'ending 4444' in page, page
 	assert page.count(d['street']) == 2 and d['acct'] in page  # the document and the XHR echo, masked
-	events = (tmp_path / 'events.json').read_text()
+	events = (tmp_path / 'events.json').read_text(encoding='utf-8')
 	assert leaks(events) == [] and '/order.json' in events and '/submit-json' in events, leaks(events)
 	channels = {**json.loads(outputs[1]), **json.loads(bodies)}
 	assert leaks(json.dumps(channels)) == [], channels
@@ -539,9 +661,10 @@ def channel(names, method, key):
 	assert swapper.swaps >= 6 and swapper.masked >= 2
 
 
-async def test_a_page_loaded_before_the_swap_started_sends_the_dummy(chrome, daemon, site, tmp_path):
-	"""Chrome applies a browser-level Fetch.enable to documents loaded after it: a page already open sends the dummy
-	(fail closed) until it navigates, then the swap works."""
+async def test_open_pages_on_the_token_sites_are_navigated_again_when_the_swap_starts(chrome, daemon, site, tmp_path):
+	"""Chrome applies a browser-level Fetch.enable only to documents loaded after it: a page already open (cdp_url, a
+	reconnect) would fetch unmasked responses and send dummies. start() navigates such tabs again first, so the very
+	next request is swapped and its responses masked."""
 	Shop.hits.clear()
 	tokens = Tokens.of(config())
 	d = tokens.dummies()
@@ -551,13 +674,188 @@ async def test_a_page_loaded_before_the_swap_started_sends_the_dummy(chrome, dae
 	try:
 		r = await repl.call('exec', f'new_tab({site["shop"] + "/x"!r}); wait_for_load()', 30)
 		swapper.start()
-		r = await repl.call('exec', post, 30)
-		r = await repl.call('exec', f'goto_url({site["shop"] + "/x"!r}); wait_for_load(); {post}', 30)
+		r = await repl.call('exec', f'wait_for_load(); {post}; print(js("fetch(\'/order.json\').then(r => r.text())"))', 30)
 		assert r['error'] is None, r['error']
 	finally:
 		await repl.close()
 		swapper.close()
-	assert [h['body'] for h in hits('/late')] == [f'ssn={d["ssn"]}'.encode(), f'ssn={SSN}'.encode()]
+	assert swapper.renavigated >= 1
+	assert [h['body'] for h in hits('/late')] == [f'ssn={SSN}'.encode()]
+	assert leaks(r['output']) == [] and d['acct'] in r['output'], r['output']
+
+
+async def test_a_redirect_never_carries_a_swapped_body_to_another_host(chrome, daemon, site, tmp_path):
+	"""Chrome re-sends the (swapped) body on a 307 or 308: to a host the token does not allow, the redirect is failed,
+	for fetch, a form navigation and a beacon. A 302 after a POST drops the body (allowed); a 307 to the same host
+	keeps the real value."""
+	Shop.hits.clear()
+	tokens = Tokens.of(config())
+	d = tokens.dummies()
+	swapper = TokenSwap(chrome['ws'], tokens)
+	swapper.start()
+	repl = Repl(tmp_path, {**daemon, 'BU_TOKENS': '1'})
+	body = json.dumps({'ssn': d['ssn'], 'street': d['street']})
+	post = "fetch('{}', {{method: 'POST', mode: 'no-cors', headers: {{'Content-Type': 'text/plain'}}, body: {}}}).then(r => 'sent ' + r.type).catch(e => 'failed')"
+	form = (
+		"(() => { const f = document.createElement('form'); f.method = 'POST'; f.action = '/r307'; "
+		f"const i = document.createElement('input'); i.name = 'ssn'; i.value = {json.dumps(d['ssn'])}; f.append(i); "
+		'document.body.append(f); f.submit(); return 1 })()'
+	)
+	try:
+		cells = [
+			f'new_tab({site["shop"] + "/x"!r}); wait_for_load()',
+			'print([js(c) for c in {}])'.format(
+				[post.format(path, json.dumps(body)) for path in ('/r307', '/r308', '/r307same', '/r302')]
+			),
+			"print(js(\"navigator.sendBeacon('/r307', JSON.stringify({ssn: '%s'}))\")); wait(0.5)" % d['ssn'],
+			f'js({form!r}); wait(1)',
+		]
+		outputs = []
+		for code in cells:
+			r = await repl.call('exec', code, 30)
+			assert r['error'] is None, (code, r['error'])
+			outputs.append(r['output'])
+	finally:
+		await repl.close()
+		swapper.close()
+	assert "['failed', 'failed', 'sent basic', 'sent opaque']" in outputs[1], outputs[1]
+	assert hits('/catch') == []  # neither the swapped fetch bodies, the beacon nor the form reached evil.test
+	assert len(hits('/r307', 'shop.test')) == 3 and len(hits('/r308', 'shop.test')) == 1  # the shop did get them
+	assert all(SSN.encode() in h['body'] for h in hits('/r307') + hits('/r308'))
+	assert json.loads(wait_for('/landing', 'shop.test')[0]['body']) == {'ssn': SSN, 'street': STREET}  # same host
+	assert [h['body'] for h in wait_for('/landing', 'evil.test')] == [b'']  # the 302 became a GET without the body
+	assert swapper.failed >= 4
+
+
+async def test_every_response_type_on_the_token_sites_is_masked_or_failed(chrome, daemon, site, tmp_path):
+	"""Scripts, ndjson, formatted HTML and Network.getResponseBody come back masked; an event stream and a PDF holding
+	a real value are failed; an image passes; a binary whose only real value is in a header keeps its body. The
+	browser-level calls that would read around the interception are refused on every path the worker has, also
+	helpers._send(). No mask in the REPL: what the browser itself exposes."""
+	Shop.hits.clear()
+	tokens = Tokens.of(config())
+	d = tokens.dummies()
+	swapper = TokenSwap(chrome['ws'], tokens)
+	swapper.start()
+	repl = Repl(tmp_path, {**daemon, 'BU_TOKENS': '1'})
+	fetches = {
+		'ndjson': "fetch('/order.ndjson').then(r => r.text())",
+		'sse': "fetch('/order.sse').then(r => r.text()).catch(e => 'failed')",
+		'phone': "fetch('/phone').then(r => r.text())",
+		'pdf': "fetch('/statement.pdf').then(r => r.text()).catch(e => 'failed')",
+		'png': "fetch('/logo.png').then(r => r.arrayBuffer()).then(b => 'png ' + b.byteLength)",
+		'bin': "fetch('/report.bin').then(async r => r.headers.get('content-disposition') + ' ' + (await r.arrayBuffer()).byteLength)",
+		'script': "new Promise(r => { const s = document.createElement('script'); s.src = '/order.js'; s.onload = () => r(JSON.stringify(window.ORDER)); document.head.append(s) })",
+	}
+	refused = {
+		'loadNetworkResource': 'cdp("Network.loadNetworkResource", frameId="x", url="/order.json", options={})',
+		'IO.read': 'cdp("IO.read", handle="x")',
+		'sendMessageToTarget': 'cdp("Target.sendMessageToTarget", message="{}", targetId="x")',
+		'_send': 'import browser_harness.helpers as H\nH._send({"method": "Target.attachToBrowserTarget", "params": {}, "session_id": None})',
+		'helpers.cdp': 'import browser_harness.helpers as H\nH.cdp("Fetch.enable", patterns=[{"urlPattern": "*", "requestStage": "Response"}])',
+	}
+	try:
+		r = await repl.call(
+			'exec',
+			f'import json as _j\nnew_tab({site["shop"] + "/x"!r}); wait_for_load()\n'
+			f'print(_j.dumps({{k: js(v) for k, v in {fetches!r}.items()}}))',
+			60,
+		)
+		assert r['error'] is None, r['error']
+		got = json.loads(r['output'].strip().splitlines()[-1])
+		r = await repl.call(
+			'exec',
+			"ev = drain_events(); rid = next(e['params']['requestId'] for e in ev if e.get('method') == 'Network.responseReceived' "
+			"and e['params']['response']['url'].endswith('/order.js')); print(cdp('Network.getResponseBody', requestId=rid)['body'])",
+			30,
+		)
+		assert r['error'] is None, r['error']
+		script_body = r['output']
+		errors = {}
+		for name, code in refused.items():
+			r = await repl.call('exec', code, 30)
+			errors[name] = r['error'] or ''
+	finally:
+		await repl.close()
+		swapper.close()
+	assert leaks(json.dumps(got) + script_body) == [], (got, script_body)
+	assert d['ssn'] in got['script'] and d['street'] in json.loads(got['script'])['street'] and d['ssn'] in script_body
+	assert d['ssn'] in got['ndjson'] and d['street'] in got['ndjson'].replace('\\', '')
+	assert got['sse'] == 'failed' and got['pdf'] == 'failed'
+	assert got['png'] == f'png {8 + len(ACCT)}'  # pixels pass unread
+	assert got['bin'] == f'attachment; filename="acct-{d["acct"]}.bin" 9', got['bin']  # header masked, body kept
+	assert d['ssn'].replace('-', '&nbsp;', 1).replace('-', '&nbsp;') in got['phone']
+	assert all('refused while Browser(tokens=...) is on' in e for e in errors.values()), errors
+
+
+async def test_a_reconnect_navigates_open_token_pages_again(chrome, daemon, site, tmp_path):
+	"""When the swap's own connection drops, Chrome stops intercepting; on reconnect it navigates the open pages on
+	the token sites again before it intercepts, so they do not keep fetching unmasked responses."""
+	Shop.hits.clear()
+	tokens = Tokens.of(config())
+	d = tokens.dummies()
+	swapper = TokenSwap(chrome['ws'], tokens)
+	swapper.start()
+	repl = Repl(tmp_path, {**daemon, 'BU_TOKENS': '1'})
+	read = "print(js(\"fetch('/order.json').then(r => r.text())\")); print(js('location.href'))"
+	try:
+		r = await repl.call('exec', f'new_tab({site["shop"] + "/x?before"!r}); wait_for_load(); js("window.marker = 1")', 30)
+		before = swapper.renavigated
+		swapper._ws.close()  # the connection drops; _run reconnects
+
+		def reconnected() -> None:
+			deadline = time.monotonic() + 10
+			while swapper.renavigated == before and time.monotonic() < deadline:
+				time.sleep(0.05)
+
+		await asyncio.to_thread(reconnected)
+		r = await repl.call('exec', f'wait_for_load(); print(js("window.marker === undefined")); {read}', 30)
+		assert r['error'] is None, r['error']
+	finally:
+		await repl.close()
+		swapper.close()
+	assert swapper.renavigated > before
+	assert r['output'].startswith('True') and leaks(r['output']) == [] and d['acct'] in r['output'], r['output']
+
+
+async def test_a_file_input_part_is_never_dropped_by_a_swap(chrome, daemon, site, tmp_path):
+	"""A multipart form with a file chosen from disk: Chrome gives the file part without its bytes. Rewriting that
+	body would drop the file, so the request goes out as it is (the dummy) with the file intact."""
+	Shop.hits.clear()
+	tokens = Tokens.of(config())
+	d = tokens.dummies()
+	upload = tmp_path / 'doc.txt'
+	upload.write_text('FILE-CONTENT-' * 20, encoding='utf-8')
+	swapper = TokenSwap(chrome['ws'], tokens)
+	swapper.start()
+	repl = Repl(tmp_path, {**daemon, 'BU_TOKENS': '1'})
+	page = (
+		"document.body.innerHTML = '<form id=f><input name=ssn id=ssn><input type=file name=doc id=doc></form>'; "
+		f'document.getElementById("ssn").value = {json.dumps(d["ssn"])}; 1'
+	)
+	try:
+		r = await repl.call(
+			'exec',
+			f'new_tab({site["shop"] + "/x"!r}); wait_for_load(); js({page!r}); upload_file("#doc", {str(upload)!r}); '
+			"print(js(\"fetch('/submit-file', {method: 'POST', body: new FormData(document.getElementById('f'))}).then(r => r.text())\"))",
+			30,
+		)
+		assert r['error'] is None, r['error']
+		r = await repl.call(
+			'exec',
+			"print(js(\"(() => { const f = new FormData(); f.append('ssn', document.getElementById('ssn').value); "
+			"f.append('doc', new File(['MEMORY-FILE'], 'm.txt')); return fetch('/submit-mem', {method: 'POST', body: f}).then(r => r.text()) })()\"))",
+			30,
+		)
+		assert r['error'] is None, r['error']
+	finally:
+		await repl.close()
+		swapper.close()
+	with_file = wait_for('/submit-file')[0]['body']
+	assert b'FILE-CONTENT-' * 20 in with_file, with_file[:400]
+	assert d['ssn'].encode() in with_file and SSN.encode() not in with_file  # not rewritten: the dummy went out
+	new_memory = wait_for('/submit-mem')[0]['body']
+	assert b'MEMORY-FILE' in new_memory and SSN.encode() in new_memory  # an in-memory file has its bytes: swapped
 
 
 def test_swap_start_failure_raises():
@@ -610,17 +908,26 @@ async def test_agent_types_dummies_and_never_sees_a_real_value(chrome, site, tmp
 		('python', {'code': f'print(http_get("http://127.0.0.1:{site["port"]}/order.json"))'}),
 		('finish', {'success': True, 'result': 'done'}),
 	)
-	agent = Agent('Fill the checkout', model, browser=browser, workspace=tmp_path)
+	# real values the user wrote into the task and extend_system_message reach the model as their stand-ins
+	agent = Agent(
+		f'Fill the checkout for SSN {SSN}',
+		model,
+		browser=browser,
+		workspace=tmp_path,
+		extend_system_message=f'Ship to {STREET}.',
+	)
 	result = await agent.run()
 	assert result.status == 'completed', result.error
 	instructions = next(m for m in seen[0] if isinstance(m, ModelRequest)).instructions or ''
 	assert json.dumps(d['ssn']) in instructions and json.dumps(d['street']) in instructions and '08/29' in instructions
+	assert f'Ship to {d["street"]}.' in instructions
 	assert leaks(instructions) == []
 	sj = json.loads(wait_for('/submit-json')[0]['body'])
 	assert sj['ssn'] == SSN and sj['street'] == STREET
 	transcript = json.dumps([m for msgs in seen for m in msgs], default=str)
 	assert leaks(transcript) == [], leaks(transcript)
 	assert d['street'] in transcript  # the http_get echo, masked by the parent
+	assert f'Fill the checkout for SSN {d["ssn"]}' in transcript
 	assert browser._token_swap is None  # stopped with the browser
 
 
@@ -631,3 +938,19 @@ def test_worker_never_gets_a_real_value(tmp_path):
 	repl = Repl(tmp_path, {'BU_NAME': 'x', 'BU_TOKENS': '1'}, mask=browser.tokens.mask_text)
 	assert leaks(json.dumps({'secrets': repl.secrets, 'env': repl.env})) == []
 	assert repl.mask is not None and repl.mask(f'ssn {SSN}') == f'ssn {browser.token_dummies()["ssn"]}'
+
+
+async def test_cell_output_cut_inside_a_real_value_is_masked(tmp_path):
+	"""The worker cuts cell output at MAX_OUTPUT_CHARS; a real value split by the cut ('123-45-67') no longer matches.
+	The parent masks the file's head past the cut first: no part of the value reaches the model."""
+	from browser_use.repl.session import MAX_OUTPUT_CHARS
+
+	tokens = unit_tokens()
+	repl = Repl(tmp_path, {'BU_NAME': f'nodaemon{tmp_path.name[-8:]}', 'BU_TOKENS': '1'}, mask=tokens.mask_text)
+	try:
+		r = await repl.call('exec', f"print('x' * {MAX_OUTPUT_CHARS - 7} + ' ' + {SSN!r} + ' tail')", 30)
+	finally:
+		await repl.close()
+	head = r['output'].split('\n[Truncated.')[0]
+	assert len(head) == MAX_OUTPUT_CHARS and head.endswith(' ' + tokens.dummies()['ssn'][:6]), head[-20:]
+	assert '123-45' not in r['output']

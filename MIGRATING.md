@@ -253,38 +253,61 @@ Domain-scoped `sensitive_data` still limits where each secret is typed, independ
 
 ## Tokens
 
-`Browser(tokens={...})` keeps real values (card numbers, SSNs, bank accounts, a street line) out of the model, its
-prompt, the REPL worker, the page and its scripts. Each token gets a stand-in per `Browser` (`browser.token_dummies()`),
-which the system prompt lists; the agent types it with its normal helpers. browser-use holds a browser-wide
-`Fetch.enable` on a CDP connection of its own (as layer 2 of [Domain restrictions](#domain-restrictions)) for the token
-hosts only, and writes the real value over the stand-in in a request **body** when all of these hold:
+`Browser(tokens={...})` keeps real values (card numbers, SSNs, bank accounts, a street line) out of what the model
+reads by accident: its prompt, cell output, the pages and the CDP events it reads. **It is not protection against a
+prompt-injected model**: model code runs as your user in the REPL worker, and code written to get around the worker's
+checks (its own connection to the browser-harness daemon socket or to Chrome, Chrome's disk cache, this process's
+memory) can read the real values. That needs the deny list in the browser-harness daemon itself; until it ships, use
+tokens only with tasks and sites you trust not to inject instructions. Browser Use Cloud's server-side secure tokens
+keep the real value out of the browser entirely.
 
-1. the request goes to one of the token's `hosts` (`'shop.example.com'` exactly; `'*.example.com'` subdomains only;
-   `'host:8443'` that port; https, or http to loopback, `localhost`, `*.localhost`, `*.test`);
+Each token gets a stand-in per `Browser` (`browser.token_dummies()`), which the system prompt lists; the agent types it
+with its normal helpers. browser-use holds a browser-wide `Fetch.enable` on a CDP connection of its own (as layer 2 of
+[Domain restrictions](#domain-restrictions)) and writes the real value over the stand-in in a request **body** when all
+of these hold:
+
+1. the request goes to one of the token's `hosts` (`'shop.example.com'` exactly; `'*.example.com'` subdomains only,
+   never at a public suffix or hosting platform such as `'*.com'`, `'*.co.uk'`, `'*.github.io'`; `'host:8443'` that
+   port; `'[::1]'` IPv6; https, or http to loopback, `localhost`, `*.localhost`, `*.test`);
 2. its `Origin` (else the `Referer`'s) is one of those hosts too: a page elsewhere that learned a stand-in cannot post
    it to an allowed host;
-3. every `require` pin is present and equal wherever it occurs (form, top-level JSON and multipart fields, headers).
-   `require` is mandatory for multi-tenant processors (`stripe.com`, `braintree*`, `adyen.com`, `checkout.com`,
-   `paypal.com`, `shopifycs.com`): there, anyone's key would get the real card. It applies to every host of the token:
-   give the processor its own token when the merchant's own requests do not carry the pin.
+3. every `require` pin is in the form or JSON body or the URL query (a credential header such as `Authorization` may
+   itself be a pin) and equal wherever its name occurs: body, query, a header of that name, duplicate JSON keys,
+   `;`-separated form pairs; and no credential header (`Authorization`, `X-Api-Key`, ...) the pins do not name. A
+   pinned token is swapped only in form and JSON bodies. `require` is mandatory for the multi-tenant processors and
+   vaults browser-use knows (`stripe.com`, `braintree*`, `adyen.com`, `checkout.com`, `paypal.com`, `squareup.com`,
+   `authorize.net`, `razorpay.com`, `mollie.com`, `worldpay.com`, `spreedly.com`, VGS and more): there, anyone's key
+   would get the real card. The list cannot be complete: pin your account on any processor. It applies to every host
+   of the token: give the processor its own token when the merchant's own requests do not carry the pin.
 
 A `cvc` is written only as a whole field value, in a request that also carries its card. Digit values match with any
-of ` .-+`, `%20`, `%2D` between digits; text values case-insensitively. The real value is encoded for the body's
-`Content-Type` (percent-encoded in forms, JSON-escaped in JSON, raw in multipart and text, and not written at all into
-an unknown type when it needs escaping). Responses on the token hosts' sites (documents, XHR, fetch; textual types)
-are masked back, real to stand-in, before the page sees them, and so is any real value in a cell's output.
+of ` .-+`, `%20`, `%2D` between digits; text values case-insensitively. The real value is encoded for the body:
+percent-encoded in forms, JSON-escaped in JSON (also JSON sent as `text/plain`), entity-escaped in XML and HTML, raw in
+multipart; in other plain text and unknown types only a value that needs no escaping is written.
 
-Anything it cannot match safely goes out as the stand-in: a value in a URL or header (a GET form), a `Content-Encoding` body, a body without post data (blob,
-stream), base64 or client-side encrypted fields (Adyen CSE), a card split over several inputs, WebSocket frames, and
-pages loaded before the browser started (Chrome applies the interception to documents loaded after it; they work after
-their next navigation). A response that cannot be masked is failed, never passed through. While tokens are on, the
-agent's `cdp()` refuses `Fetch.*`, `Tracing.*`, `Target.attachToBrowserTarget`, `Target.exposeDevToolsProtocol` and
-navigating to `chrome:`, `file:` or `devtools:` URLs: a second interceptor would see the request after the swap.
+A 307 or 308 (or a 301/302 of a non-POST) that would re-send a swapped body to a host the token does not allow is
+failed. Responses of every type on the token hosts' sites (their registrable domains) are paused: textual ones are
+masked, real to stand-in, before the page sees them (digits with whitespace, U+00A0 and its entities, dashes,
+`( ) / . +` and inline tags between them; text word by word with any whitespace between; JSON `\u`, HTML and URL
+escapes); an event stream, or a binary body (PDF, zip) that holds a real value, is failed; images, audio, video and
+fonts pass unread; a masking error fails the response. A real value in a cell's output, the task,
+`extend_system_message` and the judge's inputs reaches the model as its stand-in. When TokenSwap starts or its
+connection comes back, it first navigates again every tab and iframe that shows a page on a token site (a GET of its
+URL), because Chrome applies the interception only to documents loaded after it: with `cdp_url`, that includes tabs
+of yours.
+
+Anything it cannot match safely goes out as the stand-in: a value in a URL or header (a GET form), a `Content-Encoding`
+body, a body without post data (blob, stream) or with a file chosen from disk, base64 or client-side encrypted fields
+(Adyen CSE), a card split over several inputs, WebSocket frames. While tokens are on, every CDP request from the
+worker (`cdp()`, `browser_harness.helpers.cdp()` and `._send()`) refuses `Fetch.*`, `Tracing.*`, `IO.*`,
+`Target.attachToBrowserTarget`, `Target.exposeDevToolsProtocol`, `Target.sendMessageToTarget`,
+`Network.setRequestInterception`, `Network.loadNetworkResource` and navigating to `chrome:`, `file:` or `devtools:`
+URLs: a second interceptor would see the request after the swap.
 
 Not protected: the allowed host itself (the agent can change the shipping address and pay, or paste a stand-in into the
-merchant's chat); echoes masking misses (a normalized address, PDFs, images, email); the real BIN and last 4 a page
-shows. And not a sandbox: model code runs as your user and can open its own CDP connection, read Chrome's disk cache or
-this process's memory. Browser Use Cloud's secure tokens swap on the proxy, outside the browser, for that.
+merchant's chat); echoes masking misses (a normalized or reworded address, a value in an image or a compressed PDF
+stream, email); the real BIN and last 4 a page shows; requests paused when TokenSwap's connection drops (Chrome
+releases them, likely unmasked); service workers already running on a token site when it starts.
 
 ## Other removed modules
 
