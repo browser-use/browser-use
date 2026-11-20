@@ -118,6 +118,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	allowed_domains_n: int = 0
 	prohibited_domains_n: int = 0
 	block_ip_addresses: bool = False
+	strict_domains: bool = False
 	gateway: bool = False
 	model_api: str = ''  # responses | chat | anthropic | google | other
 	compaction_mode: str = ''  # server | client

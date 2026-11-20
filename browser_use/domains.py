@@ -1,4 +1,5 @@
-"""Browser(allowed_domains=..., prohibited_domains=..., block_ip_addresses=...): where the browser may navigate.
+"""Browser(allowed_domains=..., prohibited_domains=..., block_ip_addresses=..., strict_domains=...): where the browser may
+navigate, and with strict_domains=True where every request it makes may go.
 
 Patterns follow 0.x (browser_use/browser/watchdogs/security_watchdog.py, _is_url_allowed / _is_url_match):
   'example.com'           example.com and www.example.com (www only for a one-dot domain), http and https, any port;
@@ -12,11 +13,15 @@ Patterns follow 0.x (browser_use/browser/watchdogs/security_watchdog.py, _is_url
 about:blank, the new tab page, data: and blob: are always allowed. A URL without a host (javascript:) or any file: URL
 (file://localhost/... included) is not.
 When allowed_domains is set, prohibited_domains is ignored, as in 0.x. block_ip_addresses blocks IP-literal hosts first.
+strict_domains also blocks private, loopback, link-local and metadata addresses (is_private) unless allowed_domains
+names them.
 
 Enforcement (MIGRATING.md "Domain restrictions"): the REPL helpers refuse a disallowed URL (worker.py), Guard fails
 main-frame document requests to disallowed hosts on its own CDP connection, and sweep() resets tabs that still show a
 disallowed page after each cell. A guard for an aligned model, not a sandbox: subresources (fetch, images, iframes) are
-not filtered, and the REPL's own Python networking is not the browser.
+not filtered, and the REPL's own Python networking is not the browser. strict_domains=True: Guard fails every request of
+the browser (subresources, iframes, workers, service workers) to a disallowed host, and cells do not run while its
+connection is down (Browser.before_cell). WebSockets are not covered: Chrome 157 sends their handshake past Fetch.
 """
 
 from __future__ import annotations
@@ -45,6 +50,14 @@ WEB = ('http', 'https')
 DEFAULT_PORT = {'http': '80', 'https': '443', 'ws': '80', 'wss': '443'}
 GUARD_START_S = 15.0  # connect + Target.setDiscoverTargets + Fetch.enable
 NOTICES_PER_CELL = 5
+# strict_domains: names only a local or private network resolves (RFC 6761 .localhost, RFC 6762 .local, ICANN's
+# .internal, RFC 8375 .home.arpa); a single label ('metadata', 'jenkins') resolves through the local search domain
+LOCAL_SUFFIXES = ('.localhost', '.local', '.internal', '.home.arpa')
+# strict_domains: IPv6 addresses that carry an IPv4 one in their last 32 bits and reach it: NAT64 (64:ff9b::10.0.0.1 is
+# 10.0.0.1 through a NAT64 gateway, as on AWS IPv6-only subnets), IPv4-compatible and IPv4-translated
+EMBEDS_IPV4 = tuple(map(ipaddress.IPv6Network, ('64:ff9b::/96', '::/96', '::ffff:0:0:0/96')))
+LOCAL_NAT64 = ipaddress.IPv6Network('64:ff9b:1::/48')  # RFC 8215: a network's own translator; not global
+NETWORK = ('http', 'https', 'ws', 'wss')
 
 
 class Url(NamedTuple):
@@ -66,7 +79,7 @@ def canonical_host(host: str) -> str:
 		return str(ipaddress.ip_address(h))
 	labels = h.split('.')
 	if re.fullmatch(r'\d+|0x[0-9a-f]*', labels[-1]):  # WHATWG: a host ending in a number is an IPv4 address
-		with contextlib.suppress(OSError):
+		with contextlib.suppress(OSError, ValueError):  # ValueError: a NUL byte
 			return socket.inet_ntoa(socket.inet_aton(h))
 	if not h.isascii():
 		with contextlib.suppress(idna.IDNAError, UnicodeError):
@@ -183,6 +196,30 @@ def is_ip(host: str) -> bool:
 		return False
 
 
+def is_private(host: str) -> bool:
+	"""A canonical host on a loopback, private, link-local (169.254.169.254, the cloud metadata service), shared (CGNAT)
+	or reserved address, or a name only a local network resolves. Names are not resolved: DNS is the browser's."""
+	try:
+		ip = ipaddress.ip_address(host)
+	except ValueError:
+		return '.' not in host or host.endswith(LOCAL_SUFFIXES)
+	if isinstance(ip, ipaddress.IPv6Address):
+		if ip.ipv4_mapped:  # [::ffff:169.254.169.254]
+			ip = ip.ipv4_mapped
+		elif any(ip in net for net in EMBEDS_IPV4):  # [64:ff9b::a9fe:a9fe]
+			ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+		elif ip in LOCAL_NAT64:
+			return True
+	return not ip.is_global
+
+
+def _names_host(pattern: str) -> bool:
+	"""A pattern that names a host: 'localhost:8080', '*.corp.internal'; not a catch-all ('*', 'http*://*')."""
+	p = pattern.strip()
+	rest = p.split('://', 1)[1] if '://' in p else p
+	return bool(_split_port(rest.split('/', 1)[0])[0].strip('*.'))
+
+
 def _patterns(value: Any, option: str) -> tuple[str, ...]:
 	if value is None:
 		return ()
@@ -199,17 +236,20 @@ class DomainRules:
 	allowed: tuple[str, ...] = ()
 	prohibited: tuple[str, ...] = ()
 	block_ips: bool = False
+	strict: bool = False  # strict_domains: every request, private addresses, fail closed
 
 	@classmethod
-	def of(cls, allowed: Any = None, prohibited: Any = None, block_ips: bool = False) -> DomainRules:
+	def of(cls, allowed: Any = None, prohibited: Any = None, block_ips: bool = False, strict: bool = False) -> DomainRules:
 		"""Validated rules from the Browser() options. [] is no restriction, as in 0.x."""
-		rules = cls(_patterns(allowed, 'allowed_domains'), _patterns(prohibited, 'prohibited_domains'), bool(block_ips))
+		rules = cls(
+			_patterns(allowed, 'allowed_domains'), _patterns(prohibited, 'prohibited_domains'), bool(block_ips), bool(strict)
+		)
 		if rules.allowed and rules.prohibited:
 			logger.warning('Browser(): prohibited_domains is ignored because allowed_domains is set (as in 0.x)')
 		return rules
 
 	def __bool__(self) -> bool:
-		return bool(self.allowed or self.prohibited or self.block_ips)
+		return bool(self.allowed or self.prohibited or self.block_ips or self.strict)
 
 	def blocked(self, url: str) -> str | None:
 		"""None when the browser may open url, else the one-line reason the model sees."""
@@ -223,9 +263,15 @@ class DomainRules:
 			return f'blocked: {url[:100]!r} is a file: URL or has no host, and the browser is limited to {self._scope()}'
 		if self.block_ips and is_ip(u.host):
 			return f'blocked: {u.host} is an IP address (block_ip_addresses=True)'
+		private = self.strict and u.scheme in NETWORK and is_private(u.host)
+		why = f'blocked: {u.host} is a private or local address (strict_domains=True; allowed_domains can name it)'
 		if self.allowed:
-			ok = any(pattern_matches(p, u) for p in self.allowed)
-			return None if ok else f'blocked: {u.host} is not in allowed_domains ({self._list(self.allowed)})'
+			matched = [p for p in self.allowed if pattern_matches(p, u)]
+			if not matched:
+				return f'blocked: {u.host} is not in allowed_domains ({self._list(self.allowed)})'
+			return why if private and not any(map(_names_host, matched)) else None
+		if private:
+			return why
 		if any(pattern_matches(p, u, subdomains=True) for p in self.prohibited):
 			return f'blocked: {u.host} is in prohibited_domains ({self._list(self.prohibited)})'
 		return None
@@ -239,7 +285,9 @@ class DomainRules:
 			return f'allowed_domains ({self._list(self.allowed)})'
 		if self.prohibited:
 			return f'sites outside prohibited_domains ({self._list(self.prohibited)})'
-		return 'hosts that are not IP addresses'
+		if self.block_ips:
+			return 'hosts that are not IP addresses'
+		return 'public hosts'
 
 	def prompt(self, browser_blocks: bool = True) -> str:
 		"""One system-prompt line; '' without restrictions. browser_blocks=False (Browser('chrome'), no Guard): the line
@@ -253,6 +301,15 @@ class DomainRules:
 			parts.append(f'The browser must not open these domains: {self._list(self.prohibited)}.')
 		if self.block_ips:
 			parts.append('IP-address URLs are blocked.')
+		if self.strict:  # never with browser_blocks=False: Browser('chrome') refuses strict_domains
+			target = 'other hosts and to ' if self.allowed else 'them and to ' if self.prohibited or self.block_ips else ''
+			return ' '.join(
+				[
+					*parts,
+					f'The browser blocks every request to {target}private or local addresses, including the requests '
+					'pages make (fetch, images, iframes); do not try to get around it.',
+				]
+			)
 		if not self.allowed:  # only the listed domains (or IP URLs) are off limits: 'Other navigation is blocked' said all were
 			rest = (
 				'A tab that opens one is reset to about:blank after each step'
@@ -268,14 +325,18 @@ class DomainRules:
 		return ' '.join(parts) + f' {rest}; do not try to get around it.'
 
 	def to_json(self) -> str:
-		return json.dumps({'allowed': self.allowed, 'prohibited': self.prohibited, 'block_ips': self.block_ips})
+		return json.dumps(
+			{'allowed': self.allowed, 'prohibited': self.prohibited, 'block_ips': self.block_ips, 'strict': self.strict}
+		)
 
 	@classmethod
 	def from_json(cls, text: str | None) -> DomainRules:
 		if not text:
 			return cls()
 		d = json.loads(text)
-		return cls(tuple(d.get('allowed') or ()), tuple(d.get('prohibited') or ()), bool(d.get('block_ips')))
+		return cls(
+			tuple(d.get('allowed') or ()), tuple(d.get('prohibited') or ()), bool(d.get('block_ips')), bool(d.get('strict'))
+		)
 
 
 class Guard:
@@ -287,12 +348,16 @@ class Guard:
 	tab's URL changes to a disallowed one: the guard navigates that tab to about:blank right away, as it does with the
 	error page its own block leaves. Its own connection: the agent's cdp('Fetch.disable') through the daemon does not
 	turn it off. Iframes and subresources pass. When the connection drops, Chrome stops intercepting until it
-	reconnects (sweep() still runs after each cell)."""
+	reconnects (sweep() still runs after each cell).
+	rules.strict (strict_domains=True): every request of every type (subresources, iframes, workers, service workers,
+	beacons) to a disallowed host fails too, and `connected` tells Browser.before_cell whether Chrome intercepts now."""
 
 	def __init__(self, ws_url: str, rules: DomainRules):
 		self.ws_url, self.rules = ws_url, rules
 		self.pages: dict[str, str] = {}  # page target id (= its main frame id) -> the URL it last showed
 		self.blocks = 0
+		self.lost = 0  # strict: connections that dropped since take(); requests meanwhile were not filtered
+		self.connected = threading.Event()  # set while Chrome intercepts for this guard
 		self._notices: list[str] = []
 		self._failed: dict[tuple[str, str], None] = {}  # (tab, url) this guard failed: its error page resets silently
 		self._replies: dict[int, Callable[[dict], object]] = {}
@@ -314,6 +379,7 @@ class Guard:
 
 	def close(self) -> None:
 		self._closed.set()
+		self.connected.clear()
 		ws, self._ws = self._ws, None
 		if ws is not None:
 			with contextlib.suppress(Exception):
@@ -324,9 +390,17 @@ class Guard:
 		with self._lock:
 			notices, self._notices = self._notices, []
 			blocks, self.blocks = self.blocks, 0
+			lost, self.lost = self.lost, 0
 		unique = list(dict.fromkeys(notices))
 		if len(unique) > NOTICES_PER_CELL:
-			unique = [*unique[:NOTICES_PER_CELL], f'[... {len(unique) - NOTICES_PER_CELL} more blocked navigations]']
+			more = 'requests' if self.rules.strict else 'navigations'
+			unique = [*unique[:NOTICES_PER_CELL], f'[... {len(unique) - NOTICES_PER_CELL} more blocked {more}]']
+		if lost:
+			unique.insert(
+				0,
+				f"[strict_domains: browser-use lost its connection to the browser's request filter ({lost}x since the last "
+				'cell); requests pages made until it reconnected were not filtered]',
+			)
 		return unique, blocks
 
 	def _send(
@@ -351,9 +425,11 @@ class Guard:
 		self.pages.clear()
 		self._replies.clear()
 		self._discovered = False  # until setDiscoverTargets answered: the targets it reports were already open
+		# strict: every resource type. WebSocket handshakes never pause here (Chrome 157), so they are not covered.
+		only = {} if self.rules.strict else {'resourceType': 'Document'}
 		pending = {
 			self._send('Target.setDiscoverTargets', discover=True),
-			self._send('Fetch.enable', patterns=[{'urlPattern': '*', 'resourceType': 'Document', 'requestStage': 'Request'}]),
+			self._send('Fetch.enable', patterns=[{'urlPattern': '*', **only, 'requestStage': 'Request'}]),
 		}
 		deadline = time.monotonic() + GUARD_START_S
 		while pending:
@@ -372,6 +448,7 @@ class Guard:
 			try:
 				self._connect()
 				self._ready.set()
+				self.connected.set()
 				backoff = 0.5
 				for raw in self._ws:
 					self._handle(json.loads(raw))
@@ -384,6 +461,11 @@ class Guard:
 					return
 				if not self._closed.is_set():
 					logger.debug('domain guard connection lost (%s); reconnecting', e)
+			if self.connected.is_set() and not self._closed.is_set():  # Chrome stopped intercepting when it closed
+				self.connected.clear()
+				if self.rules.strict:
+					with self._lock:
+						self.lost += 1
 			if self._closed.wait(backoff):
 				return
 			backoff = min(backoff * 2, 5.0)
@@ -412,14 +494,22 @@ class Guard:
 		elif method == 'Fetch.requestPaused':
 			url = str((params.get('request') or {}).get('url', ''))
 			frame = str(params.get('frameId'))
-			why = self.rules.blocked(url) if frame in self.pages else None  # iframes pass
+			# a tab's own page (its main frame id is the tab's id); without strict, iframes and subresources pass
+			navigation = params.get('resourceType') == 'Document' and frame in self.pages
+			# strict: every network request; chrome-extension:, chrome: and the like never leave the browser
+			checked = navigation or (self.rules.strict and url.split(':', 1)[0].lower() in WEB)
+			try:
+				why = self.rules.blocked(url) if checked else None
+			except Exception as e:  # - fail this request, not the connection: a dropped one stops all interception
+				why = f'blocked: browser-use could not read this URL ({type(e).__name__})'
 			if why:
 				with self._lock:
 					self.blocks += 1
 					self._notices.append(f'[{why}. The browser did not load {url[:120]}]')
-					self._failed[(frame, url)] = None
-					while len(self._failed) > 100:
-						del self._failed[next(iter(self._failed))]
+					if navigation:
+						self._failed[(frame, url)] = None
+						while len(self._failed) > 100:
+							del self._failed[next(iter(self._failed))]
 				self._send('Fetch.failRequest', requestId=params['requestId'], errorReason='BlockedByClient')
 			else:
 				self._send('Fetch.continueRequest', requestId=params['requestId'])

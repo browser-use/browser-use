@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Literal
 from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting, record_auth_event
 from browser_use.browser import local as _local
 from browser_use.config import load_env
-from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
+from browser_use.domains import GUARD_START_S, DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import BrowserConfigError, removed
 from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
 
@@ -571,9 +571,13 @@ class Browser:
 		allowed_domains: list[str] | None = None,
 		prohibited_domains: list[str] | None = None,
 		block_ip_addresses: bool = False,
+		strict_domains: bool = False,
 		**kwargs,
 	):
-		"""Configure a browser; live_view=None prints the link, True also opens it, and False hides it."""
+		"""Configure a browser; live_view=None prints the link, True also opens it, and False hides it. strict_domains=True
+		applies allowed_domains / prohibited_domains to every request the browser makes (fetch, images, iframes, workers),
+		blocks private, loopback, link-local and metadata addresses unless allowed_domains names them, and runs no cell
+		while that filter is disconnected; not with Browser('chrome')."""
 		if kwargs:
 			name = next(iter(kwargs))
 			if name in REMOVED:
@@ -609,7 +613,9 @@ class Browser:
 					'Browser(allowed_domains=[...]); unset the variable.',
 				)
 			)
-		self.domains = DomainRules.of(allowed_domains, prohibited_domains, block_ip_addresses)
+		if not isinstance(strict_domains, bool):
+			raise TypeError(f'strict_domains must be True or False, not {strict_domains!r}')
+		self.domains = DomainRules.of(allowed_domains, prohibited_domains, block_ip_addresses, strict_domains)
 		launches = self.kind == 'chromium' or (self.kind == 'chrome' and profile is not None)
 		where = {'cloud': 'Browser() (a cloud browser)', 'chrome': "Browser('chrome') (your open Chrome)"}.get(
 			self.kind, f'Browser({self.kind!r})'
@@ -636,6 +642,12 @@ class Browser:
 					'captcha_solver': 'only Browser() (a cloud browser) has a captcha solver to turn off',
 				}.get(option, "Browser('chromium', ...) launches a local browser with it")
 				raise ValueError(f'{where} does not take {option}=: {fix}')
+		if strict_domains and self.kind == 'chrome' and profile is None:
+			raise ValueError(
+				"Browser('chrome') (your open Chrome) does not take strict_domains=True: it filters requests on a second "
+				'debugging connection, which would raise Chrome\'s "Allow remote debugging?" prompt again. Use '
+				"Browser('chromium') or Browser('chrome', profile=...)."
+			)
 		if user_data_dir and _local.is_default_user_data_dir(user_data_dir):
 			raise ValueError(
 				f"user_data_dir={str(user_data_dir)!r} is a browser's default profile dir, and Chrome 136+ refuses "
@@ -1013,6 +1025,18 @@ class Browser:
 
 	def _disallowed_tabs(self) -> dict[str, str]:
 		return {target: url for target, (url, _) in disallowed_tabs(self._cdp(), self.domains).items()}
+
+	async def before_cell(self) -> str | None:
+		"""strict_domains: None when the browser filters requests now, else why the cell does not run. A dropped filter
+		connection gets GUARD_START_S to come back (it retries every 0.5 to 5 s)."""
+		guard = self._guard
+		if guard is not None and await asyncio.to_thread(guard.connected.wait, GUARD_START_S):
+			return None
+		return (
+			"strict_domains=True: browser-use is not connected to the browser's request filter (it reconnects on its own), "
+			'so it did not run this cell: pages could reach any host meanwhile. Retry in a moment; if this repeats, the '
+			'browser is gone: finish with what you have.'
+		)
 
 	async def after_cell(self) -> tuple[list[str], int]:
 		"""Domain restrictions after each REPL cell: what the browser blocked since the last cell, then every tab that
