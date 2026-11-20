@@ -179,7 +179,11 @@ def test_help_is_this_clis_own():
 		assert command in result.stdout
 	assert 'doctor --json' not in result.stdout and 'browser-harness' not in result.stdout and '--update' not in result.stdout
 	update = _run_browser_use_cli('--update', '-y')
-	assert update.returncode == 2 and 'uv tool upgrade browser-use' in update.stderr
+	from browser_use.update_check import upgrade_command
+
+	assert update.returncode == 2
+	assert f'browser-use does not update itself: {upgrade_command()}.' in update.stderr
+	assert 'uv tool upgrade browser-use' not in update.stderr
 
 
 def test_0x_agent_task_commands_point_to_agent():
