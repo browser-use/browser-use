@@ -106,7 +106,7 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | 0.x engine tuning: `dom_highlight_elements`, `filter_highlight_ids`, `paint_order_filtering`, `cross_origin_iframes`, `max_iframes`, `max_iframe_depth`, `minimum_wait_page_load_time`, `wait_for_network_idle_page_load_time`, `wait_between_actions`, `deterministic_rendering`, `demo_mode`; 0.1/0.6 `maximum_wait_page_load_time`, `viewport_expansion`, `include_dynamic_attributes`, `cached_state`, `default_timeout`, `default_navigation_timeout`, `slow_mo`, `strict_selectors` | removed: they tuned the 0.x DOM engine. Delete them |
 | 0.6 `handle_sigint`, `handle_sigterm`, `handle_sighup`; `stealth`; `cookies_file`; `context` | removed: a browser 1.0 started is stopped when the process exits; cloud browsers run with stealth settings (`Browser()`); `cookies_file` as `storage_state`; `context`: pass options to `Browser(...)` |
 | `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | kept, in every mode, with the 0.x patterns: see [Domain restrictions](#domain-restrictions) |
-| new: `tokens` | `Browser(tokens={'card': {'type': 'card', 'value': pan, 'cvc': cvc, 'exp': '08/29', 'hosts': ['shop.example.com', '*.stripe.com'], 'require': {'key': 'pk_live_...'}}})`: the model only ever sees and types a format-valid stand-in (a card keeps its BIN and passes Luhn); the real value is written into a request body only on its way to a listed host. Types `card` (with `cvc`), `ssn`, `digits`, `iban`, `text`. Not `Browser('chrome')` (your open Chrome): `ValueError`. See [Tokens](#tokens) |
+| new: `tokens` | `Browser(tokens={'card': {'type': 'card', 'value': pan, 'cvc': cvc, 'exp': '08/29', 'hosts': ['shop.example.com', '*.stripe.com'], 'require': {'key': 'pk_live_...'}}})`: the model only ever sees and types a format-valid stand-in (a card keeps its BIN and passes Luhn); the real value is written into a request body only on its way to a listed host. Types `card` (with `cvc`), `ssn`, `digits`, `iban`, `text`. Not `Browser('chrome')` (your open Chrome): `ValueError`. Needs a browser-harness with `BH_CDP_DENY` (else `RuntimeError`). See [Tokens](#tokens) |
 | `captcha_solver` | kept for cloud browsers: they solve captchas automatically, and `Browser(captcha_solver=False)` turns the solver off when the browser starts and keeps it off (the agent is told to handle captchas itself; `solve_captcha()` reports the solver unavailable). Other browsers have no solver: `captcha_solver=False` raises `ValueError` |
 
 Parallel agents (the 0.x `parallel_agents.py` pattern): give each its own `Browser()` or `Browser('chromium')`; each
@@ -256,10 +256,12 @@ Domain-scoped `sensitive_data` still limits where each secret is typed, independ
 `Browser(tokens={...})` keeps real values (card numbers, SSNs, bank accounts, a street line) out of what the model
 reads by accident: its prompt, cell output, the pages and the CDP events it reads. **It is not protection against a
 prompt-injected model**: model code runs as your user in the REPL worker, and code written to get around the worker's
-checks (its own connection to the browser-harness daemon socket or to Chrome, Chrome's disk cache, this process's
-memory) can read the real values. That needs the deny list in the browser-harness daemon itself; until it ships, use
-tokens only with tasks and sites you trust not to inject instructions. Browser Use Cloud's server-side secure tokens
-keep the real value out of the browser entirely.
+checks can read the real values. browser-use starts its daemon with `BH_CDP_DENY=tokens`, so code that talks to the
+daemon socket itself still gets only allowlisted CDP (no `Fetch`, `Tracing`, DevTools or browser targets, no
+`*ExtraInfo` events); this needs a browser-harness that has it, and an older one makes `Browser(tokens=...)` raise
+`RuntimeError` asking you to upgrade. What it cannot stop is code with raw access to your machine (its own connection
+to Chrome, Chrome's disk cache, this process's memory): use tokens only with tasks and sites you trust not to inject
+instructions. Browser Use Cloud's server-side secure tokens keep the real value out of the browser entirely.
 
 Each token gets a stand-in per `Browser` (`browser.token_dummies()`), which the system prompt lists; the agent types it
 with its normal helpers. browser-use holds a browser-wide `Fetch.enable` on a CDP connection of its own (as layer 2 of
