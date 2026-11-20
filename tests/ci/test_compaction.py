@@ -119,6 +119,25 @@ async def test_character_budget_is_bu_pi_default_or_the_agent_setting(tmp_path, 
 	assert not summarizer_requests and not any(map(checkpoint_text, agent_requests))
 
 
+async def test_compaction_thresholds_share_the_history_projection(tmp_path, monkeypatch):
+	from browser_use.agent import loop
+
+	project = loop._pi
+	projected_sizes = []
+
+	def record_projection(messages):
+		projected_sizes.append(len(messages))
+		return project(messages)
+
+	monkeypatch.setattr(loop, '_pi', record_projection)
+	fn, agent_requests, summarizer_requests = scripted(big=set(), steps=12)
+	result = await go(tmp_path, fn, window=1_000_000)
+
+	assert result.status == 'completed' and result.output == 'done', result.error
+	assert not summarizer_requests
+	assert [size for size in projected_sizes if size > 1] == [len(request) for request in agent_requests[1:]]
+
+
 def test_size_is_bu_pi_context_chars_of_its_messages():
 	"""Matrix v2: Haiku compacted 0 times (bu-pi 17) and reached 417k tokens. 1.0 counted message content only; bu-pi's
 	contextChars is JSON.stringify of its AgentMessages, whose usage, ids, model and timestamps add 20-30%. Signatures
