@@ -10,13 +10,14 @@ import http.server
 import json
 import threading
 import time
+from urllib.parse import urlsplit
 
 import pytest
 from pydantic_ai.messages import ModelRequest, ToolReturnPart
 from websockets.sync.client import connect
 
 from browser_use import Agent, Browser
-from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
+from browser_use.domains import DomainRules, Guard, canonical_host, disallowed_tabs, sweep
 from browser_use.repl import Repl
 from tests.ci.conftest import script
 
@@ -205,6 +206,23 @@ def test_hosts_convert_as_chrome_does():
 	assert not ok('https://www.bücher.de/', prohibited=['http*://*.xn--bcher-kva.de'])
 	assert not ok('http://0x7f。1/', block_ips=True) and not ok('http://１２７.０.０.１/', block_ips=True)
 	assert not ok('http://evil。com/', prohibited=['evil.com']) and ok('http://good。com/', ['good.com'])
+
+
+def test_an_empty_hex_ipv4_part_is_zero_as_in_chrome():
+	"""WHATWG (and Chrome) read a bare '0x' IPv4 part as 0: http://0x/ opens 0.0.0.0, http://192.168.1.0x/ opens
+	192.168.1.0. socket.inet_aton refuses a trailing '0x' (macOS), so block_ip_addresses let them through."""
+	for url, ip in (
+		('http://0x/', '0.0.0.0'),
+		('http://0X./', '0.0.0.0'),
+		('http://0x.0x.0x.0x/', '0.0.0.0'),
+		('http://1.0x/', '1.0.0.0'),
+		('http://192.168.1.0x/', '192.168.1.0'),
+		('http://0x7f.0x.0x.1/', '127.0.0.1'),
+	):
+		assert canonical_host(urlsplit(url).hostname or '') == ip, url
+		assert not ok(url, block_ips=True), url
+		assert not ok(url, prohibited=[ip]), url
+	assert ok('http://0x.example.com/', block_ips=True)  # a name: its last label is not a number
 
 
 def test_a_bare_ipv6_pattern_is_not_read_as_host_and_port():
