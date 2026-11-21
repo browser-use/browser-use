@@ -130,6 +130,7 @@ dev = [
     "pytest==9.0.2",
     "pytest-asyncio==1.3.0",
     "pytest-timeout==2.4.0",
+    "pytest-xdist==3.8.0",  # CI runs tests on every core (-n auto)
     "pre-commit==4.5.1",
     "codespell==2.4.1",
     "pyright==1.1.408",
