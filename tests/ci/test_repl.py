@@ -480,6 +480,10 @@ async def test_cell_traceback_keeps_cell_and_workspace_frames_but_no_installed_p
 		('https://evilsite.test/', '*.site.test', False),
 		('https://site.test.evil/', 'https://site.test', False),
 		('https://site.test:8443/', 'https://site.test:8443', True),
+		('https://site.test/x', 'https://site.test:443', True),  # the URL's own default port: 443
+		('https://site.test/x', 'site.test:443', True),
+		('http://site.test/x', 'http://site.test:80', True),  # and 80
+		('https://site.test/x', 'https://site.test:8443', False),
 		('about:blank', 'site.test', False),
 	],
 )
