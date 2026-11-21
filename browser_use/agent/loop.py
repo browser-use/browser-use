@@ -81,7 +81,7 @@ except ImportError:  # optional: Pydantic AI needs only httpx2
 logger = logging.getLogger(__name__)
 # Screenshots pile up until PRUNE_IMAGES_AT tool results carry one, then all but the newest KEEP_IMAGE_RESULTS lose them
 # in one go. Pruning rewrites an earlier message, which breaks the provider's prompt cache from there on: pruning on
-# every new screenshot made each such request a cache miss (BU Bench 1.0.3: 705 steps, 27.8M input, 1.6M cached).
+# every new screenshot made each such request a cache miss.
 # Not never: Anthropic rejects a request with more than 100 images.
 PRUNE_IMAGES_AT = 20
 KEEP_IMAGE_RESULTS = 2
