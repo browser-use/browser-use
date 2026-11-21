@@ -983,7 +983,7 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 	assert p['final_result'] == f'{c.result} <task>'  # the task, quoted whole (and with its secret redacted)
 	assert (event['event'], event['distinct_id'], event['uuid']) == ('agent_event', 'bu-test-device', str(uuid.UUID(p['run_id'])))
 	assert (p['schema_version'], p['status'], p['steps'], p['is_internal'], p['$lib']) == (
-		6,
+		7,
 		'completed',
 		5,
 		True,  # conftest: every test event is internal
