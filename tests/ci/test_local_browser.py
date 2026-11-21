@@ -1230,3 +1230,37 @@ asyncio.run(main())
 	finally:
 		for p in (chrome, other):
 			p.kill()
+
+
+def test_relative_executable_path_is_made_absolute(tmp_path, monkeypatch):
+	"""`./chrome` must not reach Popen as a relative path that resolves against another working directory."""
+	binary = tmp_path / 'fake-chrome-relative'
+	binary.write_text('')
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	assert _local.find_binary('./fake-chrome-relative') == str(binary)
+
+
+def test_relative_bh_chrome_path_is_made_absolute(tmp_path, monkeypatch):
+	binary = tmp_path / 'fake-chrome-env-relative'
+	binary.write_text('')
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.setenv('BH_CHROME_PATH', './fake-chrome-env-relative')
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', str(tmp_path / 'no-playwright'))
+	assert _local.find_binary() == str(binary)
+
+
+def test_relative_playwright_browsers_path_still_matches_find_binary(tmp_path, monkeypatch):
+	"""--cli-mcp tells Playwright's Chromium apart with `find_binary() in playwright_chromium()`: a relative
+	PLAYWRIGHT_BROWSERS_PATH must not make the two spellings differ, or it takes the user-browser path."""
+	monkeypatch.setattr(sys, 'platform', 'linux')
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	(tmp_path / 'pw' / 'chromium-1248' / 'chrome-linux64').mkdir(parents=True)
+	(tmp_path / 'pw' / 'chromium-1248' / 'chrome-linux64' / 'chrome').write_text('')
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', './pw')
+	assert _local.find_binary() in _local.playwright_chromium()
