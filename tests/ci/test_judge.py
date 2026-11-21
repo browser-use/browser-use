@@ -430,17 +430,30 @@ def test_a_wall_only_the_judge_saw_has_no_vendor_it_cannot_name_and_a_success_ha
 	assert ground(ok, [DD]).blocked_by is None
 
 
+def asked(seen: list, turn: int) -> str:
+	"""The judge's ask in request `turn`: the cached judge's last user prompt, or the separate judge's prompt."""
+	content = seen[turn][-1].parts[-1].content
+	return content if isinstance(content, str) else content[0]
+
+
+@pytest.mark.parametrize('cached', [True, False], ids=['cached', 'separate'])
 async def test_a_run_that_failed_on_a_wall_says_so_then_points_a_local_browser_to_the_cloud(
-	fake_browser, tmp_path, caplog, monkeypatch
+	cached, fake_browser, tmp_path, caplog, monkeypatch
 ):
+	"""Both judges, the cached turn and the separate fallback, read the detected walls and ground what they name."""
 	monkeypatch.delenv('BROWSER_USE_CLOUD_HINTS', raising=False)
 	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
 	monkeypatch.setattr(RunStats, 'blocks', lambda self: [DD])
-	answer = {**FAILED, 'blocked_by': {'vendor': 'datadome', 'host': 'www.saks.com'}}
-	model, seen = script(('finish', {'success': False, 'result': 'blocked'}), ('final_result', answer))
+	answer = {**FAILED, 'blocked_by': {'vendor': 'Cloudflare', 'host': 'https://saks.com/p'}}  # grounded to the detector's
+	judged = [json.dumps(answer)] if cached else ['no verdict', ('final_result', answer)]
+	model, seen = script(('finish', {'success': False, 'result': 'blocked'}), *judged)
 	with caplog.at_level(logging.INFO, logger='browser_use'):
 		r = await agent(model, tmp_path).run()
-	assert '- vendor=datadome host=www.saks.com outcome=blocked visits=3' in str(seen[1][0].parts[0].content)
+	assert len(seen) == 1 + len(judged)
+	ask = asked(seen, len(judged))
+	assert '<detected_blocks>\n- vendor=datadome host=www.saks.com outcome=blocked visits=3' in ask
+	assert ask.index('</detected_blocks>') < ask.index('<final_result>')
+	assert seen[1][: len(seen[0]) - 1] == seen[0][:-1]  # the walls go in the ask: the run's cached prefix is as it was
 	assert r.judgement and r.judgement.blocked_by == BlockedBy(
 		vendor='datadome', host='www.saks.com', source='detector', visits=3
 	)
@@ -450,6 +463,29 @@ async def test_a_run_that_failed_on_a_wall_says_so_then_points_a_local_browser_t
 		'Cloud browsers pass most anti-bots, Browser() runs one: '
 		'https://cloud.browser-use.com/?utm_source=oss&utm_medium=block_nudge&utm_content=datadome',
 	]
+
+
+def test_the_cached_judge_is_asked_for_blocked_by_as_the_schema_describes_it():
+	keys = judge.CACHED_ASK[judge.CACHED_ASK.index('with these keys') :]
+	vendors = Judgement.model_json_schema()['$defs']['BlockedBy']['properties']['vendor']['description']
+	listed = vendors.removeprefix('One of: ').split('.')[0]  # the schema's vendor enum, as judge_run's model reads it
+	assert f'blocked_by ({{"vendor": string, "host": string}} or null; vendor one of {listed}; host ' in keys
+	assert 'null unless an anti-bot wall' in keys and 'is why the task failed' in keys
+
+
+async def test_the_cached_judge_keeps_its_verdict_with_a_malformed_blocked_by_and_labels_no_success(
+	fake_browser, tmp_path, monkeypatch
+):
+	"""A malformed blocked_by is dropped, not the cached answer (no fallback request); a success never gets one."""
+	monkeypatch.setattr(RunStats, 'blocks', lambda self: [DD])
+	for answer, want in (
+		({**FAILED, 'blocked_by': {'vendor': 'datadome'}}, Judgement(**FAILED)),
+		({**FAILED, 'blocked_by': 'www.saks.com'}, Judgement(**FAILED)),
+		({**VERDICT, 'blocked_by': {'vendor': 'datadome', 'host': 'www.saks.com'}}, Judgement(**VERDICT)),
+	):
+		model, seen = script(FINISH, json.dumps(answer))
+		r = await agent(model, tmp_path).run()
+		assert (len(seen), r.judgement) == (2, want)
 
 
 def hints(agent: Agent, result: AgentHistoryList, caplog) -> list[str]:

@@ -302,7 +302,10 @@ CACHED_ASK = (
 	'The run is over. Do not call any tool. Now act as the judge of the run above:\n\n'
 	+ JUDGE_PROMPT
 	+ '\n\nAnswer with one JSON object and nothing else, with these keys: success (bool), failure_reason (string or null), '
-	'description (string), prompt_injection_detected (bool), bot_block_or_captcha_detected (bool), gotchas (list of strings).'
+	'description (string), prompt_injection_detected (bool), bot_block_or_captcha_detected (bool), blocked_by '
+	f'({{"vendor": string, "host": string}} or null; vendor one of {", ".join(VENDORS)}; host the walled host as in '
+	"<detected_blocks> or the URL; null unless an anti-bot wall (CAPTCHA, bot check, access block, the website's rate "
+	'limit) is why the task failed), gotchas (list of strings).'
 )
 
 
@@ -318,8 +321,9 @@ async def judge_cached(
 ) -> tuple[Judgement | None, list[ModelMessage]]:
 	"""The judge as one more turn of the run: the run's own messages, instructions and tool definitions go first, so the
 	provider reads that prefix from its prompt cache and bills it as cached input. judge_run sends the trace as a new,
-	uncached prompt instead, billed in full. -> (the judgement, or None when the model called a
-	tool or did not answer the schema: the caller falls back to judge_run; the response, for usage and cost)."""
+	uncached prompt instead, billed in full. The ask goes after the run's messages, so what it says (the detected walls
+	too) leaves that prefix as it was; its answer is grounded as judge_run's. -> (the judgement, or None when the model
+	called a tool or did not answer the schema: the caller falls back to judge_run; the response, for usage and cost)."""
 	instructions = next((m.instructions for m in reversed(history) if isinstance(m, ModelRequest) and m.instructions), None)
 	ask = f'{CACHED_ASK}\n\n<task>\n{_cut(task, MAX_TASK_CHARS)}\n</task>'
 	if judge_context:
@@ -327,7 +331,7 @@ async def judge_cached(
 	outcome = f'status: {result.status}\nsuccess reported by the agent: {result.success}\n'
 	if result.error:
 		outcome += f'error: {_cut(result.error)}\n'
-	ask += f'\n\n<final_result>\n{outcome}{_cut(as_text(result.text))}\n</final_result>'
+	ask += f'\n\n{detected(result.blocks)}<final_result>\n{outcome}{_cut(as_text(result.text))}\n</final_result>'
 	ask = redact(ask, secrets)
 	content: list[UserContent] = [ask, 'The page as the run left it:', final] if final else [ask]
 	last = history[-1] if history else None
@@ -357,7 +361,7 @@ async def judge_cached(
 		judgement = Judgement.model_validate_json(text[text.index('{') : text.rindex('}') + 1])
 	except Exception:
 		return None, [response]
-	return Judgement.model_validate(redact(judgement.model_dump(), secrets)), [response]
+	return ground(Judgement.model_validate(redact(judgement.model_dump(), secrets)), result.blocks), [response]
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here
