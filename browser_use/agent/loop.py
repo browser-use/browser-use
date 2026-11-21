@@ -31,6 +31,7 @@ from pydantic_ai.exceptions import (
 	ModelConnectionError,
 	ModelContextWindowExceededError,
 	ModelRateLimitError,
+	ModelRequestRejectedError,
 	ModelRequestTimeout,
 	ModelServerError,
 	ModelUnavailableError,
@@ -63,7 +64,7 @@ from pydantic_core import PydanticSerializationError, to_json, to_jsonable_pytho
 from browser_use.agent.prompt import SYSTEM_PROMPT, secrets_prompt
 from browser_use.agent.views import AgentHistoryList
 from browser_use.ax import AX_PROMPT
-from browser_use.llm import model_ref, skip_responses_transform
+from browser_use.llm import gateway_llm, model_ref, skip_responses_transform
 from browser_use.logging_config import printable
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SECRET_PLACEHOLDER, redact_forms, secret_forms
@@ -113,6 +114,10 @@ MODEL_TIMEOUT_S = 300  # bu-pi modelTimeoutMs: one model request, all its SDK at
 # all cut bu-smart turns that were still streaming and asked again; the gateway billed every cut attempt in full, and
 # cost_usd counted none of them (staging: 5 cuts, $1.84 billed, cost_usd $0.0074).
 STREAM_TIMEOUT_S = 930
+# The Browser Use gateway holds credit for a call's worst case (its whole input plus max_output_tokens) before running
+# it: bu-pi's 32768 made a small balance refuse calls it could pay for. Agent turns (code, delivery) stay far below 16k;
+# one that reaches it ends as a 'length' finish, which the loop recovers from as it did at 32k.
+GATEWAY_MAX_TOKENS = 16_384
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
 LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
@@ -144,6 +149,8 @@ class Session:
 	usage_after: int = 0  # Compaction: responses before this index were measured before the checkpoint
 	overflowed_step: int | None = None  # Compaction: the request step a context-window error forced a compaction in
 	provider_retried: bool = False  # BrowserLoop: bu-pi's one provider retry per run is used
+	unforced: bool = False  # the model rejected the forced delivery tool choice: delivery requests stay auto
+	request_params: Any = None  # the last request's tool definitions: the judge resends them for the cached prefix
 	summaries: list[ModelResponse] = field(default_factory=list)  # summarizer responses, counted in usage and cost
 	rec: RunRecorder = field(default_factory=RunRecorder)  # telemetry, step by step
 
@@ -438,15 +445,18 @@ class BrowserLoop(AbstractCapability[Session]):
 				ctx.enqueue(DELIVER_NOW)
 		if s.finalizing:  # restrict this very request
 			settings: dict[str, Any] = dict(request_context.model_settings or {})  # resolved before this hook
-			settings['tool_choice'] = delivery_tool_choice(request_context.model, settings)
+			settings['tool_choice'] = UNFORCED if s.unforced else delivery_tool_choice(request_context.model, settings)
 			request_context.model_settings = cast(Any, settings)
 		return request_context
 
 	async def prepare_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		"""The request's deadline, per attempt: a retry after the provider's Retry-After kept the deadline computed
 		before the sleep and ran past the delivery turn's start (status timeout, no answer)."""
+		ctx.deps.request_params = request_context.model_request_parameters
 		settings: dict[str, Any] = dict(request_context.model_settings or {})
 		_deadlines(ctx.deps, settings, request_context.model, MODEL_TIMEOUT_S)
+		if ctx.deps.finalizing and ctx.deps.unforced:  # each attempt starts from before_model_request's choice
+			settings['tool_choice'] = UNFORCED
 		request_context.model_settings = cast(Any, settings)
 		return request_context
 
@@ -464,6 +474,13 @@ class BrowserLoop(AbstractCapability[Session]):
 			s.rec.retry('model_timeout')
 			logger.warning(f'{error.model_name}: no answer within {error.timeout:.1f} s; asking again')
 			raise ModelRetry(f'The model request got no answer within {error.timeout:.1f} s.')
+		if s.finalizing and not s.unforced and isinstance(error, ModelRequestRejectedError) and _rejects_tool_choice(error):
+			# DeepSeek and Qwen with thinking, gpt-oss and vLLM reject a forced tool choice their profile does not flag:
+			# the run ended in an error with no delivery. Ask again with the choice left to the model, python withheld.
+			s.unforced = True
+			s.rec.retry('delivery_unforced')
+			logger.warning(f'{error.model_name} rejected the forced delivery tool choice; asking again without forcing it')
+			raise RetryModelRequest()
 		if s.provider_retried or not isinstance(error, ModelAPIError):
 			raise error
 		retries = (request_context.model_settings or {}).get('max_retries')  # the SDK's retries for this request, if set
@@ -1020,7 +1037,15 @@ def delivery_tool_choice(model: Any, settings: dict) -> Any:
 		thinks
 		and (not p.get('supports_forced_tool_choice_with_thinking', True) or p.get('forced_tool_choice_disables_thinking', False))
 	)
-	return DELIVERY_TOOLS if forcing else ToolOrOutput(function_tools=[])
+	return DELIVERY_TOOLS if forcing else UNFORCED
+
+
+UNFORCED = ToolOrOutput(function_tools=[])  # the delivery tools only, the model choosing whether to call one
+
+
+def _rejects_tool_choice(error: ModelRequestRejectedError) -> bool:
+	text = str(error).lower()
+	return 'tool_choice' in text or 'tool choice' in text
 
 
 def _is_image(c: Any) -> bool:
@@ -1123,7 +1148,7 @@ def build_agent(
 			'openai_reasoning_effort': reasoning_effort,
 			'openai_reasoning_summary': 'auto',
 			'openai_reasoning_context': 'auto',  # bu-pi sends no context; Pydantic AI would send all_turns
-			'max_tokens': 32_768,
+			'max_tokens': GATEWAY_MAX_TOKENS if gateway_llm(model) else 32_768,
 		}
 		if reasoning_effort is None:
 			del settings['openai_reasoning_effort']
