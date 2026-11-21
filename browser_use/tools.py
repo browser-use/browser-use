@@ -98,4 +98,136 @@ def _without_0x_defaults(data: dict) -> dict:
 	changed nothing in 0.x (success counted only with is_done=True), so they ended a billed run for no reason."""
 	if data.get('is_done'):
 		return data
-	return {k: v for k, v in data.items() if not (
+	return {k: v for k, v in data.items() if not (k in REMOVED_FIELDS and (k in ('is_done', 'success') or not v))}
+
+
+def _check_done_results(fn: Callable) -> None:
+	"""An action whose source returns ActionResult(is_done=True, ...) (the 0.x way to end the run) can only fail when
+	it runs, after the browser started: refuse it when it is registered instead (any is_done but a literal False or
+	None). An action without readable source still raises when it returns one."""
+	try:
+		tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+	except (OSError, TypeError, SyntaxError):  # no source (REPL, compiled), or a lambda's partial line
+		return
+	for node in ast.walk(tree):
+		if isinstance(node, ast.Call) and getattr(node.func, 'id', getattr(node.func, 'attr', None)) == 'ActionResult':
+			for kw in node.keywords:
+				if kw.arg is None:  # ActionResult(**fields)
+					continue
+				done = kw.arg == 'is_done' and not _empty_literal(kw.value)
+				# an empty list is the 0.x default spelled out: ActionResult drops it at runtime, so it runs
+				listed = kw.arg in ('attachments', 'images') and not _empty_literal(kw.value)
+				if done or listed:
+					raise TypeError(
+						removed(f'ActionResult({kw.arg}=...) in @tools.action {fn.__name__}()', REMOVED_FIELDS[kw.arg])
+					)
+
+
+def _empty_literal(node: ast.expr) -> bool:
+	"""None, False, 0, '' or an empty list/tuple/set/dict written as a literal: a value ActionResult drops as a default."""
+	if isinstance(node, ast.Constant):
+		return not node.value
+	if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+		return not node.elts
+	return isinstance(node, ast.Dict) and not node.keys
+
+
+TOOLS_REMOVED = {  # 0.x Tools(...) / Controller(...) arguments -> the 1.0 alternative
+	'exclude_actions': 'there are no built-in actions to exclude: the model acts in Python.',
+	'output_model': 'Agent(output_model_schema=...).',
+	'display_files_in_done_text': '',
+	# 0.1.x Controller took browser options
+	**dict.fromkeys(
+		('headless', 'keep_open', 'disable_security', 'cookies_path', 'browser_config'), 'pass options to Browser(...).'
+	),
+}
+TOOLS_METHODS_REMOVED = {  # 0.x Tools / Controller methods -> the 1.0 alternative
+	'act': 'the model calls the actions; there are no built-in ones to run.',
+	'exclude_action': 'there are no built-in actions to exclude: the model acts in Python.',
+	**dict.fromkeys(('get_output_model', 'use_structured_output_action'), 'Agent(output_model_schema=...).'),
+	'set_coordinate_clicking': 'the agent clicks with Python (click_at_xy, raw CDP).',
+}
+ACTION_REMOVED = {  # 0.x @registry.action(...) arguments -> the 1.0 alternative
+	'page_filter': 'Browser(allowed_domains=...) limits where the whole browser navigates.',
+	'requires_browser': 'actions get only the arguments the model passes; the model drives the browser itself in Python.',
+	'terminates_sequence': 'each step is one Python cell, so there is no action sequence to end: delete it.',
+}
+
+
+class Tools:
+	def __init__(self, **kwargs: Any) -> None:
+		if kwargs:
+			name = next(iter(kwargs))
+			if name not in TOOLS_REMOVED:
+				raise TypeError(f'Tools({name}=...) is not a browser-use 1.0 option; see MIGRATING.md.')
+			raise TypeError(removed(f'Tools({name}=...)', TOOLS_REMOVED[name]))
+		self.functions: list[Tool] = []
+
+	@property
+	def registry(self) -> Tools:  # 0.x: @controller.registry.action(...)
+		return self
+
+	def __getattr__(self, name: str) -> Any:
+		if name in TOOLS_METHODS_REMOVED:
+			raise AttributeError(removed(f'Tools.{name}()', TOOLS_METHODS_REMOVED[name]))
+		raise AttributeError(f'{type(self).__name__!r} object has no attribute {name!r}')
+
+	def action(
+		self,
+		description: str = '',
+		param_model: type[BaseModel] | None = None,
+		domains: list[str] | None = None,
+		allowed_domains: list[str] | None = None,
+		**kwargs: Any,
+	) -> Callable[[Callable], Callable]:
+		if callable(description):  # @tools.action without parentheses registered nothing
+			raise TypeError("Use @tools.action('what the action does') with parentheses; @tools.action alone registers nothing")
+		if domains or allowed_domains:
+			name = 'domains' if domains else 'allowed_domains'
+			raise TypeError(
+				removed(f'@tools.action({name}=...)', 'Browser(allowed_domains=...) limits where the whole browser navigates.')
+			)
+		if kwargs:
+			name = next(iter(kwargs))
+			if name in ACTION_REMOVED:
+				raise TypeError(removed(f'@tools.action({name}=...)', ACTION_REMOVED[name]))
+			raise TypeError(f'@tools.action({name}=...) is not a browser-use 1.0 option; see MIGRATING.md.')
+
+		def decorator(fn: Callable) -> Callable:
+			params = list(inspect.signature(fn).parameters)
+			injected = [p for p in params if p in INJECTED]
+			if injected:
+				raise TypeError(
+					removed(
+						f'Injecting {", ".join(injected)} into @tools.action {fn.__name__}()',
+						'actions get only the arguments the model passes; the model drives the browser itself in Python.',
+					)
+				)
+			if fn.__name__ in RESERVED:
+				raise ValueError(f'@tools.action: {fn.__name__!r} is a built-in tool name; rename the function')
+			if not TOOL_NAME.fullmatch(fn.__name__):  # a lambda ('<lambda>') failed only at the provider, with a 400
+				raise ValueError(
+					f'@tools.action: {fn.__name__!r} is not a valid tool name (letters, digits, _ and -, at most 64); use a '
+					'named function'
+				)
+			_check_done_results(fn)
+			if param_model is not None and params:  # 0.x: def action(params, ...) with param_model=Model; it wins
+				fn.__annotations__[params[0]] = param_model
+			guarded_fn = wrap_action_with_dacs(fn)
+			# 0.x kept actions by name: registering one again (a notebook cell run twice) replaces it
+			self.functions = [t for t in self.functions if t.name != fn.__name__]
+			self.functions.append(
+				Tool(guarded_fn, takes_ctx=False, name=fn.__name__, description=description or None, max_retries=TOOL_RETRIES)
+			)
+			return guarded_fn
+
+		return decorator
+
+
+Controller = Tools  # 0.x alias
+
+
+if not TYPE_CHECKING:  # pyright would accept any name imported from here
+	from browser_use.legacy import removed_names
+
+	__getattr__ = removed_names(__name__)  # from browser_use.tools import registry (0.x): the removed error naming Tools
