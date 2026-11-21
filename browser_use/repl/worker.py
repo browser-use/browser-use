@@ -538,6 +538,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		AGENT_TAB['id'] = raw_send({'meta': 'current_tab'})['targetId']
 		unmark()
 	cloud = os.environ.get('BU_REMOTE_BROWSER') == '1'
+	remote_files = cloud or os.environ.get('BU_LOCAL_BROWSER_FILES') != '1'
 	rules = DomainRules.from_json(os.environ.get('BU_DOMAINS'))
 	tabs_file = os.environ.get('BU_TABS_FILE')  # Browser('chrome') with domain restrictions
 
@@ -689,7 +690,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		if not object_id:
 			node = {k: params[k] for k in ('backendNodeId', 'nodeId') if k in params}
 			object_id = plain('DOM.resolveNode', session_id, **node)['object']['objectId']
-		return set_files(functools.partial(plain, session_id=session_id), object_id, params.get('files') or [], cloud)
+		return set_files(functools.partial(plain, session_id=session_id), object_id, params.get('files') or [], remote_files)
 
 	dialog_aware, cdp = cdp, functools.wraps(raw_cdp)(timed)
 	helpers.cdp = cdp  # capture_screenshot() and friends go through the wrapper too
@@ -907,7 +908,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		secret_names=secret_names,
 		solve_captcha=captcha.solve,
 	)
-	ns['upload_file'] = uploader(plain, lambda: cloud)
+	ns['upload_file'] = uploader(plain, lambda: remote_files)
 	bu = None
 	if os.environ.get('BU_MODE') != 'ultrafast':
 		# One reader of the daemon's events, so solver events are never lost; wait_for_network_idle() reads through it.

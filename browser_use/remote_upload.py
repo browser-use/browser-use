@@ -54,11 +54,10 @@ SET = """function (key, meta) {
 
 
 def set_files(cdp, object_id: str, path, remote: bool) -> int:
-	"""Set local file(s) on the file input object_id; returns how many it holds. A remote browser cannot read a local
-	path: Browser Use cloud rejects it ('Files must exist in the downloads directory'), another host's Chrome sets empty
-	or missing files. There, and whenever the input does not then hold files of the local sizes (Browser(cdp_url=) to a
-	remote host), the bytes go through the page, in parts (one browser-harness request takes at most 64 KiB), several
-	at a time. cdp(method, **params) runs on the element's session."""
+	"""Set client-side files on the input object_id; returns how many it holds. remote must be True unless the caller
+	knows the browser shares this filesystem: matching file sizes alone cannot establish that. Unknown/remote browsers
+	receive the client's bytes before any input/change event. Parts fit the 64 KiB transport limit, several at a time.
+	cdp(method, **params) runs on the element's session."""
 	import mimetypes
 
 	paths = local_paths(path)
@@ -76,7 +75,7 @@ def set_files(cdp, object_id: str, path, remote: bool) -> int:
 		return r.get('result', {}).get('value')
 
 	if not remote:
-		with contextlib.suppress(RuntimeError):  # rejected: a remote browser behind cdp_url
+		with contextlib.suppress(RuntimeError):
 			cdp('DOM.setFileInputFiles', objectId=object_id, files=paths)
 			if call(SIZES) == [os.path.getsize(p) for p in paths]:
 				return len(paths)
