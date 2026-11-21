@@ -37,7 +37,7 @@ Uses both SDK versions — v3 for sessions/messages, v2 for profiles (not on v3 
 ```typescript
 // api.ts
 import { BrowserUse as BrowserUseV3 } from "browser-use-sdk/v3";
-import { BrowserUse as BrowserUseV2 } from "browser-use-sdk";
+import { BrowserUse as BrowserUseV2 } from "browser-use-sdk/v2"; // SDK 4.0+; on 3.x import from "browser-use-sdk"
 
 const apiKey = process.env.NEXT_PUBLIC_BROWSER_USE_API_KEY ?? "";
 const v3 = new BrowserUseV3({ apiKey });

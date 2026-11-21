@@ -32,7 +32,7 @@ pip install browser-use-sdk
 ```
 
 ```python
-from browser_use_sdk import BrowserUse
+from browser_use_sdk.v2 import BrowserUse
 client = BrowserUse()  # Uses BROWSER_USE_API_KEY env var
 ```
 
@@ -43,7 +43,7 @@ npm install browser-use-sdk
 ```
 
 ```typescript
-import BrowserUse from 'browser-use-sdk';
+import { BrowserUse } from 'browser-use-sdk/v2';  // SDK 4.0+; on 3.x import from 'browser-use-sdk'
 const client = new BrowserUse();  // Uses BROWSER_USE_API_KEY env var
 ```
 
