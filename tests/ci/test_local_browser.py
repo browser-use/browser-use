@@ -883,6 +883,28 @@ def test_name_download_never_overwrites_and_keeps_the_file_in_its_dir(tmp_path):
 	assert name_download(tmp_path / 'gone', 'b.txt') is None and not (tmp_path / 'b.txt').exists()
 
 
+def test_a_download_name_this_platform_cannot_create_is_made_legal(tmp_path, monkeypatch):
+	"""A cloud browser lists a download that a page navigation started by its URL ('https://host/report.pdf?sig=abc',
+	see Browser.json_page_copies), and Browser.download_files names the local copy Path(path).name: 'report.pdf?sig=abc'.
+	Windows cannot create that name ('?' and '|' are illegal there, and 'Q3: summary.csv' is the data stream of 'Q3'),
+	so the copy raised OSError and only logged a warning: the file stayed on the remote host."""
+	from browser_use.utils import file_names
+
+	monkeypatch.setattr(sys, 'platform', 'win32')  # Windows' rules, checked on every runner
+	for name, expected in [
+		('report.pdf?sig=abc', 'report.pdf_sig=abc'),
+		('Q3: summary.csv', 'Q3_ summary.csv'),
+		('a|b.txt', 'a_b.txt'),
+		('nul.txt', '_nul.txt'),  # a device, not a file
+	]:
+		path = next(file_names(tmp_path, name))
+		path.write_bytes(b'body')  # OSError before the fix: the name was used as it came
+		assert path.parent == tmp_path and path.read_bytes() == b'body'
+		assert path.name == expected
+	monkeypatch.setattr(sys, 'platform', 'linux')  # POSIX accepts these names: keeping them is not a bug
+	assert next(file_names(tmp_path, 'report.pdf?sig=abc')).name == 'report.pdf?sig=abc'
+
+
 def test_name_download_without_hard_links_never_lets_two_downloads_take_one_name(tmp_path, monkeypatch):
 	"""Review: on a filesystem without hard links the fallback checked dest.exists() and then moved; a second download
 	of the same name landing in between was replaced (Unix rename overwrites)."""
