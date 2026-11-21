@@ -604,6 +604,16 @@ class Browser:
 			raise ValueError(f'cloud_timeout must be whole minutes from 1 to 240, not {cloud_timeout!r}')
 		if not isinstance(captcha_solver, bool):
 			raise TypeError(f'captcha_solver must be True or False, not {captcha_solver!r}')
+		# Same for the other flags: 'false' or 'no' is truthy, so headless='false' launched headless, keep_alive='false'
+		# left a billed cloud browser running and block_ip_addresses='false' blocked IP URLs
+		for option, value, nullable in (
+			('headless', headless, True),
+			('live_view', live_view, True),
+			('keep_alive', keep_alive, False),
+			('block_ip_addresses', block_ip_addresses, False),
+		):
+			if not isinstance(value, bool) and not (nullable and value is None):
+				raise TypeError(f'{option} must be True or False{" (or None)" if nullable else ""}, not {value!r}')
 		if os.environ.get('BROWSER_USE_ALLOWED_DOMAINS', '').strip():  # silently ignored, the browser went anywhere
 			raise RuntimeError(
 				removed(
