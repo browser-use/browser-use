@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from functools import wraps
-from typing import Any, Callable
+from typing import Any
 
 
 class DacsMandateViolationError(PermissionError):
@@ -97,7 +98,7 @@ def enforce_dacs_preflight(ctx: DacsExecutionContext | None) -> None:
 
 def build_dacs4_receipt(action_name: str, ctx: DacsExecutionContext, status: str) -> dict[str, Any]:
 	"""Generates a deterministic DACS-4 (§14.4) post-execution state attestation receipt."""
-	ts = datetime.now(timezone.utc).isoformat()
+	ts = datetime.now(UTC).isoformat()
 	payload = json.dumps(
 		{
 			'spec': 'DACS-4/1.0',
