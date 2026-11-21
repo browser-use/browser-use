@@ -1235,6 +1235,32 @@ def test_mcp_with_allowed_domains_refuses_a_blocked_url_in_so_many_words():
 		assert failed and 'blocked: blocked.example.org is not in allowed_domains' in out, out
 
 
+def test_mcp_attaches_to_an_existing_cdp_browser(chrome, monkeypatch, no_local_chrome):
+	"""The MCP server can reach an existing tab through the explicit CDP endpoint."""
+	import json
+	import urllib.parse
+
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+
+	name = f'butestmcpcdp{os.getpid()}'
+	monkeypatch.setenv('BU_CDP_URL', chrome['http'])
+	monkeypatch.delenv('BU_CDP_WS', raising=False)
+	monkeypatch.setattr(admin, 'NAME', name)
+	monkeypatch.setattr(helpers, 'NAME', name)
+	url = 'data:text/html,<title>Existing MCP tab</title>'
+	request = urllib.request.Request(f'{chrome["http"]}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT')
+	with urllib.request.urlopen(request, timeout=10) as response:
+		target = json.load(response)['id']
+	try:
+		mcp = cli_mcp.CLIMCPServer()
+		output, failed = mcp._execute(f"switch_tab({target!r}); print(js('document.title'))")
+		assert not failed and output.strip() == 'Existing MCP tab', output
+	finally:
+		admin.restart_daemon(name)
+
+
 def test_mcp_with_allowed_domains_has_no_cloud_browser_to_escape_them(monkeypatch):
 	"""Fable 1.0.0: a cloud browser has no domain Guard, so start_remote_daemon() under --mcp's allowed_domains let raw
 	cdp/js navigations, clicks and redirects open any site."""
