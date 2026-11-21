@@ -25,6 +25,8 @@ from typing import Any
 from urllib.parse import quote, quote_plus
 
 from browser_use.domains import parse_url
+from browser_use.repl import antibot
+from browser_use.repl.antibot import Block
 
 MAX_KEYS = 50  # per map or list: a run that visits 10k hosts sends the 50 most frequent
 MAX_NAME = 64  # characters per name
@@ -32,6 +34,7 @@ MAX_URLS, MAX_URL = 50, 200  # per run, characters per URL
 MAX_ERRORS, MAX_ERROR = 20, 300  # per run, characters per error message
 MAX_RESULT = 500  # characters of the final result
 MAX_GOTCHAS = 5  # the judge's gotchas per run (as judge.MAX_GOTCHAS)
+MAX_VISITS = 200  # challenged or walled visits kept per run
 CLI_CONTENT = ('task', 'output', 'steps')  # browser-harness cli_event fields that carry the code or its output
 
 
@@ -577,6 +580,8 @@ class RunStats:
 	urls: list[str] = field(default_factory=list)  # page_url of each page visited, in order, once, MAX_URLS at most
 	error_messages: list[str] = field(default_factory=list)  # 'Class: message' of failed cells, once, MAX_ERRORS at most
 	typed: list[str] = field(default_factory=list)  # text the agent typed, MAX_URLS at most; never sent (scrub's <typed>)
+	visits: dict[str, dict] = field(default_factory=dict)  # anti-bot verdict of each challenged or walled visit, by id
+	antibot_seen: Counter = field(default_factory=Counter)  # vendor -> visits whose headers showed it (presence only)
 
 	def add_cell(self, result: dict, code: str, seconds: float) -> None:
 		self.cells += 1
@@ -604,6 +609,15 @@ class RunStats:
 		self.events.update(s.get('events') or {})
 		self.nav_errors.update(s.get('nav_errors') or {})
 		self.navigations += int(s.get('navigations') or 0)
+		found = s.get('blocks') or {}
+		for r in found.get('visits') or ():  # a later verdict of the same visit replaces the earlier (stuck, then passed)
+			if isinstance(r, dict) and (r.get('id') in self.visits or len(self.visits) < MAX_VISITS):
+				self.visits[str(r.get('id'))] = r
+		self.antibot_seen.update(found.get('seen') or {})
+
+	def blocks(self) -> list[Block]:
+		"""Pages anti-bots left walled, by vendor and host (AgentHistoryList.blocks)."""
+		return antibot.blocks(self.visits)
 
 	@property
 	def imports(self) -> Counter:

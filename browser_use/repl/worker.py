@@ -35,12 +35,14 @@ import traceback
 import urllib.parse
 import urllib.request
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 
 from browser_use import ax
 from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
 from browser_use.remote_upload import set_files, uploader
+from browser_use.repl.antibot import BlockLog
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.capture import CDP_TIMEOUT_S, SCREENSHOT_TIMEOUT_S, capture
 from browser_use.repl.highlight import Highlighter
@@ -312,6 +314,7 @@ def _log_download(record: dict) -> None:
 
 
 stats = CellStats()
+blocks = BlockLog()  # anti-bot walls of the agent's pages, probed at each cell's end (antibot.py)
 # The tab the agent works in. A daemon browser-use started again (Browser.reattach) attaches a new blank tab of its own;
 # the next cell attaches this one again, page and form state intact, and closes that blank tab.
 AGENT_TAB: dict = {'id': None, 'lost': False}
@@ -491,7 +494,7 @@ EDITABLE = """function () {
 }"""
 
 
-def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
+def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha, Callable[[], None]]:
 	env = dict(os.environ)  # the allowlisted env the parent gave us
 	from browser_harness import helpers  # loads .env files and agent_helpers.py into this process
 
@@ -522,6 +525,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			unmark()
 		if isinstance(req, dict) and req.get('meta') == 'drain_events' and isinstance(r, dict):
 			stats.observe(r.get('events'))
+			blocks.observe(r.get('events'))
 		return r
 
 	def unmark() -> None:
@@ -935,7 +939,14 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		if name not in ('cdp', 'print') and not name.startswith('_') and inspect.isroutine(value):
 			if getattr(value, '__module__', None) in own:
 				ns[name] = _counted(name, value)
-	return bu, captcha
+
+	def probe_blocks() -> None:
+		"""Read the agent's page for an anti-bot wall: a tab of the user's only once the agent navigated, never under a
+		dialog (DOM calls wait for it)."""
+		if (os.environ.get('BU_OWN_BROWSER') == '1' or stats.navigated) and not pending_dialog('Runtime.evaluate', None):
+			blocks.probe(plain)
+
+	return bu, captcha, probe_blocks
 
 
 def _ask_parent(rfile, wfile):
@@ -1152,7 +1163,7 @@ def main() -> None:
 	sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	_redact_between_cells(secrets)  # after reconfigure(): it seeks, which a pipe refuses
 	ns: dict = {'__name__': '__main__', '__bu_display': _display}
-	bu, captcha = _install(ns, secrets)
+	bu, captcha, probe_blocks = _install(ns, secrets)
 	ask = _ask_parent(rfile, wfile)
 	if init.get('search'):
 		ns['search'] = _counted('search', _search(ask))
@@ -1209,6 +1220,8 @@ def main() -> None:
 				print(notice)
 			with contextlib.suppress(Exception):  # local: nothing else reads the daemon's events between cells
 				captcha.pump()
+			with contextlib.suppress(Exception):  # after the pump: the probe reads the documents it brought
+				probe_blocks()
 			with stats.lock:
 				started, stats.started = stats.started, []
 			if started:  # 0.x told the model too; buried in drain_events() output, it clicked again ('x (1).csv')
@@ -1225,6 +1238,7 @@ def main() -> None:
 		output = clip(raw, out_path)
 		cell_stats = stats.take()
 		cell_stats['cut'] = len(raw) > MAX_OUTPUT_CHARS
+		cell_stats['blocks'] = blocks.take()
 		send(
 			{
 				'type': 'result',
