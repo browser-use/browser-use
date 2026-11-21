@@ -389,6 +389,19 @@ def test_executable_path_that_is_not_a_file_raises(tmp_path):
 		_local.find_binary(str(tmp_path / 'no-chrome'))
 
 
+@pytest.mark.parametrize('source', ['argument', 'BH_CHROME_PATH', 'CHROME_PATH'])
+def test_relative_executable_path_is_resolved(fake_chrome, tmp_path, monkeypatch, source):
+	binary = Path(fake_chrome('ok'))
+	monkeypatch.chdir(tmp_path)
+	relative = f'./{binary.name}'
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	if source != 'argument':
+		monkeypatch.setenv(source, relative)
+	found = _local.find_binary(relative if source == 'argument' else None)
+	assert found == str(binary)
+
+
 def test_a_bh_chrome_path_that_is_not_a_file_warns(tmp_path, monkeypatch, caplog):
 	"""Low: BH_CHROME_PATH=/nonexistent silently fell back to the installed Chrome."""
 	import logging
@@ -426,6 +439,20 @@ def test_playwright_chromium_from_browser_use_install_is_found_last(tmp_path, mo
 	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', str(tmp_path / 'none'))
 	with pytest.raises(RuntimeError, match=r'No Chrome, Chromium or Edge found .*run `browser-use install`'):
 		_local.find_binary()  # rc5 local-2: the library error names the documented fix, not only `browser-use doctor`
+
+
+def test_relative_playwright_browsers_path_is_resolved(tmp_path, monkeypatch):
+	monkeypatch.setattr(sys, 'platform', 'linux')
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', 'pw')
+	binary = tmp_path / 'pw' / 'chromium-1248' / 'chrome-linux64' / 'chrome'
+	binary.parent.mkdir(parents=True)
+	binary.write_text('')
+	monkeypatch.chdir(tmp_path)
+	assert _local.playwright_chromium() == [str(binary)]
+	assert _local.find_binary() == str(binary)
 
 
 def test_a_file_named_like_a_browser_in_the_working_directory_is_never_launched(tmp_path, monkeypatch):
