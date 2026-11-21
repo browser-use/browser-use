@@ -705,12 +705,12 @@ def test_a_failed_cli_command_sends_its_error_message(monkeypatch, sent):
 	(props,) = sent
 	assert (props['command'], props['action'], props['exit_code']) == ('update', 'error', 2)
 	from browser_use.telemetry.stats import MAX_ERROR, scrub
-	from browser_use.update_check import upgrade_command
+	from browser_use.update_check import upgrade_command_for_shell
 
 	assert (
 		props['error_message']
 		# the event scrubs the message (scrub_cli_event), so the home folder reads as /home/<user>
-		== scrub(f'browser-use does not update itself: {upgrade_command()}.', [], MAX_ERROR)
+		== scrub(f'browser-use does not update itself: {upgrade_command_for_shell()}.', [], MAX_ERROR)
 	)
 
 
