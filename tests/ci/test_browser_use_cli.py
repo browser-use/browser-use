@@ -220,7 +220,7 @@ def test_update_message_is_a_copyable_shell_command(monkeypatch, capsys):
 	assert 'uvx browser-use@latest' in err
 
 
-def test_0x_agent_task_commands_point_to_agent():():
+def test_0x_agent_task_commands_point_to_agent():
 	"""C51: `run`, `-p` and `--prompt` started an agent task in 0.x; they said 'changed in 3.0' or printed harness usage."""
 	import browser_use.cli as browser_use_cli
 
