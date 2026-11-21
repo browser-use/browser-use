@@ -66,7 +66,7 @@ def _install_browser_use_tool() -> None:
 	# Run from the uv tool itself, this version is the installed tool: --force would delete the env this process runs
 	# from. On Windows the running exe is locked, so uv got halfway and left no browser_use module (win-cli-2).
 	# A failed probe could be that tool too: never --force it unchecked
-	probe = subprocess.run([uv, 'tool', 'dir'], capture_output=True, text=True)
+	probe = subprocess.run([uv, 'tool', 'dir'], capture_output=True, text=True, encoding='utf-8')
 	tool_dir = probe.stdout.strip()
 	if probe.returncode != 0 or not tool_dir:
 		raise RuntimeError('Cannot tell where uv keeps its tools (`uv tool dir` failed); rerun without --install-cli.')
