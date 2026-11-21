@@ -1242,9 +1242,13 @@ class Browser:
 						continue
 					if guid not in known and not stopping:
 						continue  # the begin event's suggested name has not been recorded yet
-					downloads.mkdir(parents=True, exist_ok=True)
-					if publish_download(path, known.get(guid), downloads) is not None:
-						self._published_downloads.add(guid)
+					try:
+						downloads.mkdir(parents=True, exist_ok=True)
+						if publish_download(path, known.get(guid), downloads) is not None:
+							self._published_downloads.add(guid)
+					except OSError as e:
+						# A previous workspace may be read-only; keep its staged bytes for a later retry.
+						logger.debug('Could not publish local download %s: %s', guid, e)
 			return set(self._published_downloads)
 
 	async def list_downloads(self) -> list[dict]:

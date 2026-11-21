@@ -102,3 +102,57 @@ async def test_downloads_publish_only_after_final_naming(tmp_path, monkeypatch, 
 	assert not (staging / guid).exists()
 	worker.CellStats().observe([begin, done])  # delayed/repeated events never rename a published path or add a suffix
 	assert await browser.list_downloads() == sorted([*before, {'name': expected, 'size': 6}], key=lambda f: f['name'])
+
+
+@pytest.mark.parametrize('failure', ['mkdir', 'publish'])
+async def test_unwritable_old_workspace_does_not_block_current_downloads(tmp_path, monkeypatch, failure):
+	first, current = tmp_path / 'first', tmp_path / 'current'
+	for workspace, guid, content in ((first, 'first-guid', b'first'), (current, 'current-guid', b'current')):
+		staging = workspace / '.browser-use' / 'downloads'
+		staging.mkdir(parents=True)
+		(workspace / 'downloads').mkdir()
+		(staging / guid).write_bytes(content)
+		(workspace / '.browser-use' / 'downloads.jsonl').write_text(
+			f'{{"guid":"{guid}","name":"report.txt"}}\n{{"done":"{guid}","state":"completed"}}\n', encoding='utf-8'
+		)
+	browser = Browser('chromium')
+	browser._local = local.LocalBrowser()
+	browser.note_downloads(first / '.browser-use' / 'downloads.jsonl')
+	browser._downloads_dir = current / 'downloads'
+	blocked = True
+	if failure == 'mkdir':
+		(first / 'downloads').rmdir()
+		mkdir = Path.mkdir
+
+		def create(path, *args, **kwargs):
+			if blocked and path == first / 'downloads':
+				raise PermissionError('old workspace is read-only')
+			return mkdir(path, *args, **kwargs)
+
+		monkeypatch.setattr(Path, 'mkdir', create)
+	else:
+		link, open_file = utils.os.link, utils.os.open
+
+		def denied(path):
+			if blocked and Path(path).parent == first / 'downloads':
+				raise PermissionError('old workspace is read-only')
+
+		def claim(source, destination, *args, **kwargs):
+			denied(destination)
+			return link(source, destination, *args, **kwargs)
+
+		def create_file(path, *args, **kwargs):
+			denied(path)
+			return open_file(path, *args, **kwargs)
+
+		monkeypatch.setattr(utils.os, 'link', claim)
+		monkeypatch.setattr(utils.os, 'open', create_file)
+	assert await browser.list_downloads() == [{'name': 'report.txt', 'size': 7}]
+	assert (current / 'downloads' / 'report.txt').read_bytes() == b'current'
+	assert (first / '.browser-use' / 'downloads' / 'first-guid').read_bytes() == b'first'
+	assert 'first-guid' not in browser._published_downloads
+	blocked = False
+	assert await browser.list_downloads() == [{'name': 'report.txt', 'size': 7}]
+	assert (first / 'downloads' / 'report.txt').read_bytes() == b'first'
+	assert not (first / '.browser-use' / 'downloads' / 'first-guid').exists()
+	assert [path.name for path in (current / 'downloads').iterdir()] == ['report.txt']
