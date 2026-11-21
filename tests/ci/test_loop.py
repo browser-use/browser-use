@@ -1234,3 +1234,49 @@ async def test_a_none_delivered_for_a_nullable_schema_is_the_result(tmp_path):
 	result = await run(build_agent(model, output_type=_Authors | None), 'task', session, 'function:x')
 	assert (len(seen), result.status, result.output, result.text, result.success) == (3, 'completed', None, 'null', False)
 	assert result.partial == {'authors': ['partial']}  # still there to read, never the result
+
+
+async def test_markdown_links_decode_workspace_files_and_reject_paths_outside_workspace(tmp_path):
+	workspace = tmp_path / 'work space'
+	(workspace / 'downloads').mkdir(parents=True)
+	(workspace / 'downloads' / 'report (1).csv').write_text('a\n1\n')
+	(workspace / 'downloads' / 'report((1)).csv').write_text('a\n1\n')
+	(workspace / '%2e%2e').mkdir()
+	(workspace / '%2e%2e' / 'outside.csv').write_text(' decoy\n')
+	(workspace / 'page.html').write_text('<h1>ok</h1>')
+	outside = tmp_path / 'outside.csv'
+	outside.write_text('a\n1\n')
+
+	valid = (
+		'Saved [dup](report%20%281%29.csv), [parens](report%20(1).csv), [escaped-parens](report%20\\(1\\).csv), '
+		'[nested](report((1)).csv), [angle](<report (1).csv>), [angle-titled](<report (1).csv> "Summary"), '
+		f'[query](page.html?tab=1#top), [titled](page.html "Summary") and [abs](<{(workspace / "page.html").as_posix()}>).'
+	)
+	model, seen = script(('finish', {'result': valid, 'success': True}))
+	result = await run(build_agent(model), 'task', Session(repl=FakeRepl(workspace)), 'function:x')
+	assert (len(seen), result.status, result.output) == (1, 'completed', valid)
+
+	class _Summary(BaseModel):
+		body: str
+
+	model, seen = script(('finish', {'result': {'body': valid}, 'success': True}))
+	result = await run(build_agent(model, output_type=_Summary), 'task', Session(repl=FakeRepl(workspace)), 'function:x')
+	assert (len(seen), result.status, result.output) == (1, 'completed', _Summary(body=valid))
+
+	for bad in (
+		'Saved [escaped](../outside.csv)',
+		'Saved [backslash-escaped](\\..\\../outside.csv)',
+		'Saved [encoded-escaped](%2e%2e/outside.csv)',
+		'Saved `../outside.csv`',
+		f'Saved [abs](<{outside.as_posix()}>)',
+		'Saved [angle](<missing (1).csv>)',
+		'Saved [angle-titled](<missing.csv> "Summary")',
+		'Saved [nested](missing((1)).csv)',
+		'Saved [escaped-parens](missing\\(1\\).csv)',
+		'Saved [parens](missing%20(1).csv)',
+		'Saved [titled](missing.csv "Summary")',
+	):
+		model, seen = script(('finish', {'result': bad, 'success': True}), ('finish', {'result': 'fixed', 'success': True}))
+		result = await run(build_agent(model), 'task', Session(repl=FakeRepl(workspace)), 'function:x')
+		assert (len(seen), result.status, result.output) == (2, 'completed', 'fixed'), bad
+		assert 'do not exist in the workspace' in str(seen[1][-1].parts), bad

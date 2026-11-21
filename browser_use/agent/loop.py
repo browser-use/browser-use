@@ -18,7 +18,9 @@ import uuid
 from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Annotated, Any, cast
+from urllib.parse import unquote
 
 import httpx2
 from genai_prices import calc_price
@@ -120,7 +122,8 @@ STREAM_TIMEOUT_S = 930
 GATEWAY_MAX_TOKENS = 16_384
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
-LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
+MD_ESCAPE = re.compile(r'\\([!"#$%&\'()*+,\-./:;<=>?@\[\\\]^_`{|}~])')
+NON_FILE_LINK = re.compile(r'^(?:[a-z][\w+.-]*:(?![\\/])|[a-z][\w+.-]+:|[#?]|//)', re.I)
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
 
 
@@ -249,6 +252,107 @@ def check_split_delivery(ctx: RunContext[Session]) -> None:
 	)
 
 
+def _strings(v: Any) -> list[str]:
+	if isinstance(v, str):
+		return [v]
+	if isinstance(v, dict):
+		return [s for x in v.values() for s in _strings(x)]
+	if isinstance(v, list):
+		return [s for x in v for s in _strings(x)]
+	return []
+
+
+def _markdown_links(text: str) -> list[str]:
+	links: list[str] = []
+	i, n = 0, len(text)
+	while (pos := text.find('](', i)) != -1:
+		j = pos + 2
+		while j < n and text[j] in ' \t\r\n':
+			j += 1
+		if j >= n:
+			break
+		if text[j] == '<':
+			k = j + 1
+			while k < n and text[k] not in '><\r\n':
+				k += 2 if text[k] == '\\' and k + 1 < n else 1
+			if k >= n or text[k] != '>' or k == j + 1:
+				i = pos + 2
+				continue
+			dest, k = text[j + 1 : k], k + 1
+		else:
+			k, depth = j, 0
+			while k < n:
+				ch = text[k]
+				if ch == '\\' and k + 1 < n:
+					k += 2
+				elif ch.isspace() or ord(ch) < 0x20:
+					break
+				elif ch == '(':
+					depth += 1
+					if depth > 32:
+						break
+					k += 1
+				elif ch == ')':
+					if depth == 0:
+						break
+					depth -= 1
+					k += 1
+				else:
+					k += 1
+			if depth != 0 or k == j:
+				i = pos + 2
+				continue
+			dest = text[j:k]
+		ws = k
+		while k < n and text[k] in ' \t\r\n':
+			k += 1
+		if k < n and text[k] != ')':
+			if k == ws or text[k] not in '"\'(':
+				i = pos + 2
+				continue
+			end_ch = ')' if text[k] == '(' else text[k]
+			k += 1
+			while k < n and text[k] != end_ch:
+				if end_ch == ')' and text[k] == '(':
+					break
+				k += 2 if text[k] == '\\' and k + 1 < n else 1
+			if k >= n or text[k] != end_ch:
+				i = pos + 2
+				continue
+			k += 1
+			while k < n and text[k] in ' \t\r\n':
+				k += 1
+		if k >= n or text[k] != ')':
+			i = pos + 2
+			continue
+		links.append(MD_ESCAPE.sub(r'\1', dest))
+		i = k + 1
+	return links
+
+
+def _in_workspace(workspace: Path, target: str, *, unquote_url: bool) -> bool:
+	base = target.split('#', 1)[0].split('?', 1)[0] if unquote_url else target
+	decoded = unquote(base) if unquote_url else base
+	if not decoded:
+		return False
+	try:
+		ws_root = workspace.resolve()
+		if not (workspace / decoded).resolve().is_relative_to(ws_root):
+			return False
+	except (OSError, RuntimeError, ValueError):
+		return False
+	candidates = (decoded, base) if unquote_url and base != decoded else (decoded,)
+	for name in candidates:
+		for folder in (workspace, workspace / 'downloads'):
+			try:
+				root, resolved = folder.resolve(), (folder / name).resolve()
+			except (OSError, RuntimeError, ValueError):
+				continue
+			if resolved.is_relative_to(root) and resolved.exists():
+				return True
+	return False
+
+
 def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	"""One-shot repair: a placeholder or links to unwritten files. Not on the run's last request (the repair after the
 	delivery-only turn): nothing can follow it, and the refused result was lost (status max_steps, ''). There the
@@ -258,18 +362,20 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	if s.checked_delivery:
 		return
 	problem = None  # (what is wrong, the retry's stats cause)
+	is_str = isinstance(value, str)
+	data = None if is_str else json.loads(text)
 	# '...', '' (a one-character answer like '7' is fine); a structured result with no value in it: Sonnet 5.5 sent
 	# finish({"authors": []}, success=False) with 34 authors in the REPL
-	if not re.search(r'[^\W_]', text) or (not isinstance(value, str) and _holds_nothing(json.loads(text))):
+	if not re.search(r'[^\W_]', text) or (not is_str and _holds_nothing(data)):
 		problem = (f'The result {text[:20]!r} is a placeholder, not the answer.', 'delivery_placeholder')
 	else:
+		haystack = text if is_str else '\n'.join(_strings(data))
+		targets = [(t, True) for t in _markdown_links(haystack)] + [(f, False) for f in FILE.findall(haystack)]
 		missing = sorted(
 			{
 				t
-				for t in LINK.findall(text) + FILE.findall(text)
-				if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
-				# downloads land in workspace/downloads; an answer names them by file name
-				and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
+				for t, is_link in targets
+				if not NON_FILE_LINK.match(t) and not _in_workspace(s.repl.workspace, t, unquote_url=is_link)
 			}
 		)
 		if missing:
