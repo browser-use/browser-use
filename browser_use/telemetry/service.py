@@ -607,12 +607,22 @@ class ProductTelemetry:
 			if not files:
 				return
 			kw: dict[str, Any] = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
+			executable = sys.executable
 			if sys.platform == 'win32':
-				kw['creationflags'] = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
+				pythonw = Path(sys.executable).with_name('pythonw.exe')
+				if pythonw.is_file():
+					executable = str(pythonw)
+				startupinfo = subprocess.STARTUPINFO()
+				startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+				startupinfo.wShowWindow = 0  # SW_HIDE
+				kw['startupinfo'] = startupinfo
+				# Windows ignores CREATE_NO_WINDOW when DETACHED_PROCESS (0x8) is set.
+				# Keep NEW_PROCESS_GROUP and NO_WINDOW so the console window is suppressed (#6474).
+				kw['creationflags'] = 0x00000200 | 0x08000000  # NEW_PROCESS_GROUP, NO_WINDOW
 			else:
 				kw['start_new_session'] = True
 			try:
-				subprocess.Popen([sys.executable, '-I', '-c', EXIT_SENDER, f'{POSTHOG_HOST}/batch/', *files], **kw)
+				subprocess.Popen([executable, '-I', '-c', EXIT_SENDER, f'{POSTHOG_HOST}/batch/', *files], **kw)
 			except Exception:  # no subprocesses here: the outbox's files wait for the next process; a temp file would stay
 				for f in files:  # forever, with the feedback's text in it
 					if f.startswith('!'):
