@@ -163,7 +163,7 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			raise FileNotFoundError(f'executable_path={executable_path!r} is not a file')
 		if is_snap(str(Path(executable_path).expanduser())):
 			raise RuntimeError(_snap_error(executable_path))
-		return str(Path(executable_path).expanduser())
+		return str(Path(executable_path).expanduser().absolute())
 	tried = [p for k in ('BH_CHROME_PATH', 'CHROME_PATH') if (p := (os.environ.get(k) or '').strip())]
 	for path in tried:  # it silently fell back to another browser
 		if not Path(path).expanduser().is_file():
@@ -193,7 +193,7 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			if is_snap(str(Path(path).expanduser())):
 				snaps.append(path)
 				continue
-			return str(Path(path).expanduser())
+			return str(Path(path).expanduser().absolute())
 	if snaps:
 		raise RuntimeError(_snap_error(snaps[0]))
 	tried += [f'{n} on PATH' for n in on_path]
@@ -219,7 +219,7 @@ def playwright_chromium() -> list[str]:
 		else:
 			root = str(Path.home() / '.cache/ms-playwright')
 	builds = sorted(
-		Path(root).expanduser().glob('chromium-*'),
+		Path(root).expanduser().absolute().glob('chromium-*'),
 		key=lambda p: int(p.name.split('-')[-1]) if p.name.split('-')[-1].isdigit() else -1,
 		reverse=True,
 	)
