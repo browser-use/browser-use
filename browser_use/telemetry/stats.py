@@ -361,11 +361,14 @@ def provider_name(provider: Any) -> str:
 
 def judged(judgement: dict | None, cost: float | None, clean: Callable[[str], str | None]) -> dict | None:
 	"""The judge's whole answer as agent_event sends it: its text fields scrubbed (clean, as error messages), at most
-	MAX_GOTCHAS gotchas, and what the judge cost. None when the run was not judged."""
+	MAX_GOTCHAS gotchas, blocked_by's host only when it is a DNS name or an IP (host), and what the judge cost. None
+	when the run was not judged."""
 	if judgement is None:
 		return None
+	blocked = judgement.get('blocked_by')
 	return {
 		**judgement,
+		'blocked_by': {**blocked, 'host': host(f'https://{blocked["host"]}')} if blocked else None,
 		'failure_reason': clean(judgement['failure_reason']) if judgement['failure_reason'] else None,
 		'description': clean(judgement['description']) or '',
 		'gotchas': [g for g in (clean(g) for g in judgement['gotchas'][:MAX_GOTCHAS]) if g],

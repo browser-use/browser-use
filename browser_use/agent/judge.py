@@ -6,10 +6,12 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, ValidatorFunctionWrapHandler, field_validator
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_ai import Agent, BinaryContent, capture_run_messages
 from pydantic_ai.direct import model_request
 from pydantic_ai.exceptions import ModelHTTPError
@@ -26,11 +28,13 @@ from pydantic_ai.models.openai import OpenAIResponsesModel
 
 from browser_use.agent.loop import StreamedRequest, _is_image, _plain, as_text, reasoning_supported
 from browser_use.repl import redact
+from browser_use.repl.antibot import NAMES, WALLS, host_of, site
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentHistoryList
+	from browser_use.repl.antibot import Block
 
-__all__ = ['JUDGE_PROMPT', 'Judgement', 'judge_cached', 'judge_run']
+__all__ = ['JUDGE_PROMPT', 'BlockedBy', 'Judgement', 'judge_cached', 'judge_run']
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +57,14 @@ JUDGE_PROMPT = (
 	'Distinguish website responses from model, tool, and environment errors. '
 	'Return an empty list when the trace supports no clear lesson. '
 	"Never write emails, names, personal or account data, credentials, secrets, or the task's own values in your answer. "
-	'URLs are fine.'
+	'URLs are fine.\n\n'
+	'Anti-bot walls: a rate limit here is always the website\'s own (HTTP 429, a "too many requests" page), never the '
+	"model provider's or LLM API's rate limit, quota or overload error: those are environment errors, not bot blocks. "
+	"When <detected_blocks> is given, it lists the pages the browser's deterministic anti-bot detector saw walled, from "
+	'HTTP status, headers and page markers: take it as fact for which vendor walled which host, and decide yourself '
+	'whether a wall is why the task failed. Set blocked_by only then, with the vendor and host of that '
+	'<detected_blocks> line. A wall it does not list counts only when the trace or screenshots clearly show it; its '
+	'vendor is unknown unless the page names it. Never guess a vendor.'
 )
 MAX_TRACE_CHARS = 120_000  # as the Browser Use Cloud judge; past it the middle of the trace is cut
 MAX_PART_CHARS = 5_000  # one tool result or argument, the error, the final result
@@ -62,8 +73,34 @@ MAX_GOTCHAS = 5
 MAX_SCREENSHOTS = 4  # the last distinct ones of the run (the Browser Use Cloud judge keeps 20)
 FINAL_SCREENSHOT_TIMEOUT_S = 10  # the whole capture; past it the judge goes without the final page
 JUDGE_TIMEOUT_S = 180
+MAX_BLOCKS = 10  # <detected_blocks> lines, most visits first
+VENDORS = (*NAMES, 'unknown')
+VENDOR_OF = {k: v for name, display in NAMES.items() for k, v in ((name, name), (display.lower(), name))}
+# <detected_blocks> carries only these shapes: a cloud browser's blockDetected strings arrive unchecked
+VENDOR_ID = re.compile(r'[a-z0-9_]{1,32}')
+HOST_NAME = re.compile(r'[a-z0-9.:_-]{1,253}')  # urlsplit().hostname of a URL Chrome loaded; ':' for IPv6
+CHALLENGES = ('interstitial', 'captcha')
 EFFORT_KEYS = ('thinking', 'openai_reasoning_effort')
 DROPPED = ('tool_choice', 'parallel_tool_calls', 'cache', 'openai_context_management', 'request_timeout', 'first_event_timeout')
+
+
+class BlockedBy(BaseModel):
+	"""The anti-bot wall the run failed on."""
+
+	# The judge names vendor and host; ground() checks them against the detector: source 'detector' (vendor and visits
+	# from result.blocks) or 'judge' (no detector evidence). The docstring above is the schema the model reads.
+
+	vendor: str = Field(description=f'One of: {", ".join(VENDORS)}. As in <detected_blocks>; unknown unless the page names it.')
+	host: str = Field(description='The walled host, as in <detected_blocks> or the URL.')
+	source: SkipJsonSchema[Literal['detector', 'judge']] = 'judge'  # set by ground(), never by the model
+	visits: SkipJsonSchema[int] = 0  # the detector's visits to that host; 0 without detector evidence
+
+	def __str__(self) -> str:
+		if self.source == 'judge':
+			return f'blocked by {NAMES.get(self.vendor, "a bot check")} on {self.host} (seen by the judge, not the detector)'
+		return (
+			f'blocked by {NAMES.get(self.vendor, "an anti-bot")} on {self.host} ({self.visits} visit{"s" * (self.visits != 1)})'
+		)
 
 
 class Judgement(BaseModel):
@@ -74,12 +111,27 @@ class Judgement(BaseModel):
 	description: str = Field(description='What the agent did and what came of it, in 1-3 sentences.')
 	prompt_injection_detected: bool = Field(description='A page, file or tool result tried to instruct the agent.')
 	bot_block_or_captcha_detected: bool = Field(
-		description='The agent met a CAPTCHA, a bot check, an access block or a rate limit (stealth issues).'
+		description="The agent met a CAPTCHA, a bot check, an access block or the website's rate limit (stealth issues); "
+		"not the model provider's rate limit."
+	)
+	blocked_by: BlockedBy | None = Field(
+		default=None,
+		description="The anti-bot wall (CAPTCHA, bot check, access block, the website's rate limit) the task failed on; "
+		'null on success or when the run failed for another reason.',
 	)
 	gotchas: list[str] = Field(
 		default_factory=list,
 		description='Lessons from observed website, agent, tool or environment behavior; no guesses or untested fixes. May be empty.',
 	)
+
+	@field_validator('blocked_by', mode='wrap')
+	@classmethod
+	def _malformed_is_none(cls, value: Any, handler: ValidatorFunctionWrapHandler) -> BlockedBy | None:
+		# no output retry: a blocked_by that does not fit (no host, a string) must not cost the run its verdict
+		try:
+			return handler(value)
+		except ValidationError:
+			return None
 
 	@field_validator('gotchas')
 	@classmethod
@@ -128,6 +180,22 @@ def screenshots(messages: list[ModelMessage], final: BinaryContent | None = None
 	return shots[:MAX_SCREENSHOTS][::-1]
 
 
+def detected(blocks: list[Block]) -> str:
+	"""result.blocks as the judge reads them, one line per vendor, host and outcome, only well-formed ones (a cloud
+	browser's blockDetected strings arrive unchecked); '' when there is none."""
+	shown = [b for b in blocks if HOST_NAME.fullmatch(b.host.lower()) and b.outcome in WALLS]
+	lines = []
+	for b in shown[:MAX_BLOCKS]:
+		vendor = b.vendor.lower() if VENDOR_ID.fullmatch(b.vendor.lower()) else 'unknown'
+		challenge = [b.challenge] if b.challenge in CHALLENGES else []
+		signal = ', '.join([*(f'HTTP {s}' for s in b.statuses), *challenge]) or 'page markers'
+		lines.append(f'- vendor={vendor} host={b.host.lower()} outcome={b.outcome} visits={b.count} signal={signal}')
+	if not lines:
+		return ''
+	more = f'\n- and {len(shown) - MAX_BLOCKS} more' if len(shown) > MAX_BLOCKS else ''
+	return '<detected_blocks>\n' + '\n'.join(lines) + more + '\n</detected_blocks>\n\n'
+
+
 def prompt(task: str, result: AgentHistoryList, judge_context: str | None) -> str:
 	final = f'status: {result.status}\nsuccess reported by the agent: {result.success}\n'
 	if result.error:
@@ -136,8 +204,30 @@ def prompt(task: str, result: AgentHistoryList, judge_context: str | None) -> st
 	context = f'<judge_context>\n{_cut(judge_context, MAX_TASK_CHARS)}\n</judge_context>\n\n' if judge_context else ''
 	return (
 		f'<task>\n{_cut(task, MAX_TASK_CHARS)}\n</task>\n\n{context}<agent_trace>\n{trace(result.messages)}\n</agent_trace>\n\n'
-		f'<final_result>\n{final}\n</final_result>'
+		f'{detected(result.blocks)}<final_result>\n{final}\n</final_result>'
 	)
+
+
+def ground(judgement: Judgement, blocks: list[Block]) -> Judgement:
+	"""The judge's blocked_by checked against the detector. A host the detector walled takes the detector's vendor and
+	visits (source 'detector'); another keeps the judge's host with a known vendor (its id or display name, any case)
+	or 'unknown' (source 'judge'). A success has none; a wall the run failed on means the agent met one
+	(bot_block_or_captcha_detected)."""
+	named = judgement.blocked_by
+	if named is None:
+		return judgement
+	if judgement.success:
+		return judgement.model_copy(update={'blocked_by': None})
+	raw = named.host.strip().lower()
+	name = host_of(raw) if '://' in raw else raw.split('/')[0].split(':')[0].rstrip('.')
+	walls = [b for b in blocks if site(b.host) == site(name)]
+	if walls:
+		top = max([b for b in walls if b.vendor == named.vendor] or walls, key=lambda b: b.count)
+		visits = sum(b.count for b in walls if b.vendor == top.vendor)
+		blocked = BlockedBy(vendor=top.vendor, host=top.host, source='detector', visits=visits)
+	else:
+		blocked = BlockedBy(vendor=VENDOR_OF.get(named.vendor.strip().lower(), 'unknown'), host=name, source='judge')
+	return judgement.model_copy(update={'blocked_by': blocked, 'bot_block_or_captcha_detected': True})
 
 
 async def judge_run(
@@ -194,7 +284,7 @@ async def judge_run(
 			status = getattr(e, 'status_code', None)
 			logger.warning(f'The judge failed ({type(e).__name__}{f" {status}" if status else ""}), result.judgement is None')
 			return None, list(messages)
-	return Judgement.model_validate(redact(run.output.model_dump(), secrets)), run.all_messages()
+	return ground(Judgement.model_validate(redact(run.output.model_dump(), secrets)), result.blocks), run.all_messages()
 
 
 # The run's own settings for the judge's turn: OpenAI reasoning models put the reasoning effort at the start of the prompt
@@ -212,7 +302,10 @@ CACHED_ASK = (
 	'The run is over. Do not call any tool. Now act as the judge of the run above:\n\n'
 	+ JUDGE_PROMPT
 	+ '\n\nAnswer with one JSON object and nothing else, with these keys: success (bool), failure_reason (string or null), '
-	'description (string), prompt_injection_detected (bool), bot_block_or_captcha_detected (bool), gotchas (list of strings).'
+	'description (string), prompt_injection_detected (bool), bot_block_or_captcha_detected (bool), blocked_by '
+	f'({{"vendor": string, "host": string}} or null; vendor one of {", ".join(VENDORS)}; host the walled host as in '
+	"<detected_blocks> or the URL; null unless an anti-bot wall (CAPTCHA, bot check, access block, the website's rate "
+	'limit) is why the task failed), gotchas (list of strings).'
 )
 
 
@@ -228,8 +321,9 @@ async def judge_cached(
 ) -> tuple[Judgement | None, list[ModelMessage]]:
 	"""The judge as one more turn of the run: the run's own messages, instructions and tool definitions go first, so the
 	provider reads that prefix from its prompt cache and bills it as cached input. judge_run sends the trace as a new,
-	uncached prompt instead, billed in full. -> (the judgement, or None when the model called a
-	tool or did not answer the schema: the caller falls back to judge_run; the response, for usage and cost)."""
+	uncached prompt instead, billed in full. The ask goes after the run's messages, so what it says (the detected walls
+	too) leaves that prefix as it was; its answer is grounded as judge_run's. -> (the judgement, or None when the model
+	called a tool or did not answer the schema: the caller falls back to judge_run; the response, for usage and cost)."""
 	instructions = next((m.instructions for m in reversed(history) if isinstance(m, ModelRequest) and m.instructions), None)
 	ask = f'{CACHED_ASK}\n\n<task>\n{_cut(task, MAX_TASK_CHARS)}\n</task>'
 	if judge_context:
@@ -237,7 +331,7 @@ async def judge_cached(
 	outcome = f'status: {result.status}\nsuccess reported by the agent: {result.success}\n'
 	if result.error:
 		outcome += f'error: {_cut(result.error)}\n'
-	ask += f'\n\n<final_result>\n{outcome}{_cut(as_text(result.text))}\n</final_result>'
+	ask += f'\n\n{detected(result.blocks)}<final_result>\n{outcome}{_cut(as_text(result.text))}\n</final_result>'
 	ask = redact(ask, secrets)
 	content: list[UserContent] = [ask, 'The page as the run left it:', final] if final else [ask]
 	last = history[-1] if history else None
@@ -267,7 +361,7 @@ async def judge_cached(
 		judgement = Judgement.model_validate_json(text[text.index('{') : text.rindex('}') + 1])
 	except Exception:
 		return None, [response]
-	return Judgement.model_validate(redact(judgement.model_dump(), secrets)), [response]
+	return ground(Judgement.model_validate(redact(judgement.model_dump(), secrets)), result.blocks), [response]
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here
