@@ -104,7 +104,7 @@ async def test_downloads_publish_only_after_final_naming(tmp_path, monkeypatch, 
 	assert await browser.list_downloads() == sorted([*before, {'name': expected, 'size': 6}], key=lambda f: f['name'])
 
 
-@pytest.mark.parametrize('failure', ['mkdir', 'publish'])
+@pytest.mark.parametrize('failure', ['mkdir', 'publish', 'unlink'])
 async def test_unwritable_old_workspace_does_not_block_current_downloads(tmp_path, monkeypatch, failure):
 	first, current = tmp_path / 'first', tmp_path / 'current'
 	for workspace, guid, content in ((first, 'first-guid', b'first'), (current, 'current-guid', b'current')):
@@ -130,6 +130,15 @@ async def test_unwritable_old_workspace_does_not_block_current_downloads(tmp_pat
 			return mkdir(path, *args, **kwargs)
 
 		monkeypatch.setattr(Path, 'mkdir', create)
+	elif failure == 'unlink':
+		unlink = Path.unlink
+
+		def remove(path, *args, **kwargs):
+			if blocked and path == first / '.browser-use' / 'downloads' / 'first-guid':
+				raise PermissionError('old staging cleanup is read-only')
+			return unlink(path, *args, **kwargs)
+
+		monkeypatch.setattr(Path, 'unlink', remove)
 	else:
 		link, open_file = utils.os.link, utils.os.open
 
@@ -150,9 +159,47 @@ async def test_unwritable_old_workspace_does_not_block_current_downloads(tmp_pat
 	assert await browser.list_downloads() == [{'name': 'report.txt', 'size': 7}]
 	assert (current / 'downloads' / 'report.txt').read_bytes() == b'current'
 	assert (first / '.browser-use' / 'downloads' / 'first-guid').read_bytes() == b'first'
-	assert 'first-guid' not in browser._published_downloads
+	if failure == 'unlink':
+		assert 'first-guid' in browser._published_downloads  # the public hard link already committed
+		assert (first / 'downloads' / 'report.txt').read_bytes() == b'first'
+		assert await browser.list_downloads() == [{'name': 'report.txt', 'size': 7}]
+		assert [path.name for path in (first / 'downloads').iterdir()] == ['report.txt']
+	else:
+		assert 'first-guid' not in browser._published_downloads
 	blocked = False
+	if failure == 'unlink':
+		# A later Browser can also recover the retained hard link without allocating a new suffix.
+		browser = Browser('chromium')
+		browser._local = local.LocalBrowser()
+		browser.note_downloads(first / '.browser-use' / 'downloads.jsonl')
+		browser._downloads_dir = current / 'downloads'
 	assert await browser.list_downloads() == [{'name': 'report.txt', 'size': 7}]
 	assert (first / 'downloads' / 'report.txt').read_bytes() == b'first'
 	assert not (first / '.browser-use' / 'downloads' / 'first-guid').exists()
+	assert [path.name for path in (first / 'downloads').iterdir()] == ['report.txt']
 	assert [path.name for path in (current / 'downloads').iterdir()] == ['report.txt']
+
+
+@pytest.mark.parametrize('alias', ['file', 'directory'])
+def test_download_link_recovery_preserves_symlink_aliases(tmp_path, alias):
+	staging, public = tmp_path / 'staging', tmp_path / 'downloads'
+	staging.mkdir()
+	public.mkdir()
+	source = staging / 'report.txt'
+	source.write_bytes(b'report')
+	try:
+		if alias == 'file':
+			(public / 'report.txt').symlink_to(source)
+		else:
+			(public / 'alias').symlink_to(staging, target_is_directory=True)
+	except OSError as e:
+		pytest.skip(f'symlink creation unavailable: {e}')
+	if alias == 'file':
+		published = utils.publish_download(source, 'report.txt', public)
+		assert published == public / 'report (1).txt'
+		assert published.read_bytes() == b'report' and not published.is_symlink()
+		assert (public / 'report.txt').is_symlink()  # never reused as the destination or overwritten
+	else:
+		published = utils.name_download(source, source.name, public / 'alias')
+		assert published == public / 'alias' / source.name
+		assert source.read_bytes() == published.read_bytes() == b'report'  # the same entry must not be unlinked

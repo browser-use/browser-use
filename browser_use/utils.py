@@ -167,6 +167,14 @@ def file_names(dest: Path, name: str) -> Iterator[Path]:
 		yield dest / (stem.encode()[:room].decode(errors='ignore') + tail)
 
 
+def _remove_download_source(path: Path) -> None:
+	"""The public hard link already committed; a cleanup failure must not publish another alias."""
+	try:
+		path.unlink(missing_ok=True)
+	except OSError as e:
+		logger.debug('Could not remove published download staging entry %s: %s', path.name, e)
+
+
 def name_download(path: Path, name: str | None, directory: Path | None = None) -> Path | None:
 	"""Give a download Chrome saved as <dir>/<guid> (Browser.setDownloadBehavior allowAndName) its suggested name, never
 	over another file, optionally into directory: a repeated name is 'invoice (1).txt', as cloud copies are named. With behavior 'allow' Chrome
@@ -181,6 +189,13 @@ def name_download(path: Path, name: str | None, directory: Path | None = None) -
 		try:
 			os.link(path, dest)  # - fails if dest exists: never overwrites, even when two names are taken at once
 		except FileExistsError:
+			try:
+				if not dest.is_symlink() and dest.is_file() and path.samefile(dest):
+					if path.resolve() != dest.resolve():
+						_remove_download_source(path)
+					return dest  # recover a committed link retained after a staging cleanup failure
+			except OSError:  # unable to establish identity: keep the occupied name untouched
+				pass
 			continue
 		except FileNotFoundError:
 			return None
@@ -197,7 +212,7 @@ def name_download(path: Path, name: str | None, directory: Path | None = None) -
 					return None
 				raise
 			return dest
-		path.unlink(missing_ok=True)
+		_remove_download_source(path)
 		return dest
 	return None
 
