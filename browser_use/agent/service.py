@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import itertools
 import logging
+import math
 import os
 import re
 import tempfile
@@ -457,8 +458,8 @@ class Agent:
 			raise _unsupported(kwargs, 'Agent.run')
 		if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
 			raise ValueError(f'max_steps must be a whole number >= 1, not {max_steps!r}')
-		if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not timeout > 0:
-			raise ValueError(f'timeout must be a number of seconds > 0, not {timeout!r}')
+		if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout < math.inf:
+			raise ValueError(f'timeout must be a finite number of seconds > 0, not {timeout!r}')
 		if self._running:  # two runs would each start a REPL (one leaks) and stop each other's browser
 			raise RuntimeError('This Agent is already running; await that run() first, or use one Agent per concurrent task.')
 		if self.browser._user is not None:  # two Agents on one browser drive one tab, and the first to end stops it

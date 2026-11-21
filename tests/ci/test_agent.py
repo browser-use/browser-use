@@ -1203,3 +1203,14 @@ async def test_a_connection_error_names_its_cause(tmp_path):
 
 	r = await run(build_agent(FunctionModel(provider)), 'task', Session(repl=Repl(tmp_path)), 'm')
 	assert (r.status, r.error) == ('error', 'ModelConnectionError: Connection error. (OSError: [Errno 24] Too many open files)')
+
+
+@pytest.mark.parametrize('timeout', [float('inf'), float('nan'), 0, -1, True, '60'])
+async def test_run_rejects_a_timeout_that_is_not_a_finite_positive_number(tmp_path, timeout):
+	"""timeout=inf passed the check: delivery_at() became inf - inf = nan, time_left() nan, and every model request got
+	request_timeout 1 s (max(1.0, nan))."""
+	agent = Agent(
+		'task', script(('finish', {'success': True, 'result': 'x'}))[0], browser=Browser('chromium'), workspace=tmp_path
+	)
+	with pytest.raises(ValueError, match='timeout must be a finite number of seconds > 0'):
+		await agent.run(timeout=timeout)
