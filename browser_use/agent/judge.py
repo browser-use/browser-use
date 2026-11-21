@@ -161,7 +161,7 @@ async def judge_run(
 			settings[key] = 'low'
 	model = agent.model  # Responses requests stream, as the loop: some backends take only streamed ones
 	responses = isinstance(model, OpenAIResponsesModel)
-	if responses and 'openai_reasoning_effort' not in settings and reasoning_supported(model):
+	if responses and settings.get('openai_reasoning_effort') is None and reasoning_supported(model):
 		settings['openai_reasoning_effort'] = 'low'  # a gateway bu-* alias sends none in the loop: its own effort
 	judge = Agent(
 		StreamedRequest(model) if responses else model,
