@@ -25,6 +25,19 @@ def is_running_in_docker() -> bool:
 		return False
 
 
+def is_in_container() -> bool:
+	"""Docker, podman (/run/.containerenv), Kubernetes (KUBERNETES_SERVICE_HOST, set in every pod) or a runtime that
+	says so in the `container` env var (podman, systemd-nspawn). Docker alone missed podman and every Kubernetes pod."""
+	if os.getenv('KUBERNETES_SERVICE_HOST') or os.getenv('container'):
+		return True
+	try:
+		if Path('/run/.containerenv').exists():
+			return True
+	except OSError:
+		pass
+	return is_running_in_docker()
+
+
 class Config:
 	"""Reads the environment on every access, so tests and late os.environ changes are respected."""
 

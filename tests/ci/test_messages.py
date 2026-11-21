@@ -80,11 +80,12 @@ def _cloud_error(monkeypatch, status: int, detail: bytes) -> str:
 
 
 def test_a_cloud_error_that_ends_with_a_link_keeps_the_link_whole(monkeypatch):
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')  # links are tagged only with telemetry on
 	message = _cloud_error(monkeypatch, 402, b'{"detail": "Out of credits, top up at https://cloud.browser-use.com/billing."}')
 	assert 'https://cloud.browser-use.com/billing.' not in message
 	assert re.search(r'https://cloud\.browser-use\.com/billing(\s|$)', message), message
 	message = _cloud_error(monkeypatch, 401, b'{"detail": "Bad key"}')
-	assert re.search(r'https://cloud\.browser-use\.com/settings\?tab=api-keys\s', message), message  # the hint's link too
+	assert re.search(r'https://cloud\.browser-use\.com/new-api-key\?ref=bu-lib&v=\S+\s', message), message  # the hint's link too
 
 
 def test_the_harness_cloud_start_error_keeps_a_trailing_link_whole(monkeypatch):
@@ -101,3 +102,17 @@ def test_the_harness_cloud_start_error_keeps_a_trailing_link_whole(monkeypatch):
 	with pytest.raises(harness_cloud.CloudBrowserError) as raised:
 		harness_cloud.start('linktest', None, {}, None)
 	assert re.search(r'https://cloud\.browser-use\.com/billing(\s|$)', str(raised.value)), str(raised.value)
+
+
+def test_gateway_402_tells_an_unpaid_account_apart_from_an_empty_balance(monkeypatch):
+	"""The gateway 402s every never-paid project with code payment_required before it reads the balance: 'Out of credits'
+	sent users with $1 of sign-up credit to top up a balance that was not the problem."""
+	from browser_use.llm import ChatBrowserUse
+
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')  # the link is tagged only with telemetry on
+	llm = ChatBrowserUse(api_key='bu_test')
+	unpaid = llm._explain(402, 'payment_required', 'Add credits at https://cloud.browser-use.com/settings?tab=billing')
+	assert unpaid and 'Out of Browser Use credits' not in unpaid and 'once' in unpaid and 'ChatOpenAI' in unpaid
+	assert 'ref=bu-lib' in unpaid
+	empty = llm._explain(402, 'insufficient_credits', None)
+	assert empty and empty.startswith('Out of Browser Use credits (402)')
