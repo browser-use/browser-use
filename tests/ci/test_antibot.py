@@ -323,3 +323,53 @@ def test_the_warning_names_a_proxy_on_cloud_and_honors_cloud_hints_off(tmp_path,
 	assert notices(local, result_with(dd, success=True), caplog) == []  # got through: the judge says so
 	monkeypatch.setenv('BROWSER_USE_CLOUD_HINTS', 'false')
 	assert notices(local, result_with(dd, success=False), caplog) == ['Blocked by DataDome on www.example.com (3x)']
+
+
+async def test_agent_event_sends_walls_by_vendor_and_host_and_the_vendors_seen(chrome, tmp_path, antibot_site, monkeypatch):
+	"""Schema 6: the walls, the challenges passed and the vendors present, as hostnames and the vendor enum only."""
+	import browser_use.telemetry.service as service
+
+	events: list[dict] = []
+
+	class FakeTelemetry:
+		enabled = True
+
+		def run_started(self, run_id, props, progress):
+			pass
+
+		def capture_run(self, job):
+			events.append(job.build(200, 50))
+
+	monkeypatch.setattr(service, 'telemetry', FakeTelemetry)
+	port = antibot_site
+	cells = [
+		f"goto_url('http://dd.localhost:{port}/dd'); wait_for_load()",
+		f"goto_url('http://ok.localhost:{port}/ok'); wait_for_load()",
+		f"goto_url('http://chl.localhost:{port}/challenge'); wait_for_load(); time.sleep(1.5)",
+	]
+	model, _ = script(*[('python', {'code': f'import time\n{c}'}) for c in cells], ('finish', {'success': True, 'result': 'ok'}))
+	await Agent('Buy socks', model, browser=Browser(cdp_url=chrome['http']), workspace=tmp_path).run()
+	(props,) = events
+	assert props['schema_version'] == 7 and props['antibot_detector'] == 1
+	wall = {'vendor': 'datadome', 'host': 'dd.localhost', 'outcome': 'blocked', 'challenge': '', 'count': 1, 'status': 403}
+	assert props['blocks'] == [wall]
+	assert props['antibot_passed'] == {'cloudflare': 1}
+	assert props['antibot_seen'] == {'datadome': 2, 'cloudflare': 1}
+	assert props['blocked_label'] == 'blocked'  # the scripted model cannot judge: no verdict, the wall stands
+
+
+def test_blocked_label_joins_the_detector_and_the_judge():
+	from browser_use.telemetry.stats import RunStats, antibot_fields
+
+	walled, clean = RunStats(), RunStats()
+	walled.visits['v'] = {'id': 'v', 'host': 'www.example.com', 'outcome': 'blocked', 'vendor': 'datadome', 'statuses': [403]}
+
+	def label(stats: RunStats, judgement: dict | None) -> str:
+		return antibot_fields(stats, judgement)['blocked_label']
+
+	assert label(walled, None) == 'blocked'
+	assert label(walled, {'success': False, 'bot_block_or_captcha_detected': True}) == 'blocked'
+	assert label(walled, {'success': True, 'bot_block_or_captcha_detected': False}) == 'got_through'
+	assert label(clean, {'success': False, 'bot_block_or_captcha_detected': True}) == 'judge_only'
+	assert label(clean, {'success': True, 'bot_block_or_captcha_detected': True}) == 'clean'
+	assert label(clean, None) == 'clean'
