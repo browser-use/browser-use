@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import itertools
 import logging
+import math
 import os
 import re
 import tempfile
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from agent_budget import Budget
 from genai_prices import calc_price
 from pydantic import TypeAdapter
 from pydantic_ai.messages import (
@@ -449,16 +451,28 @@ class Agent:
 		)
 		return WebSearch(key, search_url(gateway.base_url if gateway else GATEWAY_URL))
 
-	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
+	async def run(
+		self, max_steps: int = 100, timeout: float = 1700, max_cost_usd: float | Budget | None = None, **kwargs: Any
+	) -> AgentHistoryList:
 		"""Run the current task. max_steps: model requests; as in 0.x the last one is a delivery-only turn (max_steps=1
 		only delivers), and one delivery repair may follow it. timeout: seconds for the agent loop (model requests and
-		cells); starting the browser before it and stopping it (with cloud downloads) after it are not counted."""
+		cells); starting the browser before it and stopping it (with cloud downloads) after it are not counted.
+		max_cost_usd: a USD cap on what result.cost_usd counts. Each model request is sent only while it and the delivery
+		turn after it still fit, at the cost of the run's most expensive step so far; past that, or when a cost is
+		unknown, the request is the delivery-only turn. An agent_budget.Budget instead of a number is shared:
+		pass the same one (or budget.child(...)) to concurrent runs and their requests are reserved on it together."""
 		if kwargs:
 			raise _unsupported(kwargs, 'Agent.run')
 		if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
 			raise ValueError(f'max_steps must be a whole number >= 1, not {max_steps!r}')
 		if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not timeout > 0:
 			raise ValueError(f'timeout must be a number of seconds > 0, not {timeout!r}')
+		if max_cost_usd is not None and not isinstance(max_cost_usd, Budget):
+			if isinstance(max_cost_usd, bool) or not isinstance(max_cost_usd, (int, float)) or not 0 < max_cost_usd < math.inf:
+				raise ValueError(
+					f'max_cost_usd must be a number of US dollars > 0 or an agent_budget.Budget, not {max_cost_usd!r}'
+				)
+			max_cost_usd = Budget(max_cost_usd, name='agent')
 		if self._running:  # two runs would each start a REPL (one leaks) and stop each other's browser
 			raise RuntimeError('This Agent is already running; await that run() first, or use one Agent per concurrent task.')
 		if self.browser._user is not None:  # two Agents on one browser drive one tab, and the first to end stops it
@@ -468,11 +482,11 @@ class Agent:
 			)
 		self._running, self.browser._user = True, self
 		try:
-			return await self._run(max_steps, timeout)
+			return await self._run(max_steps, timeout, max_cost_usd)
 		finally:
 			self._running, self.browser._user = False, None
 
-	async def _run(self, max_steps: int, timeout: float) -> AgentHistoryList:
+	async def _run(self, max_steps: int, timeout: float, budget: Budget | None = None) -> AgentHistoryList:
 		self._check_task()
 		raise_fd_limit()  # before the first socket: many concurrent Agents exceed macOS's default 256 open files
 		if self._agent is None:
@@ -549,7 +563,13 @@ class Agent:
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}
 			session = Session(
-				repl=self._repl, timeout_s=timeout, max_steps=max_steps, vision=self.use_vision, rec=rec, **compacted
+				repl=self._repl,
+				timeout_s=timeout,
+				max_steps=max_steps,
+				vision=self.use_vision,
+				rec=rec,
+				budget=budget,
+				**compacted,
 			)
 			self._reports.stats = session.stats
 			phase = 'loop'
@@ -612,6 +632,8 @@ class Agent:
 				try:  # after the browser stopped (a cloud browser bills until then); a cancelled judge still sends the event
 					if error_type is None:
 						await self._judge(result)
+						if budget is not None and self._judge_cost:  # after the loop: booked, never refused
+							budget.charge_force(self._judge_cost)
 				finally:
 					meta = {
 						'run_id': run_id,
@@ -662,7 +684,9 @@ class Agent:
 		usage = {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0, 'requests': 0}
 		return AgentHistoryList('error', '', None, 0, time.monotonic() - started, usage, 0.0, None, error, [], None)
 
-	def run_sync(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
+	def run_sync(
+		self, max_steps: int = 100, timeout: float = 1700, max_cost_usd: float | Budget | None = None, **kwargs: Any
+	) -> AgentHistoryList:
 		"""run() without async. One event loop serves every run_sync() while the REPL lives (Browser(keep_alive=True)),
 		because the REPL worker's pipes belong to the loop that started it; close_sync() ends it."""
 		if kwargs:
@@ -678,7 +702,7 @@ class Agent:
 		self._runner = self._runner or asyncio.Runner()
 		self._sync = True
 		try:
-			return self._runner.run(self.run(max_steps=max_steps, timeout=timeout))
+			return self._runner.run(self.run(max_steps=max_steps, timeout=timeout, max_cost_usd=max_cost_usd))
 		finally:
 			self._sync = False
 			if self._repl is None:

@@ -1234,3 +1234,96 @@ async def test_a_none_delivered_for_a_nullable_schema_is_the_result(tmp_path):
 	result = await run(build_agent(model, output_type=_Authors | None), 'task', session, 'function:x')
 	assert (len(seen), result.status, result.output, result.text, result.success) == (3, 'completed', None, 'null', False)
 	assert result.partial == {'authors': ['partial']}  # still there to read, never the result
+
+
+def _charged(seen, first=None):
+	"""A model that runs cells until the delivery-only turn, then finishes (as the forced tool choice makes a real one
+	do). Each response carries a $0.10 Browser Use gateway charge, which result.cost_usd reads. first: an
+	asyncio.Barrier the run's first request waits on before it answers."""
+	from pydantic_ai.usage import RequestUsage
+
+	from browser_use.agent.loop import DELIVER_NOW
+
+	async def fn(messages, info: AgentInfo):
+		seen.append(messages)
+		if first is not None and len(seen) == 1:
+			await first.wait()
+		call = (
+			('finish', {'success': False, 'result': 'partial'})
+			if DELIVER_NOW in str(messages[-1])
+			else ('python', {'code': 'x = 1'})
+		)
+		details = {'browser_use': {'charge_usd': '0.10'}}
+		return ModelResponse(parts=[ToolCallPart(*call)], usage=RequestUsage(input_tokens=10), provider_details=details)
+
+	return FunctionModel(fn)
+
+
+async def test_max_cost_usd_ends_a_run_with_the_delivery_turn(tmp_path):
+	"""Issue 5293: max_steps was the only bound, so a $0.10-a-step run with max_steps=100 spent $10. A request is sent
+	only while it fits in max_cost_usd next to the delivery turn's share, at the run's most expensive request so far."""
+	from agent_budget import Budget
+
+	from browser_use.agent.loop import DELIVER_NOW
+
+	seen, budget = [], Budget(0.35)
+	session = Session(repl=FakeRepl(tmp_path, pad=10), budget=budget)
+	result = await run(build_agent(_charged(seen)), 'task', session, 'browser-use:bu-fast')
+	# $0.10 + $0.10 spent and $0.10 held for the delivery: a third cell does not fit in the $0.05 left, request 3 delivers
+	assert (result.status, result.output, len(seen)) == ('completed', 'partial', 3), result.error
+	assert DELIVER_NOW in str(seen[2][-1]) and session.budget_hit == 'max_cost'
+	assert result.cost_usd == pytest.approx(0.30) and budget.spent_usd == pytest.approx(0.30) and budget.reserved_usd == 0
+
+
+async def test_max_cost_usd_counts_web_searches_as_result_cost_usd_does(tmp_path):
+	"""Each cell also runs a $0.05 web search: the budget books it, so the run stops where result.cost_usd says it should."""
+	from types import SimpleNamespace
+
+	from agent_budget import Budget
+
+	class Searching(FakeRepl):
+		async def call(self, op, code, timeout):
+			self.search.charges.append(0.05)
+			return await super().call(op, code, timeout)
+
+	repl = Searching(tmp_path, pad=10)
+	repl.search = SimpleNamespace(charges=[0.05])  # an earlier run's search: not this run's
+	seen, budget = [], Budget(0.50)
+	result = await run(build_agent(_charged(seen)), 'task', Session(repl=repl, budget=budget), 'browser-use:bu-fast')
+	assert result.output == 'partial' and len(seen) == 3, result.error  # $0.15 a step: 2 cells, then the delivery
+	assert result.cost_usd == pytest.approx(0.40) and budget.spent_usd == pytest.approx(0.40) and budget.reserved_usd == 0
+
+
+async def test_one_budget_shared_by_concurrent_runs_caps_them_together(tmp_path):
+	"""Runs given the same agent_budget.Budget reserve on it together: five concurrent runs stop at $1.50 in all, not
+	$1.50 each. Each holds its delivery turn's share apart, so the others cannot spend it. A run's first request has
+	no price to reserve yet, so the five first requests are all sent before any answers: $0.50, with $0.50 held for
+	the deliveries, leaves $0.50 for five more cells between them, in whatever order they come."""
+	import asyncio
+
+	from agent_budget import Budget
+
+	budget, runs, first = Budget(1.50, name='fleet'), [], asyncio.Barrier(5)
+	for i in range(5):
+		(tmp_path / str(i)).mkdir()
+		agent = build_agent(_charged([], first))
+		runs.append((agent, Session(repl=FakeRepl(tmp_path / str(i), pad=10), budget=budget)))
+	results = await asyncio.gather(*(run(agent, 'task', s, 'browser-use:bu-fast') for agent, s in runs))
+	assert all(r.output == 'partial' and s.budget_hit == 'max_cost' for r, (_, s) in zip(results, runs))
+	assert sum(r.cost_usd for r in results) == pytest.approx(budget.spent_usd) == pytest.approx(1.50)
+	assert budget.reserved_usd == 0
+
+
+async def test_max_cost_usd_with_an_unknown_price_delivers_instead_of_running_unchecked(tmp_path, caplog, monkeypatch):
+	"""A model genai-prices does not know has cost_usd None: the cap cannot be checked, so the next request delivers."""
+	import logging
+
+	from agent_budget import Budget
+
+	monkeypatch.setattr(logging.getLogger('browser_use'), 'propagate', True)  # caplog listens on the root logger
+	model, seen = script(('python', {'code': 'x = 1'}), ('finish', {'success': False, 'result': 'partial'}))
+	session = Session(repl=FakeRepl(tmp_path, pad=10), budget=Budget(1.0))
+	with caplog.at_level('WARNING', logger='browser_use.agent.loop'):
+		result = await run(build_agent(model), 'task', session, 'function:x')
+	assert (result.output, len(seen), session.budget_hit) == ('partial', 2, 'max_cost'), result.error
+	assert 'no known price for function:x' in caplog.text

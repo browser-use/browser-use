@@ -21,6 +21,7 @@ from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, cast
 
 import httpx2
+from agent_budget import Budget, BudgetError, Reservation
 from genai_prices import calc_price
 from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput, Tool, ToolOutput
@@ -142,7 +143,16 @@ class Session:
 	after_tool: Callable[[str, dict, dict], Awaitable[None]] | None = None  # observer hook (evals)
 	stats: RunStats = field(default_factory=RunStats)  # telemetry counts
 	finish_via: str | None = None  # finish | finish_from_repl | text: how the result was delivered
-	budget_hit: str | None = None  # max_steps | timeout | browser_gone: what forced the delivery-only turn
+	budget_hit: str | None = None  # max_steps | timeout | max_cost | browser_gone: what forced the delivery-only turn
+	budget: Budget | None = None  # run(max_cost_usd=...): every model request is reserved on it, then settled at its cost
+	model_ref: str = ''  # how usage_and_cost prices this run's responses (run() sets it)
+	hold: Reservation | None = None  # the reservation of the request in flight
+	delivery: Reservation | None = None  # held apart for the delivery-only turn
+	largest_usd: float = 0.0  # the most one step of this run cost: what the next request reserves
+	step_usd: float = 0.0  # the last request's cost; with its cells' web searches and a compaction, one step's
+	unpriced: bool = False  # a response had no known cost: the budget cannot be checked any more
+	booked_summaries: int = 0  # compaction summaries and web search charges already booked on the budget
+	booked_searches: int = 0
 	error_type: str | None = None  # class of the exception that ended the run
 	checkpoint: ModelRequest | None = None  # Compaction: the message sent in place of messages[:covered]
 	covered: int = 0
@@ -439,6 +449,8 @@ class BrowserLoop(AbstractCapability[Session]):
 				s.budget_hit = 'max_steps'
 			elif time.monotonic() - s.started >= s.delivery_at():
 				s.budget_hit = 'timeout'
+			elif s.budget is not None and not reserve_request(s):
+				s.budget_hit = 'max_cost'
 			if s.budget_hit:
 				s.finalizing = True
 				s.rec.delivery()
@@ -448,6 +460,13 @@ class BrowserLoop(AbstractCapability[Session]):
 			settings['tool_choice'] = UNFORCED if s.unforced else delivery_tool_choice(request_context.model, settings)
 			request_context.model_settings = cast(Any, settings)
 		return request_context
+
+	async def after_model_request(
+		self, ctx: RunContext[Session], *, request_context: ModelRequestContext, response: ModelResponse
+	):
+		if ctx.deps.budget is not None:
+			settle_request(ctx.deps, response)
+		return response
 
 	async def prepare_model_request(self, ctx: RunContext[Session], request_context: ModelRequestContext):
 		"""The request's deadline, per attempt: a retry after the provider's Retry-After kept the deadline computed
@@ -543,6 +562,67 @@ class BrowserLoop(AbstractCapability[Session]):
 		plain = result if isinstance(result, str) else to_jsonable_python(result, fallback=str)
 		clean = redact_forms(plain, forms)
 		return result if clean == plain else clean  # untouched (images, types) unless a secret was in it
+
+
+def book_side_costs(s: Session) -> bool:
+	"""Book on the budget what the run spent outside its own requests since the last call (compaction summaries, web
+	searches), as result.cost_usd counts it, and count it in the step's cost. False when a summary's cost is unknown."""
+	search = s.repl.search
+	summaries, charges = s.summaries[s.booked_summaries :], search.charges[s.booked_searches :] if search else []
+	cost = usage_and_cost(list(summaries), s.model_ref)[1] if summaries else 0.0
+	if cost is None:
+		s.unpriced = True
+		return False
+	s.booked_summaries, s.booked_searches = len(s.summaries), s.booked_searches + len(charges)
+	if cost + sum(charges):
+		cast(Budget, s.budget).charge_force(cost + sum(charges))
+	s.largest_usd, s.step_usd = max(s.largest_usd, s.step_usd + cost + sum(charges)), 0.0
+	return True
+
+
+def reserve_request(s: Session) -> bool:
+	"""max_cost_usd: reserve this request at the cost of the run's most expensive step so far, next to the delivery
+	turn's share already held. False when it does not fit, or a cost is unknown: this request is the delivery-only turn."""
+	if s.hold:  # the last step's request never answered (it timed out and the model was asked again): it cost nothing
+		s.hold.release()
+		s.hold = None
+	budget = cast(Budget, s.budget)
+	if not book_side_costs(s) or s.unpriced:
+		logger.warning(f'max_cost_usd: no known price for {s.model_ref}, so the budget cannot be checked; delivering now')
+		return False
+	if budget.remaining_usd <= 0:
+		return False
+	try:
+		s.hold = budget.reserve(s.largest_usd)
+	except BudgetError:  # exhausted, or a shared budget's owner closed or killed it
+		return False
+	return True
+
+
+def settle_request(s: Session, response: ModelResponse) -> None:
+	"""Book one response at what result.cost_usd counts for it, then hold the delivery turn's share apart at the new
+	estimate, so concurrent runs on a shared budget cannot spend it. The delivery turn is booked on that share."""
+	budget, cost = cast(Budget, s.budget), usage_and_cost([response], s.model_ref)[1]
+	hold, s.hold = s.hold, None
+	if hold is None and s.finalizing:
+		hold, s.delivery = s.delivery, None
+	if cost is None:
+		s.unpriced = True
+		if hold:
+			hold.release()
+		return
+	s.largest_usd, s.step_usd = max(s.largest_usd, cost), cost
+	if hold:
+		hold.settle(cost)
+	else:
+		budget.charge_force(cost)
+	if not s.finalizing:
+		if s.delivery:
+			s.delivery.release()
+		try:
+			s.delivery = budget.reserve(min(s.largest_usd, max(budget.remaining_usd, 0.0)))
+		except BudgetError:
+			s.delivery = None
 
 
 class Recording(AbstractCapability[Session]):
@@ -1313,7 +1393,8 @@ async def run(
 	status, output, error = 'completed', None, None
 	(session.repl.state / 'partial.json').unlink(missing_ok=True)  # a partial belongs to one run
 	search = session.repl.search
-	searched = len(search.charges) if search else 0
+	searched = session.booked_searches = len(search.charges) if search else 0
+	session.model_ref = model_ref
 	budget = asyncio.timeout(session.timeout_s)
 	task = redact(task, session.repl.secrets)  # 0.x: a secret written into the task reaches the model as its name only
 	recording = CURRENT.set(session.rec)  # this task's context: StreamedRequest reaches the recorder through it
@@ -1334,6 +1415,12 @@ async def run(
 		name = session.error_type = type(e).__name__
 		status = 'max_steps' if name == 'UsageLimitExceeded' else 'error'
 		error, messages = (explain_error and explain_error(e)) or described(e), session.messages
+	finally:
+		if session.budget is not None:  # searches and a compaction since the last request
+			book_side_costs(session)
+		for hold in (session.hold, session.delivery):  # unused, or a request that never answered: it cost nothing
+			if hold:
+				hold.release()
 	CURRENT.reset(recording)
 	partial = session.partial()
 	new = messages[len(message_history or []) :]  # an earlier task's text is never this run's fallback
