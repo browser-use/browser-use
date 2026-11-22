@@ -185,6 +185,9 @@ def test_help_is_this_clis_own():
 	assert f'browser-use does not update itself: {upgrade_command_for_shell()}.' in update.stderr
 	assert 'uv tool upgrade browser-use' not in update.stderr
 	assert f'Update: {upgrade_command_for_shell()}.' in result.stdout
+	# CI's message guard (tests/ci/test_messages.py) rejects a returned message ending with a link, so the
+	# Library line, which ends in the repo URL, must stay before the Update paragraph, not last.
+	assert result.stdout.index('Library:') < result.stdout.index('Update:')
 
 
 def test_help_update_line_names_this_installs_upgrade_command(monkeypatch, tmp_path, capsys):
