@@ -21,6 +21,7 @@ _install_0x_import_errors()  # import browser_use.dom (any 0.x module path) name
 
 if TYPE_CHECKING:
 	from browser_use.agent import Agent, AgentHistoryList
+	from browser_use.auth import login
 	from browser_use.browser import Browser
 	from browser_use.llm import ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
 	from browser_use.telemetry.feedback import feedback
@@ -38,6 +39,7 @@ _LAZY_IMPORTS = {
 	'ChatAnthropic': 'browser_use.llm',
 	'ChatGoogle': 'browser_use.llm',
 	'feedback': 'browser_use.telemetry.feedback',
+	'login': 'browser_use.auth',
 }
 _BEDROCK = "llm='bedrock:<model id>' (pip install 'pydantic-ai-slim[bedrock]'; AWS credentials and AWS_DEFAULT_REGION)."
 _LLM_REMOVED = {  # each 0.x provider class -> its Pydantic AI model string, or ChatOpenAI for an OpenAI-compatible server
@@ -100,4 +102,5 @@ __all__ = [
 	'ChatAnthropic',
 	'ChatGoogle',
 	'feedback',
+	'login',
 ]

@@ -107,6 +107,10 @@ def _cli(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess[st
 	env = os.environ.copy()
 	env['PYTHONPATH'] = os.pathsep.join(part for part in (str(ROOT), env.get('PYTHONPATH', '')) if part)
 	env.pop('BH_DEVICE_NAME', None)
+	# a desktop session: without one (SSH, a Linux server) `login` signs in with a device code (test_missing_key.py)
+	env.update(DISPLAY=':0')
+	for var in ('SSH_CONNECTION', 'SSH_TTY'):
+		env.pop(var, None)
 	return subprocess.run(
 		[sys.executable, '-m', 'browser_use', *args], cwd=ROOT, env=env, input=stdin, capture_output=True, text=True, timeout=60
 	)
@@ -378,21 +382,21 @@ def test_mcp_browser_login_finishes_across_calls_and_never_returns_the_key(store
 	output = mcp._execute('start_remote_daemon("browser-use-tests-login")')[0]
 	assert cli_mcp.LOGIN_HINT in output
 
-	first = mcp._sign_in(force=False, wait=0.2)
+	first = mcp._sign_in(force=False, wait=0.2)[0]
 	assert 'Waiting for the user to approve' in first and 'call browser_login again' in first.lower()
 	assert opened == [f'{server.url}/device/authorize?state={server.starts[0]["state"]}'] and opened[0] in first
 	assert server.starts[0]['device_name'] == 'browser-use-mcp'
 
-	assert mcp._sign_in(force=False, wait=0.2) == first  # still pending: no second login is started
+	assert mcp._sign_in(force=False, wait=0.2)[0] == first  # still pending: no second login is started
 	assert len(server.starts) == 1
 
 	server.approve()
-	done = mcp._sign_in(force=False, wait=10)
+	done = mcp._sign_in(force=False, wait=10)[0]
 	assert done.startswith('Signed in to Browser Use Cloud')
 	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY
 	assert FAKE_KEY not in first + done
 
-	again = mcp._sign_in(force=False, wait=0.2)  # already signed in: no new login
+	again = mcp._sign_in(force=False, wait=0.2)[0]  # already signed in: no new login
 	assert again.startswith('Signed in') and str(store) in again and len(server.starts) == 1
 
 
@@ -402,11 +406,11 @@ def test_mcp_browser_login_reports_a_denied_approval(store, monkeypatch, auth_se
 	server = auth_server(auto_approve=False)
 	monkeypatch.setattr(cli_mcp, '_open_url', lambda url: False)
 	mcp = cli_mcp.CLIMCPServer()
-	pending = mcp._sign_in(force=False, wait=0.2)
+	pending = mcp._sign_in(force=False, wait=0.2)[0]
 	assert 'by opening this URL in a browser' in pending
 	start = server.starts[0]
 	urllib.request.urlopen(f'{start["redirect_uri"]}?error=access_denied&state={start["state"]}', timeout=10).read()
-	result = mcp._sign_in(force=False, wait=10)
+	result = mcp._sign_in(force=False, wait=10)[0]
 	assert result.startswith('Browser Use Cloud login failed: auth failed: access_denied')
 	assert not store.exists()
 
@@ -416,8 +420,8 @@ def test_mcp_browser_login_with_an_env_key(store, monkeypatch):
 
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-env-key')
 	mcp = cli_mcp.CLIMCPServer()
-	assert 'key from BROWSER_USE_API_KEY' in mcp._sign_in(force=False, wait=0)
-	assert 'BROWSER_USE_API_KEY is set' in mcp._sign_in(force=True, wait=0)  # a new stored key would not be used
+	assert 'key from BROWSER_USE_API_KEY' in mcp._sign_in(force=False, wait=0)[0]
+	assert 'BROWSER_USE_API_KEY is set' in mcp._sign_in(force=True, wait=0)[0]  # a new stored key would not be used
 
 
 async def test_mcp_lists_browser_login():
@@ -570,12 +574,81 @@ def test_a_callback_with_the_wrong_state_neither_completes_nor_aborts_the_login(
 	server = auth_server(auto_approve=False)
 	monkeypatch.setattr(cli_mcp, '_open_url', lambda url: True)
 	mcp = cli_mcp.CLIMCPServer()
-	assert 'Waiting for the user to approve' in mcp._sign_in(force=False, wait=0.2)
+	assert 'Waiting for the user to approve' in mcp._sign_in(force=False, wait=0.2)[0]
 	start = server.starts[0]
 	with pytest.raises(urllib.error.HTTPError) as raised:
 		urllib.request.urlopen(f'{start["redirect_uri"]}?code=stolen&state=wrong', timeout=10)
 	assert raised.value.code == 400 and b'login complete' not in raised.value.read()
 
 	server.approve()  # the real approval still finishes the same login
-	assert mcp._sign_in(force=False, wait=10).startswith('Signed in to Browser Use Cloud')
+	assert mcp._sign_in(force=False, wait=10)[0].startswith('Signed in to Browser Use Cloud')
 	assert json.loads(store.read_text())['browser_use']['api_key'] == FAKE_KEY
+
+
+def test_the_missing_key_error_puts_login_first_then_a_tagged_link_then_the_no_key_way(monkeypatch):
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')  # tagged only with telemetry on
+	from browser_use.exceptions import MissingAPIKeyError, missing_key_text
+	from browser_use.utils import get_browser_use_version
+
+	text = str(MissingAPIKeyError('The default model (bu-fast)', gate='default_model'))
+	lines = text.splitlines()
+	assert len(lines) <= 4 and lines[0].startswith('The default model (bu-fast) needs a Browser Use API key.')
+	assert text.index('browser-use login') < text.index('BROWSER_USE_API_KEY') < text.index('No key')
+	assert '--device-code' in lines[0]
+	url = f'https://cloud.browser-use.com/new-api-key?ref=bu-lib&gate=default_model&v={get_browser_use_version()}'
+	assert url in text and "Browser('chromium')" in lines[-1]
+	web = str(MissingAPIKeyError('Agent(web_search=True)', gate='web_search'))
+	assert 'ChatOpenAI' not in web and 'web_search off' in web  # they already run their own model and browser
+
+	notebook = missing_key_text('Browser()', 'cloud_browser', notebook=True).splitlines()
+	assert notebook[0].startswith('Run `import browser_use; browser_use.login()` in a cell') and len(notebook) <= 4
+
+
+async def test_the_cloud_browser_uses_the_key_the_gateway_model_was_given(store, monkeypatch, tmp_path):
+	"""ChatBrowserUse(api_key=...) with the default Browser() and no env or stored key: the browser asked for a key the
+	user had already passed."""
+	import io
+	import urllib.error
+
+	from browser_use import Agent, ChatBrowserUse
+	from browser_use.browser import browser as browser_mod
+
+	sent: list[str | None] = []
+
+	def refuse(req, timeout=None):
+		sent.append(req.get_header('X-browser-use-api-key'))
+		raise urllib.error.HTTPError(req.full_url, 402, 'Payment Required', {}, io.BytesIO(b'{"detail": "no credits"}'))  # type: ignore[arg-type]
+
+	monkeypatch.setattr(browser_mod, 'urlopen_keyed', refuse)
+	agent = Agent('t', ChatBrowserUse(api_key=FAKE_KEY), workspace=tmp_path)
+	agent._build()
+	with pytest.raises(RuntimeError, match='HTTP 402'):  # past the key check: the create call carried the model's key
+		await agent.browser.start()
+	assert sent == [FAKE_KEY]
+
+
+def test_a_cloud_browser_is_stopped_with_the_key_it_was_created_with(store, monkeypatch, tmp_path):
+	"""keep_alive Browser: Agent 1 on ChatBrowserUse(api_key=k) creates the cloud browser with k, Agent 2 on its own model
+	sets the browser's model key to None. The stop looked the key up again, raised, and the browser billed on."""
+	import contextlib
+	import io
+
+	from conftest import script
+
+	from browser_use import Agent, Browser, ChatBrowserUse
+	from browser_use.browser import browser as browser_mod
+
+	sent: list[tuple[str, str | None]] = []
+
+	def answer(req, timeout=None):
+		sent.append((req.get_method(), req.get_header('X-browser-use-api-key')))
+		return contextlib.nullcontext(io.BytesIO(json.dumps({'id': 'b1', 'cdpUrl': 'http://cdp'}).encode()))
+
+	monkeypatch.setattr(browser_mod, 'urlopen_keyed', answer)
+	browser = Browser(keep_alive=True)
+	Agent('t', ChatBrowserUse(api_key=FAKE_KEY), browser=browser, workspace=tmp_path)._build()
+	browser._create({})
+	Agent('t', script()[0], browser=browser, workspace=tmp_path)._build()
+	assert browser._llm_key is None
+	assert browser._stop_now() and browser.stopped
+	assert sent == [('POST', FAKE_KEY), ('PATCH', FAKE_KEY)]

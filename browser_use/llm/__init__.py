@@ -23,11 +23,13 @@ from urllib.parse import urlparse
 from pydantic import SecretStr
 
 from browser_use.auth import browser_use_api_key, clean_api_key
+from browser_use.exceptions import tagged
 from browser_use.utils import urlopen_keyed
 
 logger = logging.getLogger(__name__)
 GATEWAY_URL = 'https://api.browser-use.com/api/v4/llm/v1'
 BILLING_URL = 'https://cloud.browser-use.com/settings?tab=billing'
+KEY_REJECTED = 'Browser Use API key rejected (401)'
 DEFAULT_MODEL = 'bu-4.0'  # BU 4.0; also bu-4.0-mini, bu-4.0-pro. bu-fast: gpt-6-luna, medium; bu-ultrafast: low, priority
 # Other bu-* models get the gpt-6-luna request profile.
 GATEWAY_UPSTREAM = {'bu-smart': 'gpt-6.1-sol', 'bu-smart-v1': 'gpt-6.1-sol'}
@@ -175,7 +177,16 @@ class ChatBrowserUse(_Chat):
 			raise ValueError(
 				f"{model} needs browser-use<1.0 (pip install 'browser-use<1.0'), or use bu-fast with browser-use 1.0."
 			)
-		key = clean_api_key(plain, 'ChatBrowserUse(api_key=...)', f'The model {model}') if (plain := _plain(api_key)) else None
+		key = (
+			clean_api_key(
+				plain,
+				'ChatBrowserUse(api_key=...)',
+				f'The model {model}',
+				'default_model' if model == DEFAULT_MODEL else 'gateway_model',
+			)
+			if (plain := _plain(api_key))
+			else None
+		)
 		# 0.13 README: ChatBrowserUse(model='openai/gpt-5.5'). The gateway lists and serves 'gpt-5.5' and answers 400 to
 		# the prefixed name, so it is sent without it.
 		model = model.removeprefix('openai/') if isinstance(model, str) else model
@@ -187,8 +198,13 @@ class ChatBrowserUse(_Chat):
 			)
 
 	def pydantic_model(self) -> Any:
-		key = self.api_key or browser_use_api_key(f'The default model ({self.model})', auto_login=True)
+		key = self.api_key or browser_use_api_key(f'The default model ({self.model})', self.key_gate, auto_login=True)
 		return gateway_model(self.model, key, self.base_url)
+
+	@property
+	def key_gate(self) -> str:
+		"""What needs the key, for telemetry: the default model (bu-fast) or another gateway model."""
+		return 'default_model' if self.model == DEFAULT_MODEL else 'gateway_model'
 
 	def model_settings(self) -> dict:
 		return {}
@@ -206,7 +222,13 @@ class ChatBrowserUse(_Chat):
 		if status == 400 and code in ('invalid_model', 'model_not_on_gateway'):
 			return f'{self.model} is not on the Browser Use gateway (400): {message or "use bu-4.0, bu-4.0-mini or bu-4.0-pro."}'
 		if status == 401:
-			return 'Browser Use API key rejected (401): check api_key=..., or BROWSER_USE_API_KEY / `browser-use login`.'
+			return f'{KEY_REJECTED}: check api_key=..., or BROWSER_USE_API_KEY / `browser-use login`.'
+		if status == 402 and code == 'payment_required':  # the gateway's unpaid-account gate, checked before the balance
+			return (
+				f'{self.model} needs credits added to your Browser Use account once (402; free sign-up credit covers cloud '
+				f'browsers, not the model): {tagged(BILLING_URL, {"ref": "bu-lib"})}\nNo payment: your own model on the same browser, '
+				'e.g. llm=ChatOpenAI("gpt-6-luna").'
+			)
 		if status == 402:
 			return f'Out of Browser Use credits (402): add credits at {BILLING_URL} and run again'
 		if status == 403:
@@ -228,7 +250,7 @@ class ChatBrowserUse(_Chat):
 	def preflight(self) -> str | None:
 		"""GET {base_url}/models (free): a gateway that is not there, a rejected key or a model the gateway does not
 		list fails here, before a cloud browser is created and billed. Returns the error line, or None."""
-		key = self.api_key or browser_use_api_key(f'The default model ({self.model})')
+		key = self.api_key or browser_use_api_key(f'The default model ({self.model})', self.key_gate)
 		url = f'{self.base_url.rstrip("/")}/models'
 		request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}'})
 		try:
