@@ -122,7 +122,9 @@ STREAM_TIMEOUT_S = 930
 GATEWAY_MAX_TOKENS = 16_384
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
-FILE = re.compile(r'`([\w.:\\/-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`, Windows paths too
+FILE = re.compile(
+	r'`([\w.:\\/-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`'
+)  # `basket_brief.md`, Windows paths too
 URLISH = re.compile(r'^(?:[a-z]{2,}[\w+.-]*:|#|//)', re.I)  # http:, mailto:, #fragment, //host — a one-letter mark is a drive
 
 
@@ -145,7 +147,7 @@ def _markdown_targets(text: str) -> list[str]:
 			end = text.find('>', i + 1)
 			if end < 0:
 				continue
-			raw = _unescape_destination(text[i + 1:end])
+			raw = _unescape_destination(text[i + 1 : end])
 			close = text.find(')', end + 1)  # skip an optional title
 			i = close + 1 if close >= 0 else len(text)
 			targets.append(raw)
