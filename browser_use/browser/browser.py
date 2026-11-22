@@ -41,6 +41,7 @@ from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import BrowserConfigError, removed
 from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
+from browser_use.web_bot_auth import WebBotAuth
 
 logger = logging.getLogger(__name__)
 BLANK_OR_INTERNAL = ('about:', 'chrome:', 'chrome-', 'devtools:', 'edge:', 'brave:')  # not a page the caller prepared
@@ -573,6 +574,7 @@ class Browser:
 		allowed_domains: list[str] | None = None,
 		prohibited_domains: list[str] | None = None,
 		block_ip_addresses: bool = False,
+		web_bot_auth: WebBotAuth | None = None,
 		**kwargs,
 	):
 		"""Configure a browser; live_view=None prints the link, True also opens it, and False hides it."""
@@ -612,6 +614,17 @@ class Browser:
 				)
 			)
 		self.domains = DomainRules.of(allowed_domains, prohibited_domains, block_ip_addresses)
+		if web_bot_auth is not None and not isinstance(web_bot_auth, WebBotAuth):
+			raise TypeError(
+				f'Browser(web_bot_auth=...) takes a WebBotAuth (from browser_use import WebBotAuth), not {type(web_bot_auth).__name__}'
+			)
+		if web_bot_auth is not None and self.kind == 'chrome' and profile is None:
+			# the interception is browser-wide: it would sign the requests of your own tabs too
+			raise ValueError(
+				"Browser('chrome') attached to your open Chrome does not take web_bot_auth=: it would sign your own tabs' "
+				"requests too. Use Browser('chromium'), Browser('chrome', profile=...), Browser() or Browser(cdp_url=...)."
+			)
+		self.web_bot_auth = web_bot_auth
 		launches = self.kind == 'chromium' or (self.kind == 'chrome' and profile is not None)
 		where = {'cloud': 'Browser() (a cloud browser)', 'chrome': "Browser('chrome') (your open Chrome)"}.get(
 			self.kind, f'Browser({self.kind!r})'
@@ -678,7 +691,7 @@ class Browser:
 		# stop() and atexit/SIGTERM never run _stop_now at the same time; reentrant: SIGTERM during atexit cleanup runs
 		# the handler on the thread that holds it
 		self._stop_mutex = threading.RLock()
-		self._guard: Guard | None = None  # domain restrictions' browser-level block, while started
+		self._guard: Guard | None = None  # domain restrictions' browser-level block and web_bot_auth signing, while started
 		self._watchdog: subprocess.Popen | None = None  # cloud or cdp_url: cleans up if this process dies uncleanly
 		# tab -> the disallowed URL it showed when this Browser first started (yours, in Browser('chrome')): sweep() leaves
 		# it alone while it still shows that URL. Taken once: a follow-up run or a reattach must not exempt a tab the
@@ -974,8 +987,8 @@ class Browser:
 				if self.cdp_url:
 					await asyncio.to_thread(self._attach_open_page)
 				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, (self.id or '') if self.use_cloud else '')
-			if self.domains:
-				self._guard = Guard(ws, self.domains)
+			if self.domains or self.web_bot_auth:
+				self._guard = Guard(ws, self.domains, self.web_bot_auth)
 				await asyncio.to_thread(self._guard.start)
 			if self.use_cloud and not self.captcha_solver:
 				await asyncio.to_thread(_daemon_cdp, self.name, 'BrowserUse.setCaptchaSolverEnabled', enabled=False)
