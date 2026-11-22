@@ -69,11 +69,22 @@ def _host(url: str) -> tuple[str, str, int | None] | None:
 		return None
 	if u.scheme not in _DEFAULT_PORT or not u.hostname:
 		return None
-	host = canonical_host(u.hostname)
+	host = canonical_host(u.hostname)  # drops a trailing dot, which Chrome keeps in Host for a name (not an IP)
+	if u.hostname.endswith('.') and not _ip(host):
+		host += '.'
 	return (u.scheme, host, port) if host.isascii() else None
 
 
+def _ip(host: str) -> bool:
+	try:
+		ipaddress.ip_address(host)
+	except ValueError:
+		return False
+	return True
+
+
 def _loopback(host: str) -> bool:
+	host = host.removesuffix('.')
 	if host == 'localhost' or host.endswith('.localhost'):
 		return True
 	try:

@@ -137,6 +137,9 @@ def test_unicode_hosts_are_signed_as_the_browser_sends_them():
 	@authority is now the punycode Host the browser sends."""
 	signer = WebBotAuth(RFC9421_ED25519, DIRECTORY)
 	assert wba.authority('https://faß.de/') == 'xn--fa-hia.de' == wba.authority('https://xn--fa-hia.de/')
+	# Review: canonical_host drops a name's trailing dot, which Chrome keeps in Host (an IPv4 address loses it)
+	assert wba.authority('https://faß.de.:8443/') == 'xn--fa-hia.de.:8443' and wba.authority('http://127.0.0.1./') == '127.0.0.1'
+	assert signer.signs('http://localhost./') and signer.signs('http://shop.localhost./')
 	headers = signer.sign('https://bücher.example:8443/', created=1735689600, nonce='n')
 	assert headers is not None
 	same = signer.sign('https://xn--bcher-kva.example:8443/', created=1735689600, nonce='n')
@@ -231,10 +234,13 @@ async def test_navigations_are_signed_and_verify(chrome, daemon, site, tmp_path)
 	Site.seen.clear()
 	signer = WebBotAuth.generate(DIRECTORY)
 	shop = site['shop']
-	await visit(daemon, tmp_path, Guard(chrome['ws'], DomainRules(), signer), f'{shop}/cookie', f'{shop}/', f'{shop}/redirect')
+	dotted = shop.replace('shop.localhost', 'shop.localhost.') + '/dotted'  # Chrome keeps the trailing dot in Host
+	await visit(
+		daemon, tmp_path, Guard(chrome['ws'], DomainRules(), signer), f'{shop}/cookie', f'{shop}/', f'{shop}/redirect', dotted
+	)
 	public = signer.public_bytes()
 	for path in ('shop.localhost/cookie', 'shop.localhost/', 'other.localhost/frame', 'shop.localhost/redirect',
-				 'other.localhost/landed'):  # fmt: skip
+				 'other.localhost/landed', 'shop.localhost./dotted'):  # fmt: skip
 		hits = received(path)
 		assert hits, (path, [p for p, _ in Site.seen])
 		assert all(verify(h, public) == DIRECTORY for h in hits), path
