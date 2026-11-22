@@ -1028,9 +1028,9 @@ Commands:
                                       send the Browser Use team your integration report, bug or feature request
   browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback)
   browser-use --version               print the versions
+Library: from browser_use import Agent, see https://github.com/browser-use/browser-use
 Update: {upgrade_command_for_shell()}. A call that cannot reach a browser asks
-PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=1 turns that off.
-Library: from browser_use import Agent, see https://github.com/browser-use/browser-use"""
+PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=1 turns that off."""
 
 
 def _command_name(args: list[str]) -> str:
