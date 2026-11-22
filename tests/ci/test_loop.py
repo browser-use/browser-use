@@ -803,6 +803,19 @@ async def test_existing_file_link_and_short_answer_pass(daemon, tmp_path):
 		assert (len(seen), result.output) == (1, answer)
 
 
+@pytest.mark.parametrize('target', ['a' * 300, 'www.example.com/search?q=' + 'a' * 1200], ids=['long name', 'long path'])
+async def test_a_link_target_too_long_for_the_filesystem_does_not_end_the_run(daemon, tmp_path, target):
+	"""A scheme-less link with a long query (or a 300-character name) made Path.exists() raise ENAMETOOLONG out of
+	check_delivery: the run ended with status error and the answer was lost. No such file can exist: the usual repair."""
+	answer = f'See [docs]({target})'
+	result, seen = await go(
+		daemon,
+		tmp_path,
+		[('finish', {'success': True, 'result': answer}), ('finish', {'success': True, 'result': answer})],
+	)
+	assert (len(seen), result.status, result.output) == (2, 'completed', answer), result.error
+
+
 async def test_partial_result_is_accepted_without_a_continue_turn(daemon, tmp_path):
 	# The early-partial guard was removed: bench 1106 showed it fired in 57/120 runs, +30 steps/task, no score gain (bu-pi has none).
 	first = 'Partial: only 5 of 37 listings checked.'
