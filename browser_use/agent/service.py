@@ -67,9 +67,9 @@ _LOCAL_HOST = re.compile(
 )
 
 _IP_CANDIDATE = re.compile(
-    r'(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])'
-    r'|\[[0-9a-f:.]+\]'
-    r'|(?<![\w:])::1(?![\w:])',
+    r'(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.\d)'
+    r'|(?<![\w:])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?![\w:])'
+    r'|\[[0-9a-f:.]+\]',
     re.I,
 )
 
@@ -412,7 +412,7 @@ class Agent:
 		self._tasks.append(task)
 
 	def _check_task(self) -> None:
-		if self.browser.use_cloud and (m := _find_local_target(self.task)): # a hint, never a refusal
+		if self.browser.use_cloud and (m := _find_local_target(self.task)):  # a hint, never a refusal
 			logger.warning(
 				f'The task mentions {m!r}; a cloud browser cannot reach your localhost or private network. '
 				"If that is the target, use a local browser: Agent(task, browser=Browser('chromium'))."

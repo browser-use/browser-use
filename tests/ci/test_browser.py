@@ -494,6 +494,9 @@ def test_atexit_cleanup_stops_live_browsers(cloud):
         'open http://[fe80::1]',
         'open http://[fd12:3456::1]',
         'open http://[fc00::1]',
+		'Log into the router at 192.168.1.1.',
+        'open fe80::1',
+        'open fc00::1',
     ],
 )
 def test_localhost_guard_spots_local_targets(task):
@@ -510,6 +513,7 @@ def test_localhost_guard_spots_local_targets(task):
         'version 172.15.0.1',
         'visit https://8.8.8.8',
         'visit https://[2001:4860:4860::8888]',
+        'open 2001:4860:4860::8888',
     ],
 )
 def test_localhost_guard_ignores_normal_text(task):
