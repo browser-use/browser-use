@@ -122,37 +122,84 @@ STREAM_TIMEOUT_S = 930
 GATEWAY_MAX_TOKENS = 16_384
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
-LINK = re.compile(
-	# CommonMark inline link targets: <spaced target>, or a plain target that may carry balanced (…) groups
-	# (file_names writes `report (1).csv`); an optional "title" / 'title', also \\-escaped as structured
-	# output strings render it (as_text JSON-escapes the quotes).
-	r'\]\(\s*(?:<([^>]*)>|([^\s()]+(?:\([^\s()]*\)[^\s()]*)*))'
-	r'(?:\s+(?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\\"(?:[^"\\]|\\.)*\\"))?'
-	r'\s*\)'
-)
-FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
+FILE = re.compile(r'`([\w.:\\/-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`, Windows paths too
 URLISH = re.compile(r'^(?:[a-z]{2,}[\w+.-]*:|#|//)', re.I)  # http:, mailto:, #fragment, //host — a one-letter mark is a drive
+
+
+def _unescape_destination(dest: str) -> str:
+	"""CommonMark backslash escapes in a link destination: only the ones that change parsing are unfolded
+	(`\\(`, `\\)`, `\\ ` — parens and spaces), so a Windows path like `C:\\Users\\x` keeps its backslashes."""
+	return re.sub(r'\\([() ])', r'\1', dest)
+
+
+def _markdown_targets(text: str) -> list[str]:
+	"""Destinations of CommonMark inline links in `text`: `<angle targets>` (spaces allowed), plain targets with
+	balanced (…) groups to any depth (`missing(group(1)).csv`), an optional "title" / 'title' — also \\-escaped, as
+	structured output strings render it (as_text JSON-escapes the quotes). Backslash-escaped punctuation in the
+	destination is unfolded. Unterminated links are skipped."""
+	targets: list[str] = []
+	i = 0
+	while (start := text.find('](', i)) >= 0:
+		i = start + 2
+		if i < len(text) and text[i] == '<':  # angle destination: spaces and parens verbatim up to '>'
+			end = text.find('>', i + 1)
+			if end < 0:
+				continue
+			raw = _unescape_destination(text[i + 1:end])
+			close = text.find(')', end + 1)  # skip an optional title
+			i = close + 1 if close >= 0 else len(text)
+			targets.append(raw)
+			continue
+		depth, dest, closed = 0, [], False
+		while i < len(text):
+			ch = text[i]
+			if ch == '(':
+				depth += 1
+				dest.append(ch)
+			elif ch == ')':
+				if depth == 0:
+					closed = True
+					break  # the link's closing paren
+				depth -= 1
+				dest.append(ch)
+			elif ch.isspace() and depth == 0:  # destination ended; skip an optional title
+				close = text.find(')', i)
+				if close >= 0:
+					closed = True
+					i = close
+				break
+			elif ch == '\\' and i + 1 < len(text) and text[i + 1] in '() ':
+				i += 1
+				dest.append(text[i])  # \\(, \\) and \\ are the escapes that change parsing
+			else:
+				dest.append(ch)
+			i += 1
+		if closed:
+			i += 1
+			targets.append(_unescape_destination(''.join(dest)))
+	return targets
 
 
 def _file_refs(text: str) -> list[str]:
 	"""File references in a delivered answer: markdown link targets (CommonMark inline links, including <spaced
 	targets>, titles, percent-encoded or query-bearing URLs) and `backticked.ext` inline-code names."""
-	targets = [a or b for a, b in LINK.findall(text)]  # an unmatched group comes back as ''
-	return targets + FILE.findall(text)
+	return _markdown_targets(text) + FILE.findall(text)
 
 
 def _in_workspace(workspace: Path, target: str) -> bool:
 	"""Whether `target`, as written in the answer, names an existing file inside the workspace or its downloads folder.
 	URL fragments and query strings are dropped and percent-encoding decoded first (a link may encode the very spaces
 	and parentheses `file_names` writes). A path that escapes the workspace — absolute, `..`, a symlink pointing out —
-	names a file that was not delivered, so it counts as missing."""
+	names a file that was not delivered, so it counts as missing; containment is judged against the workspace root
+	itself, so even a `downloads` symlink pointing out cannot smuggle an outside file in."""
 	name = unquote(target.split('#', 1)[0].split('?', 1)[0]).strip()
 	if not name:
 		return True  # a pure fragment or query link: nothing on disk to check
+	root = workspace.resolve()
 	for d in (workspace, workspace / 'downloads'):
 		try:
 			resolved = (d / name).resolve()
-			resolved.relative_to(d.resolve())
+			resolved.relative_to(root)
 		except (OSError, ValueError):  # outside the workspace
 			continue
 		if resolved.exists():

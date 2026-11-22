@@ -1285,3 +1285,40 @@ def test_paths_outside_the_workspace_count_as_missing(tmp_path):
 		assert loop._in_workspace(tmp_path, '#top') is True  # pure fragment: nothing to check
 	finally:
 		outside.unlink(missing_ok=True)
+
+
+def test_nested_paren_and_escaped_targets_are_extracted():
+	"""Destinations with deeper balanced parens, or \\-escaped parens/spaces, still name their file (CommonMark
+	destination parsing, not a one-level regex)."""
+	assert loop._file_refs('Wrote [data](missing(group(1)).csv)') == ['missing(group(1)).csv']
+	assert loop._file_refs('Wrote [data](missing\\(1\\).csv)') == ['missing(1).csv']
+	assert loop._file_refs('Wrote [data](my\\ file.csv)') == ['my file.csv']
+	assert loop._file_refs('Path C:\\Users\\x stays whole in `C:\\Users\\x.csv`') == ['C:\\Users\\x.csv']
+
+
+def test_an_outward_symlink_target_counts_as_missing(tmp_path):
+	"""A symlink inside the workspace pointing at an existing outside file is not a delivered file: containment is
+	judged after resolving."""
+	outside = tmp_path.parent / 'outside-symlink-target.csv'
+	outside.write_text('a\n1\n', encoding='utf-8')
+	(tmp_path / 'escape.csv').symlink_to(outside)
+	try:
+		assert loop._in_workspace(tmp_path, 'escape.csv') is False
+	finally:
+		outside.unlink(missing_ok=True)
+		(tmp_path / 'escape.csv').unlink(missing_ok=True)
+
+
+def test_a_downloads_symlink_to_an_outside_dir_cannot_smuggle_files(tmp_path):
+	"""If workspace/downloads itself is a symlink to an outside directory, an existing outside file behind it must
+	still count as missing: containment is judged against the workspace root, not the downloads root."""
+	outside_dir = tmp_path.parent / 'outside-downloads'
+	outside_dir.mkdir(exist_ok=True)
+	(outside_dir / 'smuggled.csv').write_text('a\n1\n', encoding='utf-8')
+	try:
+		(tmp_path / 'downloads').symlink_to(outside_dir, target_is_directory=True)
+		assert loop._in_workspace(tmp_path, 'downloads/smuggled.csv') is False
+	finally:
+		(tmp_path / 'downloads').unlink(missing_ok=True)
+		outside_dir.joinpath('smuggled.csv').unlink(missing_ok=True)
+		outside_dir.rmdir()
