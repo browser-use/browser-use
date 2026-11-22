@@ -123,7 +123,18 @@ def domain_matches(url: str, pattern: str) -> bool:
 			return False
 		pattern = pattern.lower()
 		p_scheme, p_host = pattern.split('://', 1) if '://' in pattern else ('https', pattern)
-		p_host, _, p_port = p_host.partition('/')[0].partition(':')
+		authority = p_host.partition('/')[0]
+		if authority.startswith('['):
+			closing = authority.find(']')
+			if closing < 0:
+				return False
+			suffix = authority[closing + 1 :]
+			if suffix and (not suffix.startswith(':') or not suffix[1:]):
+				return False
+			p_host = authority[1:closing]
+			p_port = suffix[1:] if suffix else ''
+		else:
+			p_host, _, p_port = authority.partition(':')
 		if not fnmatch.fnmatchcase(scheme, p_scheme) or (p_port and str(u.port or '') != p_port):
 			return False
 		if p_host in ('*', host):

@@ -480,6 +480,9 @@ async def test_cell_traceback_keeps_cell_and_workspace_frames_but_no_installed_p
 		('https://evilsite.test/', '*.site.test', False),
 		('https://site.test.evil/', 'https://site.test', False),
 		('https://site.test:8443/', 'https://site.test:8443', True),
+		('https://[::1]/login', 'https://[::1]', True),
+		('http://[2001:db8::1]:8080/', 'http://[2001:db8::1]:8080', True),
+		('http://[2001:db8::1]:8081/', 'http://[2001:db8::1]:8080', False),
 		('about:blank', 'site.test', False),
 	],
 )
