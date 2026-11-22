@@ -125,6 +125,34 @@ def test_which_urls_are_signed():
 	assert scoped.headers({'url': 'https://other.test/', 'headers': {}}) is None
 
 
+def test_only_real_loopback_addresses_get_http_signatures():
+	"""Review: '127(.d{1,3}){3}' matched 127.999.999.999, which is no address, so plain http to it was signed."""
+	signer = WebBotAuth(RFC9421_ED25519, DIRECTORY)
+	assert not signer.signs('http://127.999.999.999/') and not signer.signs('http://127.0.0.1.example.com/')
+	assert signer.signs('http://127.0.0.2/') and signer.signs('http://127.1/')  # Chrome sends 127.1 as 127.0.0.1
+
+
+def test_unicode_hosts_are_signed_as_the_browser_sends_them():
+	"""Review: a Unicode host passed signs() but failed the ASCII signature base, so the request went out unsigned.
+	@authority is now the punycode Host the browser sends."""
+	signer = WebBotAuth(RFC9421_ED25519, DIRECTORY)
+	assert wba.authority('https://faß.de/') == 'xn--fa-hia.de' == wba.authority('https://xn--fa-hia.de/')
+	headers = signer.sign('https://bücher.example:8443/', created=1735689600, nonce='n')
+	assert headers is not None
+	same = signer.sign('https://xn--bcher-kva.example:8443/', created=1735689600, nonce='n')
+	assert headers == same
+
+
+def test_a_guard_that_cannot_start_names_every_feature_it_carries():
+	"""Review: with both options on, a startup failure named only domain restrictions."""
+	signer = WebBotAuth(RFC9421_ED25519, DIRECTORY)
+	dead = 'ws://127.0.0.1:9/devtools/browser/x'  # nothing listens on port 9
+	with pytest.raises(RuntimeError, match='^Domain restrictions and Web Bot Auth signing could not start'):
+		Guard(dead, DomainRules.of(['shop.test']), signer).start()
+	with pytest.raises(RuntimeError, match='^Web Bot Auth signing could not start'):
+		Guard(dead, DomainRules(), signer).start()
+
+
 # Against a real Chrome
 
 

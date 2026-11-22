@@ -25,20 +25,21 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import os
-import re
 import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+from browser_use.domains import canonical_host
 
 LABEL = 'sig1'
 TAG = 'web-bot-auth'
 MAX_EXPIRES_IN = 86400  # the draft: RECOMMENDED no more than 24 hours after created
 DIRECTORY_MEDIA_TYPE = 'application/http-message-signatures-directory+json'
 SIGNED_HEADERS = ('signature', 'signature-input', 'signature-agent')  # replaced on a request this signs
-_LOOPBACK = re.compile(r'localhost|.+\.localhost|127(\.\d{1,3}){3}|::1')  # urlsplit's hostname: lowercase, no brackets
 _DEFAULT_PORT = {'http': 80, 'https': 443}
 
 
@@ -57,9 +58,10 @@ def _sf_string(value: str) -> str:
 	return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
-def authority(url: str) -> str | None:
-	"""RFC 9421 @authority of an http(s) URL: the lowercased host, with the port only when it is not the default.
-	None for any other URL."""
+def _host(url: str) -> tuple[str, str, int | None] | None:
+	"""(scheme, host as the browser sends it, port) of an http(s) URL, else None. The host is canonical_host's:
+	punycode for a Unicode name, as Chrome sends it (faß.de -> xn--fa-hia.de), dotted-decimal IPv4, IPv6 without
+	brackets."""
 	try:
 		u = urlsplit(url)
 		port = u.port
@@ -67,8 +69,27 @@ def authority(url: str) -> str | None:
 		return None
 	if u.scheme not in _DEFAULT_PORT or not u.hostname:
 		return None
-	host = f'[{u.hostname}]' if ':' in u.hostname else u.hostname  # urlsplit lowercases and strips IPv6 brackets
-	return host if port in (None, _DEFAULT_PORT[u.scheme]) else f'{host}:{port}'
+	host = canonical_host(u.hostname)
+	return (u.scheme, host, port) if host.isascii() else None
+
+
+def _loopback(host: str) -> bool:
+	if host == 'localhost' or host.endswith('.localhost'):
+		return True
+	try:
+		return ipaddress.ip_address(host).is_loopback
+	except ValueError:  # a name, or not an address at all (127.999.999.999)
+		return False
+
+
+def authority(url: str) -> str | None:
+	"""RFC 9421 @authority of an http(s) URL: the host as the browser sends it, with the port only when it is not the
+	default. None for any other URL."""
+	if (parts := _host(url)) is None:
+		return None
+	scheme, host, port = parts
+	host = f'[{host}]' if ':' in host else host
+	return host if port in (None, _DEFAULT_PORT[scheme]) else f'{host}:{port}'
 
 
 def _load_key(key: Any):
@@ -173,10 +194,9 @@ class WebBotAuth:
 
 	def signs(self, url: str) -> bool:
 		"""Whether a request to url gets signed: https, or http to a loopback host, and inside domains."""
-		if authority(url) is None:
+		if (parts := _host(url)) is None:
 			return False
-		u = urlsplit(url)
-		if u.scheme != 'https' and not _LOOPBACK.fullmatch(u.hostname or ''):
+		if parts[0] != 'https' and not _loopback(parts[1]):
 			return False
 		return self.domains is None or self.domains.blocked(url) is None
 

@@ -316,7 +316,7 @@ class Guard:
 		if not self._ready.wait(GUARD_START_S) or self._error:
 			self.close()
 			why = self._error or f'no answer within {GUARD_START_S:g}s'
-			what = 'Domain restrictions' if self.rules else 'Web Bot Auth signing'
+			what = ' and '.join(n for n, on in (('Domain restrictions', self.rules), ('Web Bot Auth signing', self.signer)) if on)
 			raise RuntimeError(f'{what} could not start on this browser ({why}); nothing was left running.')
 
 	def close(self) -> None:
