@@ -721,4 +721,3 @@ async def test_mcp_browser_login_tool_reports_is_error_accurately(monkeypatch):
 	)
 	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={'force': True}))
 	assert res.is_error
-
