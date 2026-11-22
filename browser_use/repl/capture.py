@@ -1,11 +1,29 @@
 """Page.captureScreenshot with the hidden-tab fallback, for the agent's REPL worker and for the CLI and --cli-mcp."""
 
 import functools
+import weakref
 from collections.abc import Callable
 
 CDP_TIMEOUT_S = 20.0  # bu-pi cdp timeout; 30s/60s waits made each stall cost more (v1b: 114 Hard timeouts)
 SCREENSHOT_TIMEOUT_S = 60.0  # browser-harness's own screenshot timeout: cloud screenshots routinely take longer
 HIDDEN_CAPTURE_TRY_S = 10.0  # a hidden tab's first capture try; Linux headless never answers it
+
+_probed_headless: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def headless_via_ua(raw_cdp: Callable) -> bool:
+	"""True when the browser reports a HeadlessChrome user agent (one Browser.getVersion per raw_cdp; only successful
+	probes are cached — a transient failure must not pin the 10 s first try forever): a headless browser renders no
+	frames for a hidden tab on any platform, so its hidden-capture first try can only burn HIDDEN_CAPTURE_TRY_S.
+	Activating is safe — a headless browser has no visible tab to disturb."""
+	if raw_cdp in _probed_headless:
+		return _probed_headless[raw_cdp]
+	try:
+		info = raw_cdp('Browser.getVersion', _response_timeout=5)
+	except Exception:  # an older daemon or a transport hiccup: keep the first try, probe again next time
+		return False
+	_probed_headless[raw_cdp] = 'headless' in str(info.get('userAgent', '')).lower()
+	return _probed_headless[raw_cdp]
 
 
 def capture(raw_cdp, current_tab, session_id=None, *, activate: bool | Callable[[], bool] = False, frozen=False, **params):
@@ -48,13 +66,15 @@ def install() -> None:
 	if getattr(raw_cdp, '__bu_hidden_capture__', False):
 		return
 
-	def on_cloud() -> bool:  # as the worker's activate=cloud: a cloud tab's first try waited 10 s on every new_tab()
-		return admin.daemon_browser_kind(admin.NAME) == 'cloud'
+	def on_hidden() -> bool:  # a cloud tab's first try waited 10 s on every new_tab(); and a headless browser — the
+		# user's own Chrome over BU_CDP_WS can be one (gh-#6449) — renders no frames while hidden either: both activate
+		# without the first try
+		return admin.daemon_browser_kind(admin.NAME) == 'cloud' or headless_via_ua(raw_cdp)
 
 	@functools.wraps(raw_cdp)
 	def cdp(method, session_id=None, **params):
 		if method == 'Page.captureScreenshot':
-			return capture(raw_cdp, helpers.current_tab, session_id, activate=on_cloud, **params)
+			return capture(raw_cdp, helpers.current_tab, session_id, activate=on_hidden, **params)
 		from browser_use.repl.worker import DIALOG_PROBE_S, FROZEN_BY_DIALOG
 
 		def pending_dialog() -> dict | None:
