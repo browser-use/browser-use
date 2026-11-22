@@ -1322,3 +1322,15 @@ def test_a_downloads_symlink_to_an_outside_dir_cannot_smuggle_files(tmp_path):
 		(tmp_path / 'downloads').unlink(missing_ok=True)
 		outside_dir.joinpath('smuggled.csv').unlink(missing_ok=True)
 		outside_dir.rmdir()
+
+
+def test_commonmark_destination_edge_cases():
+	"""Review follow-ups: whitespace after the paren is not a title separator, escaped punctuation unfolds, an escaped
+	`>` does not close an angle destination, and unterminated links are skipped entirely."""
+	assert loop._file_refs('Wrote [data]( report.csv )') == ['report.csv']
+	assert loop._file_refs('Wrote [data]( <missing.csv> )') == ['missing.csv']
+	assert loop._file_refs('Saved [report](report\\!2025.csv)') == ['report!2025.csv']
+	assert loop._file_refs('Wrote [data](<a\\>b.csv>)') == ['a>b.csv']
+	assert loop._file_refs('Wrote [data](<a.csv> no closing paren') == []
+	assert loop._file_refs('Empty [x]() stays silent') == []
+	assert loop._file_refs('Windows [p](C:\\Users\\x.csv) keeps the backslashes') == ['C:\\Users\\x.csv']

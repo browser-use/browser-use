@@ -128,57 +128,77 @@ FILE = re.compile(
 URLISH = re.compile(r'^(?:[a-z]{2,}[\w+.-]*:|#|//)', re.I)  # http:, mailto:, #fragment, //host — a one-letter mark is a drive
 
 
+_ESCAPED_PUNCTUATION = re.compile(r'\\([\x20\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e])')
+
+
 def _unescape_destination(dest: str) -> str:
-	"""CommonMark backslash escapes in a link destination: only the ones that change parsing are unfolded
-	(`\\(`, `\\)`, `\\ ` — parens and spaces), so a Windows path like `C:\\Users\\x` keeps its backslashes."""
-	return re.sub(r'\\([() ])', r'\1', dest)
+	"""CommonMark backslash escapes in a link destination: a backslash before ASCII punctuation — or the space that
+	would otherwise end the destination — is unfolded (`\\!`, `\\(`, `\\ ` …), so `report\\!2025.csv` and `my\\ file.csv`
+	resolve to their real names; a backslash before anything else (the `\\U` of a Windows path) is kept as written."""
+	return _ESCAPED_PUNCTUATION.sub(r'\1', dest)
 
 
 def _markdown_targets(text: str) -> list[str]:
-	"""Destinations of CommonMark inline links in `text`: `<angle targets>` (spaces allowed), plain targets with
-	balanced (…) groups to any depth (`missing(group(1)).csv`), an optional "title" / 'title' — also \\-escaped, as
-	structured output strings render it (as_text JSON-escapes the quotes). Backslash-escaped punctuation in the
-	destination is unfolded. Unterminated links are skipped."""
+	"""Destinations of CommonMark inline links in `text`: `<angle targets>` (spaces allowed, `\\>` does not close),
+	plain targets with balanced (…) groups to any depth (`missing(group(1)).csv`), an optional "title" / 'title' —
+	also \\-escaped, as structured output strings render it (as_text JSON-escapes the quotes). Whitespace right after
+	the paren is not part of the destination, backslash-escaped punctuation is unfolded, and unterminated links are
+	skipped."""
 	targets: list[str] = []
 	i = 0
+	n = len(text)
 	while (start := text.find('](', i)) >= 0:
 		i = start + 2
-		if i < len(text) and text[i] == '<':  # angle destination: spaces and parens verbatim up to '>'
-			end = text.find('>', i + 1)
-			if end < 0:
-				continue
-			raw = _unescape_destination(text[i + 1 : end])
-			close = text.find(')', end + 1)  # skip an optional title
-			i = close + 1 if close >= 0 else len(text)
-			targets.append(raw)
-			continue
-		depth, dest, closed = 0, [], False
-		while i < len(text):
-			ch = text[i]
-			if ch == '(':
-				depth += 1
-				dest.append(ch)
-			elif ch == ')':
-				if depth == 0:
-					closed = True
-					break  # the link's closing paren
-				depth -= 1
-				dest.append(ch)
-			elif ch.isspace() and depth == 0:  # destination ended; skip an optional title
-				close = text.find(')', i)
-				if close >= 0:
-					closed = True
-					i = close
-				break
-			elif ch == '\\' and i + 1 < len(text) and text[i + 1] in '() ':
+		while i < n and text[i] in ' \t\n':  # whitespace after the paren is not part of the destination
+			i += 1
+		raw: str | None = None
+		if i < n and text[i] == '<':  # angle destination: spaces and parens verbatim; \\> does not close it
+			j, chars, closed_angle = i + 1, [], False
+			while j < n:
+				if text[j] == '\\' and j + 1 < n:
+					chars.append(text[j : j + 2])
+					j += 2
+					continue
+				if text[j] == '>':
+					closed_angle = True
+					break
+				chars.append(text[j])
+				j += 1
+			close = text.find(')', j + 1) if closed_angle else -1  # an optional title may follow
+			if close >= 0:
+				i = close + 1
+				raw = ''.join(chars)
+		else:
+			depth, dest, closed = 0, [], False
+			while i < n:
+				ch = text[i]
+				if ch == '(':
+					depth += 1
+					dest.append(ch)
+				elif ch == ')':
+					if depth == 0:
+						closed = True
+						break  # the link's closing paren
+					depth -= 1
+					dest.append(ch)
+				elif ch.isspace() and depth == 0:  # destination ended; skip an optional title
+					close = text.find(')', i)
+					if close >= 0:
+						closed = True
+						i = close
+					break
+				elif ch == '\\' and i + 1 < n:
+					dest.append(text[i : i + 2])  # an escaped character, unfolded by _unescape_destination
+					i += 2
+					continue
+				else:
+					dest.append(ch)
 				i += 1
-				dest.append(text[i])  # \\(, \\) and \\ are the escapes that change parsing
-			else:
-				dest.append(ch)
-			i += 1
-		if closed:
-			i += 1
-			targets.append(_unescape_destination(''.join(dest)))
+			if closed:
+				i += 1
+				raw = ''.join(dest)
+		if raw and (target := _unescape_destination(raw)):
+			targets.append(target)
 	return targets
 
 
