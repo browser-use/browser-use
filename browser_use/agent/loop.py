@@ -18,7 +18,9 @@ import uuid
 from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Annotated, Any, cast
+from urllib.parse import unquote
 
 import httpx2
 from genai_prices import calc_price
@@ -120,8 +122,42 @@ STREAM_TIMEOUT_S = 930
 GATEWAY_MAX_TOKENS = 16_384
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
-LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
+LINK = re.compile(
+	# CommonMark inline link targets: <spaced target>, or a plain target that may carry balanced (…) groups
+	# (file_names writes `report (1).csv`); an optional "title" / 'title', also \\-escaped as structured
+	# output strings render it (as_text JSON-escapes the quotes).
+	r'\]\(\s*(?:<([^>]*)>|([^\s()]+(?:\([^\s()]*\)[^\s()]*)*))'
+	r'(?:\s+(?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\\"(?:[^"\\]|\\.)*\\"))?'
+	r'\s*\)'
+)
 FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
+URLISH = re.compile(r'^(?:[a-z]{2,}[\w+.-]*:|#|//)', re.I)  # http:, mailto:, #fragment, //host — a one-letter mark is a drive
+
+
+def _file_refs(text: str) -> list[str]:
+	"""File references in a delivered answer: markdown link targets (CommonMark inline links, including <spaced
+	targets>, titles, percent-encoded or query-bearing URLs) and `backticked.ext` inline-code names."""
+	targets = [a or b for a, b in LINK.findall(text)]  # an unmatched group comes back as ''
+	return targets + FILE.findall(text)
+
+
+def _in_workspace(workspace: Path, target: str) -> bool:
+	"""Whether `target`, as written in the answer, names an existing file inside the workspace or its downloads folder.
+	URL fragments and query strings are dropped and percent-encoding decoded first (a link may encode the very spaces
+	and parentheses `file_names` writes). A path that escapes the workspace — absolute, `..`, a symlink pointing out —
+	names a file that was not delivered, so it counts as missing."""
+	name = unquote(target.split('#', 1)[0].split('?', 1)[0]).strip()
+	if not name:
+		return True  # a pure fragment or query link: nothing on disk to check
+	for d in (workspace, workspace / 'downloads'):
+		try:
+			resolved = (d / name).resolve()
+			resolved.relative_to(d.resolve())
+		except (OSError, ValueError):  # outside the workspace
+			continue
+		if resolved.exists():
+			return True
+	return False
 
 
 @dataclass
@@ -263,15 +299,7 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	if not re.search(r'[^\W_]', text) or (not isinstance(value, str) and _holds_nothing(json.loads(text))):
 		problem = (f'The result {text[:20]!r} is a placeholder, not the answer.', 'delivery_placeholder')
 	else:
-		missing = sorted(
-			{
-				t
-				for t in LINK.findall(text) + FILE.findall(text)
-				if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
-				# downloads land in workspace/downloads; an answer names them by file name
-				and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
-			}
-		)
+		missing = sorted({t for t in _file_refs(text) if not URLISH.match(t) and not _in_workspace(s.repl.workspace, t)})
 		if missing:
 			problem = (f'These linked files do not exist in the workspace: {", ".join(missing[:10])}.', 'delivery_missing_files')
 	if problem is None:
