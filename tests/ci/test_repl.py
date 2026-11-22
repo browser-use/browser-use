@@ -1002,15 +1002,16 @@ def test_a_headless_cdp_browser_skips_the_hidden_capture_first_try(monkeypatch, 
 	monkeypatch.setattr(helpers, 'current_tab', lambda: {'targetId': 'T'})
 	monkeypatch.setattr(admin, 'daemon_browser_kind', lambda name=None: 'cdp')
 	assert headless_via_ua(raw_cdp) is True
-	assert calls == [('Browser.getVersion', 5)]  # cached: the capture below does not probe again
 
 	ns = cli_mcp.CLIMCPServer()._ensure_namespace()
 	path = ns['capture_screenshot'](str(tmp_path / 'shot.png'))
 	assert Path(path).read_bytes() == b'\x00\x00\x00'
 	assert state['visibility'] == 'visible'
+	# uncached: every hidden capture re-probes, so a reattach as a different browser is honored
 	assert [m for m, _ in calls] == [
 		'Browser.getVersion',
 		'Runtime.evaluate',
+		'Browser.getVersion',
 		'Target.activateTarget',
 		'Page.captureScreenshot',
 	]
