@@ -21,6 +21,7 @@ import contextvars
 import fnmatch
 import hmac
 import html
+import ipaddress
 import json
 import os
 import re
@@ -128,10 +129,17 @@ def domain_matches(url: str, pattern: str) -> bool:
 			closing = authority.find(']')
 			if closing < 0:
 				return False
+
 			suffix = authority[closing + 1 :]
-			if suffix and (not suffix.startswith(':') or not suffix[1:]):
+			if suffix and not suffix.startswith(':'):
 				return False
-			p_host = authority[1:closing]
+
+			try:
+				p_host = ipaddress.IPv6Address(authority[1:closing]).compressed
+				host = ipaddress.IPv6Address(host).compressed
+			except ValueError:
+				return False
+
 			p_port = suffix[1:] if suffix else ''
 		else:
 			p_host, _, p_port = authority.partition(':')
