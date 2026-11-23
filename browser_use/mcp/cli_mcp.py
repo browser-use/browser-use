@@ -348,22 +348,48 @@ def _capture(buffer: StringIO):
 		_cell.buffer = None
 
 
+class _CellBuffer(StringIO):
+	"""A cell's output buffer that keeps only a bounded tail.
+
+	A cell deliberately outlives its call, so a cell that prints in a loop used to grow the MCP server's memory for as
+	long as it ran. Only MAX_OUTPUT_CHARS can ever reach the model, so older text is dropped instead of retained.
+	"""
+
+	def __init__(self, limit: int = MAX_OUTPUT_CHARS) -> None:
+		super().__init__()
+		self.limit = limit
+		self.dropped = 0
+
+	def write(self, s: str) -> int:
+		written = super().write(s)
+		value = super().getvalue()
+		if len(value) > self.limit:
+			excess = len(value) - self.limit
+			self.dropped += excess
+			super().__init__(value[excess:])
+			self.seek(0, 2)  # subsequent writes append to the retained tail
+		return written
+
+
 class _Cell:
 	"""One browser_exec cell on its own thread, which no call can stop. One that outlives its call (CALL_SECONDS, or a
 	client that cancelled sooner) keeps running: later calls return what it prints from then on, and its end."""
 
 	def __init__(self) -> None:
-		self.buffer = StringIO()
+		self.buffer = _CellBuffer()
 		self.started = time.monotonic()
 		self.failed = True
 		self.done = threading.Event()
 		self._shown = 0
 
 	def new_output(self) -> str:
-		"""What it printed since the last call returned its output."""
+		"""What it printed since the last call returned its output (the tail only, if older text was dropped)."""
+		dropped = self.buffer.dropped
 		text = self.buffer.getvalue()
-		text, self._shown = text[self._shown :], len(text)
-		return text
+		lost = max(0, dropped - self._shown)
+		new = text[max(0, self._shown - dropped) :]
+		self._shown = dropped + len(text)
+		return f'[Earlier output truncated: {lost:,} chars dropped]\n{new}' if lost else new
 
 
 def _clipped(output: str) -> str:
