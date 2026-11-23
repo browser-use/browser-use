@@ -29,8 +29,11 @@ MODEL_CODE = 'From an agent cell use report_issue(...), from an MCP client the b
 MCP_TOOL = {  # browser_feedback, on --cli-mcp and on the server that only reports why nothing can run (cli.py)
 	'name': 'browser_feedback',
 	'description': (
-		'Send feedback to the Browser Use team only when the user has explicitly authorized the report and its destination. '
-		'To obtain that authorization, show the user the proposed message and destination and wait for their approval. '
+		'Browser Use sends feedback to its PostHog project. '
+		f'The report includes the message (up to {MAX_MESSAGE:,} characters), category, Browser Use version, '
+		'runtime metadata such as OS and Python version, and a persistent device ID. '
+		'Show the user the proposed message and destination, explain what is added automatically, and wait for explicit '
+		'approval of the report and destination before sending. '
 		'Start with kind: integration_report | feature_request | bug. Include what you built, how you tested it, '
 		'what worked, problems you hit, docs that were wrong or missing, and any feature you looked for and could not '
 		'find. Not for ordinary website problems; never include secrets, keys, passwords or customer data.'
