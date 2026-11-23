@@ -683,6 +683,38 @@ async def test_mcp_a_cancelled_call_lets_go_of_the_lock_and_a_queued_one_never_r
 		release.set()
 
 
+async def test_mcp_browser_screenshot_replies_before_the_deadline_when_the_capture_hangs(monkeypatch):
+	"""#6512: browser_screenshot went through _locked with no deadline, so a slow capture (queued behind a 50 s cell,
+	an unresponsive tab, a CDP hang) never replied and the client cancelled it at 60 s with MCP error -32001. It now
+	replies within CALL_SECONDS that the capture is still running."""
+	import threading
+	import time
+
+	from mcp import types
+
+	from browser_use.mcp import cli_mcp
+	from browser_use.mcp.cli_mcp import CLIMCPServer
+
+	monkeypatch.setattr(cli_mcp, 'CALL_SECONDS', 0.2)
+	server = CLIMCPServer()
+	release = threading.Event()
+
+	def slow_screenshot(full: bool, max_dim: int | None) -> str:
+		release.wait(timeout=5)
+		return 'aGVsbG8='
+
+	monkeypatch.setattr(server, '_screenshot', slow_screenshot)
+	handler = server.server._request_handlers['tools/call'].handler
+	try:
+		started = time.monotonic()
+		r = await handler(None, types.CallToolRequestParams(name='browser_screenshot', arguments={}))
+		assert time.monotonic() - started < 2  # the 5 s capture must not hold the reply
+	finally:
+		release.set()
+	text = r.content[0].text  # type: ignore[union-attr]
+	assert r.is_error and 'Still capturing' in text and 'Call browser_screenshot again' in text, text
+
+
 async def test_mcp_a_local_browser_that_cannot_attach_is_one_tool_error_naming_the_reason(monkeypatch):
 	"""Live: with no local Chrome to attach, browser_screenshot raised out of the handler (the client got a JSON-RPC
 	error, not a tool result the model reads) and browser_exec, even of `print(1+1)`, returned a 14-line traceback of

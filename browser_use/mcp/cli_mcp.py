@@ -70,12 +70,16 @@ OLD_TOOLS = {  # the 0.x browser-use --mcp server's tools (it ran the removed en
 OLD_TOOL_HINT = 'browser_exec runs Python with the browser-harness helpers (goto_url, click_at_xy, js, list_tabs, ...).'
 CLOUD_TIMEOUT_MINUTES = 30  # default lifetime of a cloud browser this server starts; start_remote_daemon(timeout=) overrides
 INSTALL_TIMEOUT_S = 600  # Playwright's Chromium (~150 MB) and, as root on Linux, its system libraries
-# browser_exec replies within this: Cursor and the other clients on the MCP TypeScript SDK cancel a tool call at 60 s, and
-# the model then got nothing back from code that ran on
+# browser_exec and browser_screenshot reply within this: Cursor and the other clients on the MCP TypeScript SDK cancel a
+# tool call at 60 s, and the model then got nothing back from code that ran on
 CALL_SECONDS = 50.0
 STILL_RUNNING = (
 	'Still running after {seconds:.0f} s, so this reply comes before the MCP client gives up on the call; the code keeps '
 	'running. Call browser_exec with code "" to wait for it and get the rest of its output (new code would run beside it).'
+)
+SCREENSHOT_RUNNING = (
+	'Still capturing after {seconds:.0f} s, so this reply comes before the MCP client gives up on the call; '
+	'the capture keeps running. Call browser_screenshot again to retry.'
 )
 NOTHING_RUNNING = 'Nothing is running: every earlier browser_exec has ended and returned all of its output.'
 BUSY = (
@@ -542,7 +546,10 @@ class CLIMCPServer:
 			),
 			types.Tool(
 				name='browser_screenshot',
-				description='Capture the current page and return it as an image. Prefer this over capture_screenshot() in browser_exec.',
+				description=(
+					'Capture the current page and return it as an image. Prefer this over capture_screenshot() in browser_exec. '
+					f'A call replies within {CALL_SECONDS:.0f} s: a capture still running then is reported — call again to retry.'
+				),
 				input_schema={
 					'type': 'object',
 					'properties': {
@@ -612,12 +619,10 @@ class CLIMCPServer:
 						is_error=True,
 					)
 				try:
-					png = await self._locked(self._screenshot, bool(arguments.get('full', False)), max_dim)
+					return await self._screenshot_call(bool(arguments.get('full', False)), max_dim)
 				except Exception as e:  # a tool result the model reads, never a JSON-RPC error
 					_error_class(e)
 					return types.CallToolResult(content=[types.TextContent(type='text', text=self._error(e))], is_error=True)
-				content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
-				return types.CallToolResult(content=content)
 			if name == 'browser_login':
 				text, call['login_state'] = await asyncio.to_thread(self._sign_in, bool(arguments.get('force', False)))
 				failed = call['login_state'] in ('failed', 'start_failed')  # ok=True always made a failed login invisible
@@ -733,6 +738,31 @@ class CLIMCPServer:
 		if note:
 			blocks.append(note)
 		return types.CallToolResult(content=[types.TextContent(type='text', text=b) for b in blocks], is_error=failed)
+
+	async def _screenshot_call(self, full: bool, max_dim: int | None) -> types.CallToolResult:
+		"""browser_screenshot: capture in a thread and reply within CALL_SECONDS whether it ended or not. One call
+		at a time: a call that cannot start before its deadline does not run, and a capture still running then is
+		reported instead of left for the MCP client to time out (its thread runs on, like a cell)."""
+		deadline = time.monotonic() + CALL_SECONDS
+		try:
+			async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+				await self._exec_lock.acquire()
+		except TimeoutError:
+			_count('busy')
+			return types.CallToolResult(content=[types.TextContent(type='text', text=BUSY)], is_error=True)
+		try:
+			try:
+				async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+					png = await asyncio.to_thread(self._screenshot, full, max_dim)
+			except TimeoutError:
+				_count('still_running')
+				return types.CallToolResult(
+					content=[types.TextContent(type='text', text=SCREENSHOT_RUNNING.format(seconds=CALL_SECONDS))],
+					is_error=True,
+				)
+		finally:
+			self._exec_lock.release()
+		return types.CallToolResult(content=[types.ImageContent(type='image', data=png, mime_type='image/png')])
 
 	def _run_cell(self, cell: _Cell, code: str) -> None:
 		try:
