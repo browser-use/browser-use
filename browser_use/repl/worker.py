@@ -660,8 +660,10 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			# browser-harness defaults to 5s IPC; heavy cloud pages (Maps, TripAdvisor) blew it on navigate/evaluate/input.
 			params.setdefault('_response_timeout', CDP_TIMEOUT_S)
 			result = raw_cdp(method, session_id, **params)
-			if method == 'Page.navigate' and isinstance(result, dict) and result.get('errorText'):
-				stats.nav_failed(result['errorText'])
+			if method == 'Page.navigate' and isinstance(result, dict) and (error := result.get('errorText')):
+				# Chrome aborts the page load when it hands a navigation off to the download manager.
+				if not (result.get('isDownload') and error == 'net::ERR_ABORTED'):
+					stats.nav_failed(error)
 			if highlight:
 				highlight.after(method, session_id, params)
 			# Browser._touched_tabs: the agent's tabs are the ones it created or attached to (switch_tab), even one it
