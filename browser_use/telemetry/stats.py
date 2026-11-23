@@ -120,13 +120,22 @@ def page_url(url: Any) -> str | None:
 # start a match only where a run of its characters starts: without them a 32k run of letters took 2.5 s (each start
 # scanned to the run's end), in the telemetry thread, holding the GIL a run in this process needs.
 EMAIL = re.compile(r'(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+(?:@|%40)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}')
-KEYS = re.compile(
+KEY_PREFIX = (
 	r'(?<![A-Za-z0-9])(?:sk-ant-|sk-|sk_|rk_|bu_|gsk_|xai-|hf_|ghp_|gho_|ghs_|ghu_|github_pat_|glpat-|xox[abpr]-|nvapi-'
-	r'|pplx-|r8_|phc_)[A-Za-z0-9_-]{8,}'
+	r'|pplx-|r8_|phc_|AIza)'
+)
+KEYS = re.compile(
+	KEY_PREFIX + r'[A-Za-z0-9_-]{8,}'
 	r'|(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])'
 	r'|AIza[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?'
 	r'|(?<![A-Za-z0-9])(?=[A-Za-z]*[0-9])(?=[0-9]*[A-Za-z])[A-Za-z0-9]{32,}'  # a random run no word or slug has
 )
+# a key as a provider's error masks it ('Incorrect API key provided: sk-proj-****kX0A', 'sk-...***...eeb', 'AIzaSy...Q2w'):
+# its prefix and its last characters still identify it. Both sides bounded: an unbounded lazy run before the mask made
+# each prefix ('sk-'*12000) scan to the text's end, 26 s in the telemetry thread
+MASKED_KEY = re.compile(KEY_PREFIX + r'[A-Za-z0-9_-]{0,64}(?:\*{2,}|\.{3}|…)[A-Za-z0-9_.*…-]{0,96}')
+# the key a provider's 401 quotes, masked or not: OpenAI 'api key provided: sk-...', DeepSeek 'Your api key: ****f3a1'
+KEY_PROVIDED = re.compile(r'(?i)(api[ _-]?key(?: provided)?:\s*)[^\s\'",]+')
 # a token has a digit or a capital after a small letter (base64); a word ('Basic information') has neither
 BEARER = re.compile(r'\b([Bb]earer|[Bb]asic|BEARER|BASIC)(\s+)(?=\S*(?:\d|[a-z]\S*[A-Z]))[A-Za-z0-9._~+/=-]{8,}')
 # in an Authorization header, any token: one BEARER does not know (lowercase, no digit) too
@@ -216,6 +225,7 @@ def _scrub(text: str, forms: list[tuple[str, str]], tasks: tuple[str, ...], type
 	out = AUTHORIZATION.sub(lambda m: m[1] + '<credential>', out)
 	out = COOKIE.sub(lambda m: m[1] + '<credential>', out)
 	out = ASSIGNED.sub(lambda m: m[1] + m[2] + '<credential>', out)
+	out = KEY_PROVIDED.sub(lambda m: m[1] + '<credential>', MASKED_KEY.sub('<credential>', out))
 	return NUMBER.sub('<number>', EMAIL.sub('<email>', KEYS.sub('<credential>', out)))
 
 
@@ -513,6 +523,7 @@ def _version(*dists: str) -> str | None:
 def environment() -> dict[str, Any]:
 	"""Where browser-use runs; the same for every event of a process."""
 	from browser_use.config import is_running_in_docker
+	from browser_use.utils import has_display, is_ssh
 
 	return {
 		'os': platform.system() or 'unknown',
@@ -524,6 +535,9 @@ def environment() -> dict[str, Any]:
 		'is_docker': is_running_in_docker(),
 		'is_ci': bool(os.getenv('CI') or os.getenv('GITHUB_ACTIONS')),
 		'is_notebook': 'ipykernel' in sys.modules,
+		'is_colab': 'google.colab' in sys.modules,
+		'is_ssh': is_ssh(),
+		'has_display': has_display(),
 	}
 
 
