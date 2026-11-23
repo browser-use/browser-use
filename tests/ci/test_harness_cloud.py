@@ -660,6 +660,26 @@ async def test_mcp_screenshot_replies_before_call_deadline(monkeypatch):
 		release.set()
 
 
+async def test_mcp_screenshot_inner_timeout_keeps_real_error(monkeypatch):
+	"""A TimeoutError from capture() itself (e.g. a CDP response timeout) must not be reported as a missed deadline."""
+	import asyncio
+
+	from browser_use.mcp import cli_mcp
+
+	def failing_screenshot(full: bool, max_dim: int | None) -> str:
+		raise TimeoutError('CDP response timed out')
+
+	server = cli_mcp.CLIMCPServer()
+	monkeypatch.setattr(cli_mcp, 'CALL_SECONDS', 5.0)
+	monkeypatch.setattr(server, '_screenshot', failing_screenshot)
+	result = await server._screenshot_call(False, None)
+	assert result.is_error
+	assert 'Screenshot did not finish after' not in result.content[0].text
+	assert 'CDP response timed out' in result.content[0].text
+	await asyncio.wait_for(server._exec_lock.acquire(), timeout=1)
+	server._exec_lock.release()
+
+
 def test_a_failing_cell_shows_its_own_frames_and_names_the_helpers_for_an_unknown_name(monkeypatch):
 	"""Daytona 1.0.1: every failing cell's traceback began with this server's exec() frame, and click_element(3) (a 0.x
 	action) said only NameError, where the piped CLI names the 1.0 helpers."""

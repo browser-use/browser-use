@@ -694,10 +694,19 @@ class CLIMCPServer:
 		except TimeoutError:
 			_count('busy')
 			return types.CallToolResult(content=[types.TextContent(type='text', text=BUSY)], is_error=True)
+		capture_timeout = asyncio.timeout(max(0.0, deadline - time.monotonic()))
 		try:
-			async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+			async with capture_timeout:
 				png = await asyncio.to_thread(self._screenshot, full, max_dim)
-		except TimeoutError:
+		except TimeoutError as e:
+			if not capture_timeout.expired():
+				# TimeoutError from capture() itself, e.g. a CDP response timeout: keep the real error
+				# (and its _error_class telemetry) instead of reporting a missed deadline.
+				_error_class(e)
+				return types.CallToolResult(content=[types.TextContent(type='text', text=self._error(e))], is_error=True)
+			# The timed-out capture keeps running in its thread (asyncio.to_thread cannot be cancelled);
+			# releasing the lock mirrors _exec_call's outliving-cell pattern, so a hung capture never
+			# blocks later calls (including stop_remote_daemon). A retry may run concurrently with it.
 			_count('screenshot_timeout')
 			return types.CallToolResult(
 				content=[types.TextContent(type='text', text=SCREENSHOT_STILL_RUNNING)],
