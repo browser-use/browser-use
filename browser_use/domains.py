@@ -137,6 +137,18 @@ def _host_matches(host: str, pattern: str) -> bool:
 	return fnmatchcase(host, _glob(pattern)) if '*' in pattern else host == canonical_host(pattern)
 
 
+def _path_matches(path: str, p_path: str) -> bool:
+	"""Match a URL path (+ optional '?query') against a pattern path on segment/query boundaries."""
+	prefix = f'/{p_path}'
+	if '*' in p_path:
+		return fnmatchcase(path, prefix)
+	if prefix.endswith(('/', '?')):
+		return path.startswith(prefix)
+	if '?' in prefix:
+		return path == prefix or path.startswith(f'{prefix}&')
+	return path == prefix or path.startswith(f'{prefix}/') or path.startswith(f'{prefix}?')
+
+
 def pattern_matches(pattern: str, u: Url, subdomains: bool = False) -> bool:
 	"""0.x _is_url_match, with the parsed URL instead of string prefixes: 'https://example.com' no longer matches
 	https://example.com.evil.com or https://example.com@evil.com. subdomains (prohibited_domains): a bare host pattern
@@ -158,7 +170,7 @@ def pattern_matches(pattern: str, u: Url, subdomains: bool = False) -> bool:
 			return False
 		if not slash:
 			return True
-		return fnmatchcase(u.path, f'/{p_path}') if '*' in p_path else u.path.startswith(f'/{p_path}')
+		return _path_matches(u.path, p_path)
 	if u.scheme not in WEB:  # 0.x: a pattern without a scheme never matches chrome://, file:, ...
 		return False
 	p_host, p_port = _split_port(p)
