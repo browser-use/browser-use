@@ -634,6 +634,32 @@ async def test_mcp_exec_reports_failures_and_a_cancelled_call_never_bleeds_into_
 	assert (text, failed) == ('MINE\n', False)
 
 
+async def test_mcp_screenshot_replies_before_call_deadline(monkeypatch):
+	"""C6512: a hung screenshot must return a tool result before the MCP 60 s client timeout."""
+	import asyncio
+	import threading
+
+	from browser_use.mcp import cli_mcp
+
+	release = threading.Event()
+
+	def slow_screenshot(full: bool, max_dim: int | None) -> str:
+		release.wait()
+		return 'png'
+
+	server = cli_mcp.CLIMCPServer()
+	monkeypatch.setattr(cli_mcp, 'CALL_SECONDS', 0.05)
+	monkeypatch.setattr(server, '_screenshot', slow_screenshot)
+	try:
+		result = await server._screenshot_call(False, None)
+		assert result.is_error
+		assert 'Screenshot did not finish after' in result.content[0].text
+		await asyncio.wait_for(server._exec_lock.acquire(), timeout=1)
+		server._exec_lock.release()
+	finally:
+		release.set()
+
+
 def test_a_failing_cell_shows_its_own_frames_and_names_the_helpers_for_an_unknown_name(monkeypatch):
 	"""Daytona 1.0.1: every failing cell's traceback began with this server's exec() frame, and click_element(3) (a 0.x
 	action) said only NameError, where the piped CLI names the 1.0 helpers."""
