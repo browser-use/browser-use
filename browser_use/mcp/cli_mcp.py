@@ -349,26 +349,61 @@ def _capture(buffer: StringIO):
 
 
 class _CellBuffer(StringIO):
-	"""A cell's output buffer that keeps only a bounded tail.
+	"""A cell's output buffer that spills to disk and keeps only a bounded tail in memory.
 
 	A cell deliberately outlives its call, so a cell that prints in a loop used to grow the MCP server's memory for as
-	long as it ran. Only MAX_OUTPUT_CHARS can ever reach the model, so older text is dropped instead of retained.
+	long as it ran. The full text is written to a temp file (so `_clipped` can still hand the model its path), while
+	only the last MAX_OUTPUT_CHARS characters stay in memory. `tell()` keeps the common write path O(len(s)).
 	"""
 
 	def __init__(self, limit: int = MAX_OUTPUT_CHARS) -> None:
 		super().__init__()
 		self.limit = limit
-		self.dropped = 0
+		self.full_path: str | None = None
+		self._full_bytes = 0
+		self._spill = None
+		self._shown = 0
+		self._shown_bytes = 0
+		self._lock = threading.Lock()
 
 	def write(self, s: str) -> int:
-		written = super().write(s)
-		value = super().getvalue()
-		if len(value) > self.limit:
+		with self._lock:
+			written = super().write(s)
+			if self.tell() <= self.limit:
+				return written
+			value = super().getvalue()
+			if self._spill is None:
+				self._spill = tempfile.NamedTemporaryFile('wb', prefix='browser_exec_', suffix='.txt', delete=False)
+				self.full_path = self._spill.name
+				self._shown_bytes = len(value[: self._shown].encode('utf-8', errors='replace'))
+				encoded = value.encode('utf-8', errors='replace')
+				self._spill.write(encoded)
+				self._full_bytes = len(encoded)
+			else:
+				encoded = s.encode('utf-8', errors='replace')
+				self._spill.write(encoded)
+				self._full_bytes += len(encoded)
+			self._spill.flush()  # take() opens the path for reading while this file stays open
 			excess = len(value) - self.limit
-			self.dropped += excess
 			super().__init__(value[excess:])
 			self.seek(0, 2)  # subsequent writes append to the retained tail
-		return written
+			return written
+
+	def take(self) -> str:
+		"""What has been printed since the last call, with the write/snapshot race locked out."""
+		with self._lock:
+			if self.full_path is not None:
+				if self._shown_bytes >= self._full_bytes:
+					return ''
+				with open(self.full_path, 'rb') as f:
+					f.seek(self._shown_bytes)
+					text = f.read().decode('utf-8', errors='replace')
+				self._shown_bytes = self._full_bytes
+				return text
+			text = self.getvalue()
+			result = text[self._shown :]
+			self._shown = len(text)
+			return result
 
 
 class _Cell:
@@ -380,29 +415,25 @@ class _Cell:
 		self.started = time.monotonic()
 		self.failed = True
 		self.done = threading.Event()
-		self._shown = 0
 
 	def new_output(self) -> str:
-		"""What it printed since the last call returned its output (the tail only, if older text was dropped)."""
-		dropped = self.buffer.dropped
-		text = self.buffer.getvalue()
-		lost = max(0, dropped - self._shown)
-		new = text[max(0, self._shown - dropped) :]
-		self._shown = dropped + len(text)
-		return f'[Earlier output truncated: {lost:,} chars dropped]\n{new}' if lost else new
+		"""What it printed since the last call returned its output."""
+		return self.buffer.take()
 
 
-def _clipped(output: str) -> str:
+def _clipped(output: str, full_path: str | None = None) -> str:
 	"""The agent's cap on a cell's output (MAX_OUTPUT_CHARS); the full text stays readable on disk."""
 	if len(output) <= MAX_OUTPUT_CHARS:
 		return output
-	# utf-8: Windows' locale encoding (cp1252) failed the whole call on an emoji, after the cell ran; newline='': the file
-	# holds the output as captured (Windows wrote each \n as \r\n)
-	with tempfile.NamedTemporaryFile(
-		'w', encoding='utf-8', errors='replace', newline='', prefix='browser_exec_', suffix='.txt', delete=False
-	) as f:
-		f.write(output)
-	return clip(output, f.name)
+	if full_path is None:
+		# utf-8: Windows' locale encoding (cp1252) failed the whole call on an emoji, after the cell ran; newline='': the
+		# file holds the output as captured (Windows wrote each \n as \r\n)
+		with tempfile.NamedTemporaryFile(
+			'w', encoding='utf-8', errors='replace', newline='', prefix='browser_exec_', suffix='.txt', delete=False
+		) as f:
+			f.write(output)
+		full_path = f.name
+	return clip(output, full_path)
 
 
 def _open_url(url: str) -> bool:
@@ -727,7 +758,7 @@ class CLIMCPServer:
 		await asyncio.to_thread(lambda: [c.done.wait(max(0.0, deadline - time.monotonic())) for c in waited])
 		blocks, failed = [], False
 		if cell is not None:
-			blocks.append(_clipped(cell.new_output()) or '(no output)')
+			blocks.append(_clipped(cell.new_output(), cell.buffer.full_path) or '(no output)')
 			if cell.done.is_set():
 				self._running.remove(cell)
 				failed = cell.failed
@@ -748,7 +779,7 @@ class CLIMCPServer:
 				head = f'[earlier browser_exec still running ({seconds:.0f} s)]'
 				if cell is None:
 					_count('still_running')
-			output = _clipped(c.new_output())
+			output = _clipped(c.new_output(), c.buffer.full_path)
 			blocks.append(f'{head}\n{output}' if output else head)
 		note, self._note = self._note, None
 		if note:
