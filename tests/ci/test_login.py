@@ -652,3 +652,66 @@ def test_a_cloud_browser_is_stopped_with_the_key_it_was_created_with(store, monk
 	assert browser._llm_key is None
 	assert browser._stop_now() and browser.stopped
 	assert sent == [('POST', FAKE_KEY), ('PATCH', FAKE_KEY)]
+
+
+@pytest.mark.parametrize('operation', ['list', 'copy', 'stop'])
+async def test_cloud_downloads_use_the_creation_key_after_the_model_changes(store, monkeypatch, tmp_path, operation):
+	"""A model-supplied key owns the cloud session's downloads, including files listed only after stop()."""
+	import io
+	import urllib.parse
+
+	from conftest import script
+
+	from browser_use import Agent, Browser, ChatBrowserUse
+	from browser_use.browser import browser as browser_mod
+
+	sent = []
+	stopped = False
+	content = {'before.csv': b'before', 'second.csv': b'second', 'after.csv': b'after'}
+
+	def answer(req, timeout=None):
+		nonlocal stopped
+		sent.append((req.get_method(), req.get_header('X-browser-use-api-key')))
+		assert sent[-1][1] == FAKE_KEY
+		if req.get_method() == 'POST':
+			result = {'id': 'b1', 'cdpUrl': 'http://cdp'}
+		elif req.get_method() == 'PATCH':
+			stopped = True
+			result = {}
+		else:
+			query = urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)
+			second = query.get('cursor') == ['second']
+			names = ['second.csv'] if second else ['before.csv', *(['after.csv'] if stopped else [])]
+			result = {
+				'files': [
+					{'path': '/dl/' + name, 'size': len(content[name]), 'url': 'https://files.test/' + name} for name in names
+				],
+				'hasMore': not second,
+				'nextCursor': None if second else 'second',
+			}
+		return io.BytesIO(json.dumps(result).encode())
+
+	monkeypatch.setattr(browser_mod, 'urlopen_keyed', answer)
+	monkeypatch.setattr(browser_mod.urllib.request, 'urlopen', lambda url, **kwargs: io.BytesIO(content[url.rsplit('/', 1)[1]]))
+	browser = Browser(keep_alive=True)
+	Agent('t', ChatBrowserUse(api_key=FAKE_KEY), browser=browser, workspace=tmp_path)._build()
+	browser._create({})
+	Agent('t', script()[0], browser=browser, workspace=tmp_path)._build()
+	assert browser._llm_key is None
+	try:
+		if operation == 'list':
+			assert await browser.list_downloads() == [
+				{'name': name, 'size': len(content[name])} for name in ('before.csv', 'second.csv')
+			]
+		else:
+			files = await (
+				browser.stop(tmp_path / 'downloads') if operation == 'stop' else browser.download_files(tmp_path / 'downloads')
+			)
+			expected = content if operation == 'stop' else {name: content[name] for name in ('before.csv', 'second.csv')}
+			assert {p.name: p.read_bytes() for p in files} == expected
+		if operation == 'stop':
+			assert stopped and browser.id is None
+			assert browser._cloud_key == ()
+		assert sum(method == 'GET' for method, _ in sent) == (4 if operation == 'stop' else 2)
+	finally:
+		browser._stop_now()
