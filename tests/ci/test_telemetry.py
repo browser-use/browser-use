@@ -2334,7 +2334,7 @@ async def test_the_mcp_feedback_tool_is_listed_and_sends_one_event(posthog):
 	assert tool.input_schema['required'] == ['message'] and 'never include secrets' in description
 	assert 'PostHog project' in description and 'wait for explicit approval' in description
 	assert 'Browser Use version' in description and 'OS and Python version' in description
-	assert 'persistent device ID' in description
+	assert 'a device ID that may persist across runs' in description
 	handler = server.server._request_handlers['tools/call'].handler
 
 	async def call(arguments: dict):

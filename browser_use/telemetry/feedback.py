@@ -31,7 +31,7 @@ MCP_TOOL = {  # browser_feedback, on --cli-mcp and on the server that only repor
 	'description': (
 		'Browser Use sends feedback to its PostHog project. '
 		f'The report includes the message (up to {MAX_MESSAGE:,} characters), category, Browser Use version, '
-		'runtime metadata such as OS and Python version, and a persistent device ID. '
+		'runtime metadata such as OS and Python version, and a device ID that may persist across runs. '
 		'Show the user the proposed message and destination, explain what is added automatically, and wait for explicit '
 		'approval of the report and destination before sending. '
 		'Start with kind: integration_report | feature_request | bug. Include what you built, how you tested it, '
