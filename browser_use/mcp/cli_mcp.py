@@ -19,7 +19,7 @@ import time
 import traceback
 import webbrowser
 from contextlib import contextmanager
-from io import StringIO
+from io import StringIO, UnsupportedOperation
 from typing import Any
 
 import browser_harness
@@ -359,6 +359,9 @@ class _CellBuffer:
 	during long-running cell execution or across repeated polls.
 	"""
 
+	encoding: str | None = None
+	errors: str | None = None
+
 	def __init__(self, max_chars: int = MAX_CELL_BUFFER_CHARS) -> None:
 		self._lock = threading.Lock()
 		self._chunks: collections.deque[str] = collections.deque()
@@ -392,6 +395,9 @@ class _CellBuffer:
 
 	def isatty(self) -> bool:
 		return False
+
+	def fileno(self) -> int:
+		raise UnsupportedOperation('fileno')
 
 	def seekable(self) -> bool:
 		return False
