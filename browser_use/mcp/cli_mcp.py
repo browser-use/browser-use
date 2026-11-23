@@ -198,7 +198,7 @@ def _error_class(e: BaseException) -> str:
 	return name
 
 
-def _print_cell_traceback(e: BaseException, file: StringIO) -> None:
+def _print_cell_traceback(e: BaseException, file: Any) -> None:
 	"""The traceback from the cell's first frame (this server's exec() frame is noise to the model) to the last frame
 	outside browser-harness and browser-use: their internals (js() -> _js_evaluate -> _runtime_value) say nothing the
 	exception line does not."""
@@ -389,6 +389,15 @@ class _CellBuffer:
 
 	def writable(self) -> bool:
 		return True
+
+	def isatty(self) -> bool:
+		return False
+
+	def seekable(self) -> bool:
+		return False
+
+	def readable(self) -> bool:
+		return False
 
 	def getvalue(self) -> str:
 		with self._lock:
