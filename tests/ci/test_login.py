@@ -715,3 +715,50 @@ async def test_cloud_downloads_use_the_creation_key_after_the_model_changes(stor
 		assert sum(method == 'GET' for method, _ in sent) == (4 if operation == 'stop' else 2)
 	finally:
 		browser._stop_now()
+
+
+@pytest.mark.parametrize('stop_succeeds', [True, False])
+def test_late_cloud_create_releases_its_key_only_after_a_successful_stop(store, monkeypatch, tmp_path, stop_succeeds):
+	"""A timed-out create's callback has no post-stop download pass, but a failed stop still needs its key to retry."""
+	import concurrent.futures
+	import io
+
+	from conftest import script
+
+	from browser_use import Agent, Browser, ChatBrowserUse
+	from browser_use.browser import browser as browser_mod
+
+	sent = []
+	expected_patches = 1 if stop_succeeds else 4
+
+	def answer(req, timeout=None):
+		sent.append((req.get_method(), req.get_header('X-browser-use-api-key')))
+		assert sent[-1][1] == FAKE_KEY
+		if req.get_method() == 'PATCH' and not stop_succeeds:
+			raise OSError('temporary stop failure')
+		return io.BytesIO(json.dumps({'id': 'b1', 'cdpUrl': 'http://cdp'}).encode())
+
+	monkeypatch.setattr(browser_mod, 'urlopen_keyed', answer)
+	monkeypatch.setattr(browser_mod.time, 'sleep', lambda _: None)
+	browser = Browser()
+	Agent('t', ChatBrowserUse(api_key=FAKE_KEY), browser=browser, workspace=tmp_path)._build()
+	creating: concurrent.futures.Future[None] = concurrent.futures.Future()
+	browser._creating, browser._create_deadline = creating, 0
+	browser_mod._LIVE.add(browser)
+	assert not browser._stop_now()  # the create exceeded its deadline: register the real completion callback
+	browser._create({})
+	Agent('t', script()[0], browser=browser, workspace=tmp_path)._build()
+	try:
+		creating.set_result(None)
+		assert browser.stopped is stop_succeeds
+		if not stop_succeeds:
+			assert browser._cloud_key == (FAKE_KEY,) and browser in browser_mod._LIVE
+			assert browser._creating is creating
+			stop_succeeds = True
+			browser._stop_late(creating)  # retry with the original credential, after the failure clears
+		assert browser._cloud_key == () and browser._creating is None
+		assert browser.stopped and browser not in browser_mod._LIVE
+		assert sent == [('POST', FAKE_KEY)] + [('PATCH', FAKE_KEY)] * expected_patches
+	finally:
+		stop_succeeds = True
+		browser._stop_now()

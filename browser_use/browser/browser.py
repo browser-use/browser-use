@@ -1125,8 +1125,8 @@ class Browser:
 	def _stop_late(self, creating: concurrent.futures.Future) -> None:
 		"""A create that outlived stop() landed (or failed): stop that browser, unless a later stop already did."""
 		with self._stop_mutex:
-			if self._creating is creating:
-				self._stop_now()
+			if self._creating is creating and self._stop_now():
+				self._cloud_key = ()
 
 	async def stop(self, downloads_dir: str | Path | None = None) -> list[Path]:
 		"""Stop the daemon this Browser started, and the cloud browser or local Chrome it started. Never touches the
