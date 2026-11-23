@@ -257,6 +257,22 @@ def test_path_prefix_patterns_respect_segment_boundaries():
 	assert ok('https://example.com/docs?tab=api&page=2', allowed)
 	assert not ok('https://example.com/docs?tab=api2', allowed)
 
+	allowed = ['https://example.com/docs?next=/']
+	assert ok('https://example.com/docs?next=/', allowed)
+	assert ok('https://example.com/docs?next=/&x=1', allowed)
+	assert not ok('https://example.com/docs?next=/admin', allowed)
+
+	allowed = ['https://example.com/docs?q=foo?']
+	assert ok('https://example.com/docs?q=foo?', allowed)
+	assert ok('https://example.com/docs?q=foo?&x=1', allowed)
+	assert not ok('https://example.com/docs?q=foo?bar', allowed)
+
+	allowed = ['https://example.com/docs?']
+	assert ok('https://example.com/docs?', allowed)
+	assert ok('https://example.com/docs?a=1', allowed)
+	assert not ok('https://example.com/docs', allowed)
+	assert not ok('https://example.com/docs-admin', allowed)
+
 	allowed = ['https://example.com/']
 	assert ok('https://example.com/', allowed)
 	assert ok('https://example.com/anything', allowed)

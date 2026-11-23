@@ -90,9 +90,9 @@ def parse_url(url: str) -> Url | None:
 		return None
 	if not u.hostname:
 		return None
-	return Url(
-		u.scheme.lower(), canonical_host(u.hostname), port, _dot_segments(u.path or '/') + (f'?{u.query}' if u.query else '')
-	)
+	# urlsplit gives both '/docs' and '/docs?' an empty query.
+	query = f'?{u.query}' if '?' in url.partition('#')[0] else ''
+	return Url(u.scheme.lower(), canonical_host(u.hostname), port, _dot_segments(u.path or '/') + query)
 
 
 DOUBLE_DOT = ('..', '.%2e', '%2e.', '%2e%2e')
@@ -142,10 +142,13 @@ def _path_matches(path: str, p_path: str) -> bool:
 	prefix = f'/{p_path}'
 	if '*' in p_path:
 		return fnmatchcase(path, prefix)
-	if prefix.endswith(('/', '?')):
-		return path.startswith(prefix)
 	if '?' in prefix:
+		_, query = prefix.split('?', 1)
+		if not query:
+			return path.startswith(prefix)
 		return path == prefix or path.startswith(f'{prefix}&')
+	if prefix.endswith('/'):
+		return path.startswith(prefix)
 	return path == prefix or path.startswith(f'{prefix}/') or path.startswith(f'{prefix}?')
 
 
