@@ -221,7 +221,11 @@ class CellStats:
 			params = (e.get('params') if isinstance(e, dict) else None) or {}
 			if isinstance(e, dict) and e.get('method') == 'Page.frameNavigated' and _json_page(params):
 				with self.lock:
-					self.json_pages.add(urllib.parse.urlsplit(params['frame'].get('url') or '')._replace(query='').geturl())
+					# query and fragment dropped: the copy's URL is the page's plus '.json' (no query, no fragment), so a
+					# page opened with '#...' has to be remembered that way too
+					self.json_pages.add(
+						urllib.parse.urlsplit(params['frame'].get('url') or '')._replace(query='', fragment='').geturl()
+					)
 		for e in events:
 			method = e.get('method') if isinstance(e, dict) else None
 			params = (e.get('params') if isinstance(e, dict) else None) or {}
