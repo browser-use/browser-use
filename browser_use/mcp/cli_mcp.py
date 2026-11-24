@@ -246,17 +246,17 @@ def _no_chrome_here() -> str | None:
 
 CHROME_SETUP = (
 	'your Chrome has remote debugging off. For your Chrome with its tabs and logins: in Chrome open '
-	'chrome://inspect/#remote-debugging, tick "Allow remote debugging for this browser instance", then restart this MCP '
-	'server'
+	'chrome://inspect/#remote-debugging, tick "Allow remote debugging for this browser instance", then call '
+	'use_my_chrome()'
 )
 
 
-def _setup_reason(e: RuntimeError, then: str = 'restart this MCP server') -> str:
+def _setup_reason(e: RuntimeError, then: str = 'call use_my_chrome()') -> str:
 	"""Why --cli-mcp (or the CLI: then='run `browser-use --reload`') runs its own Chromium after the chrome://inspect
 	setup failed, and how to get the user's Chrome."""
 	text = str(e).removeprefix('remote-debugging-setup:').strip()
 	if text.startswith('none of your browsers'):
-		return CHROME_SETUP.replace('restart this MCP server', then)
+		return CHROME_SETUP.replace('call use_my_chrome()', then)
 	return f'{text.rstrip(".").removesuffix(", then run again")}, then {then}'
 
 
@@ -486,6 +486,8 @@ class CLIMCPServer:
 		self._installed: float | None = None  # seconds _install_chromium took, until announced
 		self._announced: str | None = None  # the browser the last browser_exec result named
 		self._note: str | None = None  # the browser now in use, for the next browser_exec result's second block
+		self._switched = False  # the next browser note says the server left its own Chromium for the user's Chrome
+		self._hinted = False  # use_my_chrome() was suggested once for the current fallback
 		self.server: Server = Server(
 			'browser-use',
 			version=get_browser_use_version(),
@@ -500,6 +502,9 @@ class CLIMCPServer:
 		# lock binds to one event loop, and each thread runs its own)
 		self._attach_lock = threading.Lock()
 		self._remote = f'mcp-{os.getpid()}'  # this server's cloud daemon name: no other server or CLI shares it
+		from browser_harness import admin
+
+		self._base = admin.NAME  # the daemon of the user's Chrome; routing to the own Chromium changes admin.NAME
 		# set once start_remote_daemon ran here; not the .cloud marker, which an earlier server with this pid may have left
 		self._cloud_started = False
 		self._reapers: list[subprocess.Popen] = []  # held open so the pipes close only when this process exits
@@ -753,6 +758,8 @@ class CLIMCPServer:
 			harness_cloud.install(ns)
 			ns['start_remote_daemon'] = self._start_remote
 			ns['stop_remote_daemon'] = lambda name=None: harness_cloud.stop(self._remote)
+			if not self._own_browser:
+				ns['use_my_chrome'] = self._use_my_chrome
 			rules = self._browser.domains if self._browser is not None else None  # --mcp with a 0.x config's domains
 			if rules:
 				for name in ('new_tab', 'goto_url'):
@@ -777,6 +784,15 @@ class CLIMCPServer:
 		use and starts its daemon again if that died."""
 		if self._cloud_started:
 			return harness_cloud.ensure_daemon()
+		if self._user_chrome_back():
+			if not self._own_pages():  # nothing the agent works on in the temp browser: leave it now
+				return self._leave_own()
+			if not self._hinted:
+				self._hinted = True
+				self._note = (
+					'Your Chrome now has remote debugging on. Call use_my_chrome() to switch to it (with its tabs and '
+					"logins); that closes this server's temp Chromium and the pages open in it."
+				)
 		if self._browser is None:
 			with self._attach_lock:
 				if self._browser is None and (why := _no_chrome_here()):
@@ -814,6 +830,56 @@ class CLIMCPServer:
 		# another thread's fallback (a cell the client gave up on) could not start and went back to the user's Chrome
 		return self._attach()
 
+	def _user_chrome_back(self) -> bool:
+		"""--cli-mcp runs its own Chromium because the user's Chrome could not be used, and that Chrome now has remote
+		debugging on: a live DevToolsActivePort, checked with a port connect, not CDP (no Allow prompt)."""
+		if self._own_browser or self._browser is None or self._fallback is None:
+			return False
+		from browser_use.browser import local
+
+		return bool(local.live_debug_dirs())
+
+	def _own_pages(self) -> list[str]:
+		"""The real pages open in this server's own Chromium (blank and browser-internal tabs left out)."""
+		from browser_use.browser.browser import BLANK_OR_INTERNAL, _daemon_cdp
+
+		browser = self._browser
+		if browser is None or not self._own_started or not browser.name:
+			return []
+		try:
+			targets = _daemon_cdp(browser.name, 'Target.getTargets')['targetInfos']
+		except Exception:  # its daemon is gone: nothing to keep
+			return []
+		return [t['url'] for t in targets if t['type'] == 'page' and not t['url'].startswith(BLANK_OR_INTERNAL)]
+
+	def _leave_own(self) -> None:
+		"""Close this server's own Chromium and attach the user's Chrome under the daemon name it had before."""
+		with self._attach_lock:
+			browser, self._browser, self._fallback = self._browser, None, None
+			started, self._own_started, self._hinted = self._own_started, False, False
+		if browser is not None and started:
+			try:
+				asyncio.run(browser.stop())
+			except Exception:  # already gone: the user's Chrome is attached either way
+				pass
+		harness_cloud.route(self._base, self._namespace)
+		self._switched = True
+		harness_cloud.ensure_daemon()
+
+	def _use_my_chrome(self) -> str:
+		"""use_my_chrome(): switch from this server's temp Chromium to the user's own Chrome (its tabs and logins). The
+		temp Chromium closes with the pages open in it."""
+		if self._cloud_started:
+			raise RuntimeError('A cloud browser is in use: stop_remote_daemon() first, then use_my_chrome().')
+		if self._browser is None:
+			return 'Already on your own Chrome.'
+		if not self._user_chrome_back():
+			raise RuntimeError(f'Your Chrome is not ready yet: {self._fallback or CHROME_SETUP}.')
+		self._leave_own()
+		self._switched = False
+		self._announced = 'Browser: your own Chrome (its tabs and logins).'
+		return 'Switched to your own Chrome (its tabs and logins); the temp Chromium is closed.'
+
 	async def _start_own(self, browser: Browser) -> dict[str, str]:
 		"""browser.start(); on a machine with no browser and no display (a server, a container), installs Playwright's
 		Chromium first (once). Never on a desktop: 150 MB inside one tool call the user did not ask for."""
@@ -842,6 +908,9 @@ class CLIMCPServer:
 
 			note = 'Browser: your own Chrome (its tabs and logins).'
 			note = note if admin._is_local_chrome_mode() else 'Browser: the Chrome at BU_CDP_URL / BU_CDP_WS.'
+			if self._switched:  # announced even when this Chrome was named before the fallback
+				self._switched, self._announced = False, None
+				note = note.removesuffix('.') + "; switched from this server's temp Chromium."
 		else:
 			note = "Browser: this server's own Chromium on a temp profile, not your Chrome"
 			note += f' ({self._fallback}).' if self._fallback else '.'
