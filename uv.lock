@@ -11,6 +11,9 @@ resolution-markers = [
 [options]
 exclude-newer = "2026-11-09T09:48:30Z"
 
+[options.exclude-newer-package]
+browser-harness = "2026-11-24T09:00:00Z"
+
 [[package]]
 name = "annotated-types"
 version = "0.8.0"
@@ -64,12 +67,16 @@ wheels = [
 [[package]]
 name = "browser-harness"
 version = "0.1.14"
-source = { git = "https://github.com/browser-use/browser-harness?rev=bcc1d3b51740c44d36f6eb5c52ed7f578ad3d66b#bcc1d3b51740c44d36f6eb5c52ed7f578ad3d66b" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cdp-use" },
     { name = "fetch-use" },
     { name = "pillow" },
     { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/47/cc/bcd2940c8b53eec46d3ff774c56439f3ccd6aef0ccd9d48638e55c55dc3d/browser_harness-0.1.14.tar.gz", hash = "sha256:c3f0f3bda480ae3591f5839d0dc4913df4a64dd93fbda7af35fab69e09bd1c2d", size = 149992, upload-time = "2026-11-24T08:17:51.966Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/e8/c032268f730593864dd26195c3be52cb02fc74cc4d7ef520d6a733aee00a/browser_harness-0.1.14-py3-none-any.whl", hash = "sha256:c8b7db245d477a6a6f4c067e91e7b013b98de0fad499c493607e1869a0783a6c", size = 154909, upload-time = "2026-11-24T08:17:50.792Z" },
 ]
 
 [[package]]
@@ -104,7 +111,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "browser-harness", git = "https://github.com/browser-use/browser-harness?rev=bcc1d3b51740c44d36f6eb5c52ed7f578ad3d66b" },
+    { name = "browser-harness", specifier = "==0.1.14" },
     { name = "browser-use", extras = ["anthropic", "google"], marker = "extra == 'all'" },
     { name = "genai-prices", specifier = "==0.2.1" },
     { name = "google-genai", specifier = "==2.34.0" },

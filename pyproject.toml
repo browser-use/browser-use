@@ -122,6 +122,8 @@ allow-direct-references = true
 # Supply-chain freeze: uv.lock resolves only packages published before this time.
 # Move it forward on purpose (uv lock --upgrade), never implicitly.
 exclude-newer = "2026-11-09T09:48:30Z"
+# browser-harness 0.1.14 was published 2026-11-24 08:17 UTC; only it moves past the freeze.
+exclude-newer-package = { browser-harness = "2026-11-24T09:00:00Z" }
 
 [dependency-groups]
 dev = [
@@ -135,8 +137,3 @@ dev = [
     "pyright==1.1.408",
     "pyyaml==6.0.3",  # tests/ci/test_workflows.py reads the workflow files
 ]
-
-# Temporary, until browser-harness 0.1.14 is on PyPI: uv installs it from the release candidate
-# (release/0.1.14 with browser-use/browser-harness#1050). Delete this block and run `uv lock` once 0.1.14 is published.
-[tool.uv.sources]
-browser-harness = { git = "https://github.com/browser-use/browser-harness", rev = "bcc1d3b51740c44d36f6eb5c52ed7f578ad3d66b" }
