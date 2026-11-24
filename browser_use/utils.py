@@ -127,6 +127,20 @@ def singleton(cls):
 	return wrapper
 
 
+def is_ssh() -> bool:
+	"""A shell over SSH: a browser that approves a login runs on another machine, so this one's 127.0.0.1 is out of reach."""
+	return bool(os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_TTY'))
+
+
+def has_display() -> bool:
+	"""A desktop a browser can open on (browser-harness's own test): macOS and Windows always, Linux with X or Wayland."""
+	import sys
+
+	if sys.platform in ('darwin', 'win32'):
+		return True
+	return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
+
+
 @cache
 def get_browser_use_version() -> str:
 	try:

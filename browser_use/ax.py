@@ -851,10 +851,13 @@ class AxHelpers:
 				actual = None
 			if enter:
 				self._key('Enter', 13, '\r')
+			# A password field's value never goes into the action line: it lands in the trace, logs and the judge's prompt
+			secret = kind['tag'] == 'INPUT' and kind['type'] == 'password'
+			shown = (lambda v: f'<{len(v)} characters, hidden>') if secret else (lambda v: quote(clip(v, 60)))
 			return (
-				f' = {quote(clip(text, 60))}'
+				f' = {shown(text)}'
 				+ (' (into the focused overlay input)' if moved else '')
-				+ (f' (field now shows {quote(clip(actual, 60))})' if actual is not None and actual != text else '')
+				+ (f' (field now shows {shown(actual)})' if actual is not None and actual != text else '')
 				+ (' +Enter' if enter else '')
 			)
 

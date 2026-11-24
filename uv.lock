@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "browser-use"
-version = "1.0.6"
+version = "1.0.8"
 source = { editable = "." }
 dependencies = [
     { name = "browser-harness" },

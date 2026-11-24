@@ -13,7 +13,7 @@ import warnings
 from pathlib import Path
 
 import pytest
-from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 os.environ['ANONYMIZED_TELEMETRY'] = 'false'
@@ -25,6 +25,11 @@ os.environ['BH_AUTH_PATH'] = str(Path(tempfile.gettempdir()) / 'browser-use-test
 # The 0.x config.json `browser-use --mcp` reads: never the developer's own.
 os.environ['BROWSER_USE_CONFIG_DIR'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-config')
 os.environ['BROWSER_USE_TELEMETRY_INTERNAL'] = '1'
+# A missing key never starts a login, even under `pytest -s` at a terminal (tests that need one turn it on).
+os.environ['BROWSER_USE_AUTO_LOGIN'] = '0'
+# Which login a missing key starts (browser or device code) never depends on how the developer reached this machine.
+for _ssh in ('SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT'):
+	os.environ.pop(_ssh, None)
 # browser-harness's telemetry.json (`browser-use telemetry disable`) turns the library's events off: never the developer's.
 os.environ['BH_CONFIG_DIR'] = str(Path(tempfile.gettempdir()) / 'browser-use-tests-no-bh-config')
 
@@ -123,7 +128,7 @@ def shared_runtime_dir(monkeypatch):
 
 
 def script(*turns):
-	"""FunctionModel playing tool calls in order. Each turn: (tool, args) or a list of them. Records requests."""
+	"""FunctionModel playing tool calls in order. Each turn: (tool, args), a list of them, or text. Records requests."""
 	seen = []
 
 	def fn(messages, info: AgentInfo):
@@ -131,6 +136,8 @@ def script(*turns):
 		if len(seen) > len(turns):
 			raise AssertionError(f'unexpected model call {len(seen)}; last {messages[-1]!r}'[:4000])
 		turn = turns[len(seen) - 1]
+		if isinstance(turn, str):
+			return ModelResponse(parts=[TextPart(turn)])
 		calls = turn if isinstance(turn, list) else [turn]
 		return ModelResponse(parts=[ToolCallPart(name, args) for name, args in calls])
 
