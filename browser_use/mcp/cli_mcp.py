@@ -707,6 +707,7 @@ class CLIMCPServer:
 			# The timed-out capture keeps running in its thread (asyncio.to_thread cannot be cancelled);
 			# releasing the lock mirrors _exec_call's outliving-cell pattern, so a hung capture never
 			# blocks later calls (including stop_remote_daemon). A retry may run concurrently with it.
+			# Both captures write the same default shot.png, so a retry can return the orphaned capture's image.
 			_count('screenshot_timeout')
 			return types.CallToolResult(
 				content=[types.TextContent(type='text', text=SCREENSHOT_STILL_RUNNING)],
