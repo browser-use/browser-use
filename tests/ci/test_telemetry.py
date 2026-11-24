@@ -265,7 +265,7 @@ async def test_agent_event_sends_urls_errors_and_result_never_task_secrets_typed
 	assert r.status == 'completed', r.error
 	(props,) = sent
 	assert_absent(props, task, secret, typed, query, value, fragment, error, 'type_text(', 'wait_for_load()')
-	assert props['schema_version'] == 5 and props['agent_type'] == 'pydantic' and props['os']
+	assert props['schema_version'] == 6 and props['agent_type'] == 'pydantic' and props['os']
 	assert 'task' not in props and 'final_result_response' not in props
 	assert props['urls_visited'] == [f'http://127.0.0.1/{path}/{path}2', f'http://{other_host}.invalid/{path}3']  # no port
 	assert props['error_messages'] == ['ValueError']  # the cell raised it with what it read: its class, never the message
@@ -731,6 +731,7 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 		('browser_exec', {'code': 'print("Zq9-out")'}),
 		('browser_exec', {'code': 'raise KeyError("sent zq7 sk-ant-Zq9secretkey123")'}),
 		('browser_exec', {'code': 'import json\njson.loads("{Zq9")'}),
+		('browser_exec', {'code': 5}),
 		('browser_exec', {'code': ''}),
 		('browser_navigate', {'url': 'https://zq9.test/'}),
 		('Zq9-made-up', {}),
@@ -741,15 +742,16 @@ async def test_each_mcp_tool_call_sends_an_event(sent, monkeypatch):
 	# what the cell's code or a library it called raised is its class only: it can quote what Claude typed or read from
 	# the page. A rejected call has no exception: its error is the server's own text; an unknown tool's name is never sent
 	errors = [e['error_message'] for e in sent]
-	assert errors == [None, None, None, "'code' must be a non-empty string", None, None]
+	assert errors == [None, None, None, "'code' must be a string", None, None, None]
 	got = [(e['event'], e['action'], e['tool_name'], e['ok'], e['error_type'], e['call_n']) for e in sent]
 	assert got == [
 		('mcp_server_event', 'tool_call', 'browser_exec', True, None, 1),
 		('mcp_server_event', 'tool_call', 'browser_exec', False, 'KeyError', 2),
 		('mcp_server_event', 'tool_call', 'browser_exec', False, 'JSONDecodeError', 3),
 		('mcp_server_event', 'tool_call', 'browser_exec', False, 'invalid_arguments', 4),
-		('mcp_server_event', 'tool_call', 'browser_navigate', False, 'unknown_tool', 5),
-		('mcp_server_event', 'tool_call', 'invalid', False, 'unknown_tool', 6),
+		('mcp_server_event', 'tool_call', 'browser_exec', True, None, 5),  # waits for nothing: nothing is running
+		('mcp_server_event', 'tool_call', 'browser_navigate', False, 'unknown_tool', 6),
+		('mcp_server_event', 'tool_call', 'invalid', False, 'unknown_tool', 7),
 	]
 	first = sent[0]
 	assert (first['server'], first['browser'], first['agent_client'], first['is_internal']) == (
@@ -985,7 +987,7 @@ async def test_v3_event_sent_through_the_real_sender_holds_no_canary(chrome, sit
 	assert p['final_result'] == f'{c.result} <task>'  # the task, quoted whole (and with its secret redacted)
 	assert (event['event'], event['distinct_id'], event['uuid']) == ('agent_event', 'bu-test-device', str(uuid.UUID(p['run_id'])))
 	assert (p['schema_version'], p['status'], p['steps'], p['is_internal'], p['$lib']) == (
-		5,
+		6,
 		'completed',
 		5,
 		True,  # conftest: every test event is internal
@@ -2294,7 +2296,7 @@ async def test_report_issue_sends_scrubbed_feedback_joined_to_its_run_at_most_th
 	assert (first['source'], first['category'], first['step'], first['last_error_type']) == ('agent', 'bug', 2, 'ValueError')
 	assert first['run_id'] == run['properties']['run_id'] and first['model'] == run['properties']['model']
 	assert first['version'] and first['python_version'] and first['os'] and 'browser_harness_version' in first
-	assert (first['is_internal'], first['is_ci'] in (True, False), first['schema_version']) == (True, True, 5)
+	assert (first['is_internal'], first['is_ci'] in (True, False), first['schema_version']) == (True, True, 6)
 	assert [r['properties']['message'] for r in reports[1:]] == ['again 0', 'again 1']
 	assert {r['distinct_id'] for r in events} == {'bu-test-device'}
 	assert_absent({'events': events}, 'Zq9', user_key)
@@ -2521,3 +2523,37 @@ def test_a_home_outside_users_and_home_is_sent_as_tilde(monkeypatch):
 	monkeypatch.setenv('USERPROFILE', '/data/users/jane')  # Windows: expanduser reads USERPROFILE, not HOME
 	text = 'no file /data/users/jane/app/a.pdf, /data/users/janet/x, file:///data/users/jane/y, /Users/bob/z'
 	assert scrub(text, [], 500) == 'no file ~/app/a.pdf, /data/users/janet/x, file://~/y, /Users/<user>/z'
+
+
+def test_provider_masked_key_fragments_are_scrubbed():
+	"""A provider's 401 quotes the key it got, masked: 'sk-...***...eeb' reached PostHog in error_messages."""
+	from browser_use.telemetry.stats import scrub
+
+	for text, kept in (
+		("Error code: 401 - {'message': 'Incorrect API key provided: sk-...***...eeb', 'type': 'x'}", 'Error code: 401'),
+		('Incorrect API key provided: sk-proj-****************kX0A. You can find your key at', 'You can find your key'),
+		('Incorrect API key provided: 1234****5678.', 'Incorrect API key provided'),
+		('bad key sk-abc12******************xyz9 used', 'bad key'),
+		('API key AIzaSy...Q2w is invalid', 'is invalid'),
+		('stored key bu_1234...abcd rejected', 'rejected'),
+	):
+		out = scrub(text, [], 300) or ''
+		assert '<credential>' in out and kept in out, out
+		for fragment in ('eeb', 'kX0A', '5678', 'xyz9', 'Q2w', 'abcd'):
+			assert fragment not in out, (fragment, out)
+	assert scrub('***important*** and sk-learn stay', [], 300) == '***important*** and sk-learn stay'
+	deepseek = scrub('Authentication Fails, Your api key: ****f3a1 is invalid', [], 300) or ''
+	assert 'f3a1' not in deepseek and 'Your api key: <credential> is invalid' in deepseek
+
+
+def test_masked_key_scrub_stays_linear_on_runs_of_key_prefixes():
+	"""An unbounded lazy run before the mask made each 'sk-' start scan to the text's end: 26 s for 'sk-'*12000, in the
+	telemetry thread holding the GIL a run needs."""
+	import time
+
+	from browser_use.telemetry.stats import scrub
+
+	start = time.perf_counter()
+	for text in ('sk-' * 12000, 'AIza-' * 7000, 'sk-.' * 9000):
+		scrub(text, [], 500)
+	assert time.perf_counter() - start < 5

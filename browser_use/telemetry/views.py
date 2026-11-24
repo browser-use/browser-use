@@ -2,8 +2,9 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
-SCHEMA_VERSION = 5  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays;
-# 4: urls_visited, error_messages, final_result; 5: judge, judge_context, judgement
+SCHEMA_VERSION = 6  # 2: no task, result, code, typed text, URLs or error messages; 3: timings, per-step arrays;
+# 4: urls_visited, error_messages, final_result; 5: judge, judge_context, judgement; 6: key_source, key_gate, key_reason,
+# is_colab, is_ssh, has_display; library_auth key_gate, key_reason, outcome, entry, gate_count, seconds_since_first_gate
 
 
 @dataclass
@@ -212,6 +213,14 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	# bot_block_or_captcha_detected, gotchas (at most 5; each text scrubbed, 300 chars), cost_usd; None when not judged
 	judgement: dict[str, Any] | None = None
 	feedback_count: int = 0  # report_issue() calls sent as library_feedback during the run
+	# --- schema 6 --- (enums: never the key, its id or where it is stored)
+	key_source: str = (
+		'none'  # the Browser Use key the run would use: param | env | login_oauth | login_device | login_manual | none
+	)
+	key_gate: str | None = (
+		None  # a run that ended with MissingAPIKeyError: default_model | gateway_model | web_search | cloud_browser
+	)
+	key_reason: str | None = None  # and why: missing | corrupt_store | unwritable_store | bad_chars
 
 	name: str = 'agent_event'
 
@@ -226,7 +235,8 @@ class MCPToolCallEvent(BaseTelemetryEvent):
 	duration_seconds: float
 	ok: bool  # the result was not an error
 	# exception class (as in agent_event's cell_error_types), CancelledError for a cancelled call; invalid_arguments or
-	# unknown_tool for an error result without an exception
+	# unknown_tool for an error result without an exception; login_failed for a failed browser_login (no message: its
+	# login_state says how)
 	error_type: str | None
 	server: str  # cli-mcp | mcp
 	browser: str  # chrome (the user's) | chromium (--mcp's own) | cloud
@@ -235,19 +245,32 @@ class MCPToolCallEvent(BaseTelemetryEvent):
 	is_internal: bool
 	action: str = 'tool_call'
 	error_message: str | None = None  # the exception's message (or the rejected arguments' error), 300 chars
+	login_state: str | None = None  # browser_login only: already | env | waiting | signed_in | failed | start_failed
 
 	name: str = 'mcp_server_event'
 
 
 @dataclass
 class AuthEvent(BaseTelemetryEvent):
-	"""Track anonymous installation progress through login and Cloud browser startup."""
+	"""library_auth: one step of getting a Browser Use key (auth.record_auth_event, telemetry/auth_events.py). Enums, bools
+	and counts only: never the key, its id, the project id, the login URL, state or code, the task or any text."""
 
 	version: str
+	# missing_key | key_rejected | login_started | login_succeeded | login_failed | login_cancelled | key_available |
+	# cloud_browser_started | live_view_printed | keyed_success
 	stage: str
-	method: str
-	automatic: bool
+	method: str  # login: browser | device | manual; key_available: env | stored; else ''
+	automatic: bool  # a login a run started on a missing key (no command typed); missing_key: the caller may start one
 	is_internal: bool
+	# --- schema 6 ---
+	key_gate: str | None = None  # default_model | gateway_model | web_search | cloud_browser | cli_cloud | mcp_cloud
+	key_reason: str | None = None  # missing | corrupt_store | unwritable_store | bad_chars | rejected
+	# login_succeeded: stored; login_failed / login_cancelled: callback_timeout | device_timeout | cancelled | invalid_key |
+	# network | denied | error
+	outcome: str | None = None
+	entry: str = 'agent'  # the program: agent (the library) | cli | mcp
+	gate_count: int = 0  # missing_key / key_rejected events this device sent so far (a local counter)
+	seconds_since_first_gate: int | None = None  # from the first gate's local timestamp; only the number is sent
 	name: str = 'library_auth'
 
 

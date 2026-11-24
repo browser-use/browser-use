@@ -6,12 +6,22 @@ import asyncio
 import hashlib
 import json
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent, BinaryContent, capture_run_messages
+from pydantic_ai.direct import model_request
 from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.messages import ModelMessage, ModelRequest, ToolReturnPart, UserContent
+from pydantic_ai.messages import (
+	ModelMessage,
+	ModelRequest,
+	TextPart,
+	ToolCallPart,
+	ToolReturnPart,
+	UserContent,
+	UserPromptPart,
+)
 from pydantic_ai.models.openai import OpenAIResponsesModel
 
 from browser_use.agent.loop import StreamedRequest, _is_image, _plain, as_text, reasoning_supported
@@ -20,7 +30,7 @@ from browser_use.repl import redact
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentHistoryList
 
-__all__ = ['JUDGE_PROMPT', 'Judgement', 'judge_run']
+__all__ = ['JUDGE_PROMPT', 'Judgement', 'judge_cached', 'judge_run']
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +179,13 @@ async def judge_run(
 				try:
 					run = await judge.run(content if shots else text)  # text alone: as before, without images
 				except ModelHTTPError as e:  # a text-only model rejects the images: judge the trace alone
-					if not (shots and 400 <= e.status_code < 500 and 'image' in f'{e.message} {e.body}'.lower()):
+					if not (
+						shots
+						and 400 <= e.status_code < 500
+						and e.status_code != 429
+						and 'image' in f'{e.message} {e.body}'.lower()
+					):
+						# a 429's body names its x-ratelimit-limit-input-images header: a rate limit, not images rejected
 						raise
 					logger.info(f'The model rejected the screenshots ({e.status_code}): judging the run from the text alone')
 					run = await judge.run(text)
@@ -179,6 +195,79 @@ async def judge_run(
 			logger.warning(f'The judge failed ({type(e).__name__}{f" {status}" if status else ""}), result.judgement is None')
 			return None, list(messages)
 	return Judgement.model_validate(redact(run.output.model_dump(), secrets)), run.all_messages()
+
+
+# The run's own settings for the judge's turn: OpenAI reasoning models put the reasoning effort at the start of the prompt
+# and the cache setting places the breakpoints, so a judge turn at low effort or without them read nothing of the run's
+# prefix from the cache. Only per-request settings go: the delivery turn's forced tool choice, server-side compaction
+# and the deadlines.
+CACHED_DROPPED = ('tool_choice', 'openai_context_management', 'request_timeout', 'first_event_timeout')
+
+
+def _cached_settings(agent: Agent[Any, Any]) -> dict:
+	return {k: v for k, v in (agent.model_settings or {}).items() if k not in CACHED_DROPPED}
+
+
+CACHED_ASK = (
+	'The run is over. Do not call any tool. Now act as the judge of the run above:\n\n'
+	+ JUDGE_PROMPT
+	+ '\n\nAnswer with one JSON object and nothing else, with these keys: success (bool), failure_reason (string or null), '
+	'description (string), prompt_injection_detected (bool), bot_block_or_captcha_detected (bool), gotchas (list of strings).'
+)
+
+
+async def judge_cached(
+	agent: Agent[Any, Any],
+	history: list[ModelMessage],
+	params: Any,
+	task: str,
+	result: AgentHistoryList,
+	judge_context: str | None,
+	secrets: dict,
+	final: BinaryContent | None = None,
+) -> tuple[Judgement | None, list[ModelMessage]]:
+	"""The judge as one more turn of the run: the run's own messages, instructions and tool definitions go first, so the
+	provider reads that prefix from its prompt cache and bills it as cached input. judge_run sends the trace as a new,
+	uncached prompt instead, billed in full. -> (the judgement, or None when the model called a
+	tool or did not answer the schema: the caller falls back to judge_run; the response, for usage and cost)."""
+	instructions = next((m.instructions for m in reversed(history) if isinstance(m, ModelRequest) and m.instructions), None)
+	ask = f'{CACHED_ASK}\n\n<task>\n{_cut(task, MAX_TASK_CHARS)}\n</task>'
+	if judge_context:
+		ask += f'\n\n<judge_context>\n{_cut(judge_context, MAX_TASK_CHARS)}\n</judge_context>'
+	outcome = f'status: {result.status}\nsuccess reported by the agent: {result.success}\n'
+	if result.error:
+		outcome += f'error: {_cut(result.error)}\n'
+	ask += f'\n\n<final_result>\n{outcome}{_cut(as_text(result.text))}\n</final_result>'
+	ask = redact(ask, secrets)
+	content: list[UserContent] = [ask, 'The page as the run left it:', final] if final else [ask]
+	last = history[-1] if history else None
+	if isinstance(last, ModelRequest):  # the tool results of the run's last response: the judge's turn joins them
+		messages = [*history[:-1], replace(last, parts=[*last.parts, UserPromptPart(content)], instructions=instructions)]
+	else:
+		messages = [*history, ModelRequest(parts=[UserPromptPart(content)], instructions=instructions)]
+	model = agent.model
+	if isinstance(model, OpenAIResponsesModel):
+		model = StreamedRequest(model)
+	try:
+		async with asyncio.timeout(JUDGE_TIMEOUT_S):
+			response = await model_request(
+				cast(Any, model),
+				messages,
+				model_settings=cast(Any, _cached_settings(agent)),
+				model_request_parameters=replace(params, allow_text_output=True),
+			)
+	except Exception as e:  # the class and HTTP status only: a provider's message can quote what it was sent
+		status = getattr(e, 'status_code', None)
+		logger.info(f'The cached judge failed ({type(e).__name__}{f" {status}" if status else ""}); judging separately')
+		return None, []
+	text = ''.join(p.content for p in response.parts if isinstance(p, TextPart))
+	if any(isinstance(p, ToolCallPart) for p in response.parts) or '{' not in text:
+		return None, [response]
+	try:
+		judgement = Judgement.model_validate_json(text[text.index('{') : text.rindex('}') + 1])
+	except Exception:
+		return None, [response]
+	return Judgement.model_validate(redact(judgement.model_dump(), secrets)), [response]
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here
