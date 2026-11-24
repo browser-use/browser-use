@@ -105,7 +105,7 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | `highlight_elements`, `interaction_highlight_color`, `interaction_highlight_duration` | removed: actions are highlighted by default (orange corner brackets for 1 s, never in the agent's screenshots); `Agent(highlight_actions=False)` turns it off |
 | 0.x engine tuning: `dom_highlight_elements`, `filter_highlight_ids`, `paint_order_filtering`, `cross_origin_iframes`, `max_iframes`, `max_iframe_depth`, `minimum_wait_page_load_time`, `wait_for_network_idle_page_load_time`, `wait_between_actions`, `deterministic_rendering`, `demo_mode`; 0.1/0.6 `maximum_wait_page_load_time`, `viewport_expansion`, `include_dynamic_attributes`, `cached_state`, `default_timeout`, `default_navigation_timeout`, `slow_mo`, `strict_selectors` | removed: they tuned the 0.x DOM engine. Delete them |
 | 0.6 `handle_sigint`, `handle_sigterm`, `handle_sighup`; `stealth`; `cookies_file`; `context` | removed: a browser 1.0 started is stopped when the process exits; cloud browsers run with stealth settings (`Browser()`); `cookies_file` as `storage_state`; `context`: pass options to `Browser(...)` |
-| `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | kept, in every mode, with the 0.x patterns: see [Domain restrictions](#domain-restrictions) |
+| `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | kept, in every mode, with the 0.x patterns: see [Domain restrictions](#domain-restrictions). New: `strict_domains=True` applies them to every request the browser makes |
 | `captcha_solver` | kept for cloud browsers: they solve captchas automatically, and `Browser(captcha_solver=False)` turns the solver off when the browser starts and keeps it off (the agent is told to handle captchas itself; `solve_captcha()` reports the solver unavailable). Other browsers have no solver: `captcha_solver=False` raises `ValueError` |
 
 Parallel agents (the 0.x `parallel_agents.py` pattern): give each its own `Browser()` or `Browser('chromium')`; each
@@ -222,31 +222,68 @@ How it is enforced:
    while it still shows that page (your tabs, in `Browser('chrome')`); once it navigates, it is reset like any other.
 4. The system prompt gets one line listing the domains (only when set).
 
-| Mode | Helpers refuse (1) | Browser blocks (2) | Tabs reset after each cell (3) |
-|---|---|---|---|
-| `Browser()` (cloud) | yes | yes | yes |
-| `Browser('chromium')`, `Browser('chrome', profile=...)` | yes | yes | yes |
-| `Browser(cdp_url=...)` | yes | yes (a second CDP connection to that endpoint; it applies these rules to every tab in that browser) | yes (every tab) |
-| `Browser('chrome')` (your open Chrome) | yes | no: a second connection would raise Chrome's "Allow remote debugging?" prompt again | yes (the agent's tabs only) |
+`Browser(..., strict_domains=True)` (new; off by default) makes layer 2 cover every request, not only navigations:
+
+- The browser fails every request to a disallowed host, of every type Chrome lets a CDP client intercept: images,
+  scripts, stylesheets, fonts, iframes, `fetch()`/XHR, `sendBeacon` and `<a ping>`, `EventSource`, prefetches, and the
+  requests of dedicated workers and service workers, including each redirect hop. Allowed hosts load as before; a
+  page that needs a CDN only works when the CDN is in `allowed_domains`. Each blocked request is reported at the top of
+  that cell's output (up to 5 per cell).
+- It blocks private, loopback, link-local, shared and reserved addresses, cloud metadata included (`169.254.169.254`,
+  `fd00:ec2::254`, `[::ffff:169.254.169.254]`, NAT64 `[64:ff9b::a9fe:a9fe]`, `0xa9.0xfe.0xa9.0xfe`), and names only
+  a local network resolves (`localhost`, `*.localhost`, `*.local`, `*.internal`, `*.home.arpa`, a single label like
+  `http://metadata/`), for navigations, requests and `http_get` alike. A pattern in `allowed_domains` that names the host lets it through
+  (`'localhost:8080'`, `'*.corp.internal'`); a catch-all such as `'http*://*'` does not.
+- It fails closed for the agent: while browser-use's filter connection is down (Chrome stops intercepting the moment
+  it closes), the REPL runs no cell and no `finish_from_repl` expression: it waits up to 15 s for the reconnect, then
+  fails with `strict_domains=True: browser-use is not connected to the browser's request filter ... so it did not run
+  this cell` and runs nothing. The first cell after a reconnect says requests went unfiltered meanwhile.
+- `strict_domains=True` alone (no lists) blocks only private and local addresses. `Browser('chrome')` (your open
+  Chrome) raises: it has no filter connection.
+- Cost: one round trip to browser-use per request instead of per navigation. On a local Chrome, a page with 30
+  subresources loaded in a median of about 330 ms, about the same as with the default navigation-only filter (320 ms)
+  and about 80 ms more than with no filter (250 ms) (Chrome 157, 5 rounds of 30 to 40 loads on a busy machine: noisy).
+  Chrome pauses a page's requests in parallel, so the cost is close to one round trip, not one per request. On a
+  cloud browser each request waits for a round trip over your network to it (not measured; a page pays about one per
+  wave of requests it loads). Browser Use Cloud's own network policies (`networkPolicyId`, enforced in its proxy) do
+  not pay that and are the better fit there; `Browser()` does not create one for you yet.
+
+| Mode | Helpers refuse (1) | Browser blocks (2) | Tabs reset after each cell (3) | `strict_domains=True` |
+|---|---|---|---|---|
+| `Browser()` (cloud) | yes | yes | yes | yes (a round trip per request over your network; not tested on a cloud browser, where requests of the cloud's own extensions, such as the captcha solver, may be filtered too) |
+| `Browser('chromium')`, `Browser('chrome', profile=...)` | yes | yes | yes | yes |
+| `Browser(cdp_url=...)` | yes | yes (a second CDP connection to that endpoint; it applies these rules to every tab in that browser) | yes (every tab) | yes (every request of that browser) |
+| `Browser('chrome')` (your open Chrome) | yes | no: a second connection would raise Chrome's "Allow remote debugging?" prompt again | yes (the agent's tabs only) | raises |
 
 Not blocked (a guard for an aligned model, not a sandbox):
 
-- Subresources: `fetch()`/XHR, images, scripts, iframes and websockets an allowed page loads from other hosts. Pages
-  need their CDNs; a page on an allowed domain can still send data anywhere.
-- The REPL's own Python networking (`requests`, sockets, `subprocess curl`): only `http_get` is checked (its URL and
-  every redirect); a raw `urllib.request.urlopen` gets its redirects checked, not its first URL.
-- Speculative requests: a page's speculation-rules prefetch/prerender (and `<link rel=prefetch>`) of a disallowed URL
-  is sent; if the agent then opens it, layer 2 resets the tab right after it commits.
-- An iframe of a disallowed site inside an allowed page, including one the agent's own code injects: it loads and can
-  be read.
+- Without `strict_domains=True`, subresources: `fetch()`/XHR, images, scripts, iframes and websockets an allowed page
+  loads from other hosts. Pages need their CDNs; a page on an allowed domain can still send data anywhere.
+- With `strict_domains=True`: WebSockets (`ws:`, `wss:`; Chrome 157 sends the handshake without a Fetch pause, and
+  `Network.setBlockedURLs` does not stop it either), WebRTC and WebTransport, connection hints (`<link
+  rel=dns-prefetch>` and `preconnect` make the browser resolve or connect to a host without a request), and
+  speculation-rules prefetch/prerender (below). A public name that resolves to a private address
+  (`169.254.169.254.nip.io`, DNS rebinding) is not caught: names are not resolved, so use `allowed_domains`, where
+  such a name must be listed to load at all.
+- With `strict_domains=True`, while the filter connection is down (between cells too), pages already open can send
+  requests unfiltered; the agent's cells wait for it.
+- The REPL's own Python networking (`requests`, raw sockets, `subprocess curl`): only `http_get` is checked (its URL and
+  every redirect, and with `strict_domains=True` private addresses too); a raw `urllib.request.urlopen` gets its
+  redirects checked, not its first URL.
+- Speculative requests: a page's speculation-rules prefetch/prerender (and, without `strict_domains=True`, `<link
+  rel=prefetch>`) of a disallowed URL is sent; if the agent then opens it, layer 2 resets the tab right after it
+  commits.
+- Without `strict_domains=True`, an iframe of a disallowed site inside an allowed page, including one the agent's own
+  code injects: it loads and can be read.
 - Navigations from the agent's Python that skip the helpers (`Runtime.evaluate` that sets `location`, a click) are
   caught by layer 2, except in `Browser('chrome')`, where only the after-cell reset (3) catches them, after the page
   loaded and could be read in that cell. The system prompt says so there instead of claiming the browser blocks.
 - Model code that goes around browser-use on purpose: closing or crashing the browser, opening its own CDP
   connection. Run untrusted tasks in a container or VM.
-- Layer 2 adds one round trip to browser-use per document request (on a cloud browser, your network's latency to it).
-  If its connection drops it reconnects; meanwhile only layers 1 and 3 apply. If it cannot start, `Browser.start()`
-  raises instead of running unguarded.
+- Layer 2 adds one round trip to browser-use per document request (with `strict_domains=True`, per request; on a
+  cloud browser, your network's latency to it). If its connection drops it reconnects; meanwhile only layers 1 and 3
+  apply (with `strict_domains=True`, no cell runs). If it cannot start, `Browser.start()` raises instead of running
+  unguarded.
 
 Domain-scoped `sensitive_data` still limits where each secret is typed, independently of these lists.
 

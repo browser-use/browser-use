@@ -304,11 +304,12 @@ def _job_for(pid: int) -> int | None:
 class Repl:
 	"""mode='ultrafast' adds the `bu` helpers to the worker (BU_MODE=ultrafast). reattach: starts the browser-harness
 	daemon again after a cell lost it (Browser.start). after_cell: runs after each cell, outside the worker; returns
-	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell). search: defines
-	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
-	worker, answered here (Browser.list_downloads). feedback: answers report_issue() with the confirmation the cell
-	gets (telemetry/feedback.RunReports); without it nothing is sent. highlight_actions: orange corner brackets around
-	what the agent clicks or types into (repl/highlight.py)."""
+	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell). before_cell: runs
+	before each cell and finish_from_repl expression ('eval'); a string it returns is the error and the code does not
+	run (Browser.before_cell). search: defines search() in the worker, answered here (the API key stays in this
+	process). downloads: defines downloads() in the worker, answered here (Browser.list_downloads). feedback: answers
+	report_issue() with the confirmation the cell gets (telemetry/feedback.RunReports); without it nothing is sent.
+	highlight_actions: orange corner brackets around what the agent clicks or types into (repl/highlight.py)."""
 
 	def __init__(
 		self,
@@ -318,6 +319,7 @@ class Repl:
 		secrets: Secrets | None = None,
 		reattach: Callable[[], Awaitable[Any]] | None = None,
 		after_cell: Callable[[], Awaitable[tuple[list[str], int]]] | None = None,
+		before_cell: Callable[[], Awaitable[str | None]] | None = None,
 		search: web.WebSearch | None = None,
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		highlight_actions: bool = False,
@@ -326,6 +328,7 @@ class Repl:
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
+		self.before_cell = before_cell
 		self.feedback = feedback
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
@@ -461,6 +464,15 @@ class Repl:
 		if self._lock_loop is not (loop := asyncio.get_running_loop()):  # reused from a new loop (asyncio.run per run)
 			self.lock, self._lock_loop = asyncio.Lock(), loop
 		async with self.lock:
+			if op in ('exec', 'eval') and self.before_cell is not None and (why := await self.before_cell()):
+				return {
+					'output': '',
+					'images': [],
+					'value': None,
+					'error': why,
+					'error_type': 'DomainFilterDown',
+					'error_message': f'DomainFilterDown: {why}',
+				}
 			r = await self._call(op, code, timeout)
 			if r.get('error_type') == 'BrowserConnectionLost' and self.reattach is not None:
 				try:
