@@ -232,17 +232,23 @@ def _cloud(path: str, method: str = 'GET', body: dict | None = None, key: str | 
 		raise RuntimeError(f'Browser Use Cloud {method} {path} failed: {cloud_error_text(e.code, detail)}') from None
 
 
-def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
+def _download(url: str, dest: Path, name: str, deadline: float, nofollow: bool = False) -> Path:
 	"""Stream url into a new file in dest, never over an existing one ('report (1).csv' next to 'report.csv'). Stops at
 	the monotonic deadline, so the thread ends then: run_sync's loop and interpreter exit never wait on a slow transfer.
-	A transfer that fails or runs out of time leaves no file."""
+	A transfer that fails or runs out of time leaves no file. nofollow: dest may be a link the Agent(sandbox=True)
+	worker put there (to ~/.ssh, say); refuse it instead of writing the page's file through it."""
 	if (left := deadline - time.monotonic()) <= 0:
 		raise TimeoutError('download deadline passed')
-	with urllib.request.urlopen(url, timeout=min(30.0, left), context=tls_context()) as r:  # the timeout bounds each read
+	with urllib.request.urlopen(url, timeout=min(30.0, left), context=tls_context()) as r, contextlib.ExitStack() as fds:
 		dest.mkdir(parents=True, exist_ok=True)
+		dir_fd = None  # nofollow: every name is opened and removed in the directory opened here, never through a link
+		if nofollow:
+			dir_fd = os.open(dest, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+			fds.callback(os.close, dir_fd)
+		opener = None if dir_fd is None else lambda p, flags: os.open(Path(p).name, flags, 0o666, dir_fd=dir_fd)
 		for path in file_names(dest, name):
 			try:
-				f = open(path, 'xb')  # - exclusive create: two sessions never write the same file
+				f = open(path, 'xb', opener=opener)  # - exclusive create: two sessions never write the same file
 				break
 			except FileExistsError:
 				continue
@@ -262,9 +268,20 @@ def _download(url: str, dest: Path, name: str, deadline: float) -> Path:
 				if expected is not None and expected.isdigit() and size != int(expected):  # EOF before the end: truncated
 					raise ConnectionError(f'download of {name} ended after {size} of {expected} bytes')
 		except BaseException:
-			path.unlink(missing_ok=True)
+			with contextlib.suppress(FileNotFoundError):
+				if dir_fd is None:
+					path.unlink()
+				else:
+					os.unlink(path.name, dir_fd=dir_fd)
 			raise
 	return path
+
+
+def _read_log(log: Path) -> str:
+	"""A worker's workspace/.browser-use/downloads.jsonl, read without following a link a cell put there (read_own)."""
+	from browser_use.repl.session import read_own
+
+	return read_own(log.parent.parent, log)
 
 
 def download_records(lines: list[str]) -> list[dict]:
@@ -286,7 +303,7 @@ def json_page_copies(log: Path | list[dict]) -> set[str]:
 	name is kept, not dropped with it."""
 	if isinstance(log, Path):
 		try:
-			log = download_records(log.read_text(encoding='utf-8').splitlines())
+			log = download_records(_read_log(log).splitlines())
 		except OSError:
 			return set()
 	records = log
@@ -695,6 +712,7 @@ class Browser:
 		# where stop() copies a cloud browser's downloads when not told: the workspace/downloads of the last Agent that
 		# ran on it (keep_alive leaves the stop, and so the copy, to a later browser.stop())
 		self._downloads_dir: Path | None = None
+		self._downloads_nofollow = False  # that Agent ran sandbox=True: its worker could have swapped the dir for a link
 		self._downloads_session: str | None = None  # the browser-level CDP session that set where downloads go
 		_install_cleanup()  # here too: the main thread, when start() runs on another
 
@@ -1243,7 +1261,7 @@ class Browser:
 		"""Add what a run's REPL worker logged since the last call (log: its workspace's downloads.jsonl) and update
 		json_page_copies. Agents use a Browser one at a time, so appending keeps the session's order."""
 		try:  # complete lines only: downloads() reads it while the worker may be writing one
-			lines = log.read_text(encoding='utf-8').split('\n')[:-1]
+			lines = _read_log(log).split('\n')[:-1]
 		except OSError:  # none yet: _finish_downloads still reads what the worker of a keep_alive run logs later
 			self._download_lines.setdefault(log, 0)
 			return
@@ -1311,7 +1329,7 @@ class Browser:
 				name = Path(f['path']).name
 				name = name if name not in ('', '.', '..') else 'download'
 				try:
-					path = await asyncio.to_thread(_download, f['url'], dest, name, deadline)
+					path = await asyncio.to_thread(_download, f['url'], dest, name, deadline, self._downloads_nofollow)
 				except Exception as e:
 					logger.warning('Could not copy cloud download %s: %s', f['path'], e)
 					continue

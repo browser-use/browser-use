@@ -9,7 +9,8 @@ environment: as your user it can still read the parent's environment (ps -E, /pr
 control channel, are typed with type_secret(name) (domain-scoped ones only into a matching focused frame), and are replaced with
 <secret:name> in the text the worker returns and in its cell files and checkpoints. Not a sandbox: model-written
 Python can read the values and local files, write unredacted files, and screenshots or js() reads of a field can
-reveal a typed value (MIGRATING.md "Trust model").
+reveal a typed value (MIGRATING.md "Trust model"). sandbox=True (Agent(sandbox=True)) confines the worker to the
+workspace: Landlock on Linux (the worker applies it, worker._sandbox), sandbox-exec on macOS (repl/sandbox.py).
 """
 
 from __future__ import annotations
@@ -210,12 +211,40 @@ def clip(text: str, path: Path | str) -> str:
 	return text if len(text) <= MAX_OUTPUT_CHARS else f'{text[:MAX_OUTPUT_CHARS]}\n[Truncated. Full captured output: {path}]'
 
 
-def _head(path: Path) -> str:
+def open_own(workspace: Path, path: Path, flags: int = os.O_RDONLY) -> int:
+	"""Open path, a file in the workspace, from this unconfined process without following a link below the workspace:
+	with Agent(sandbox=True) a cell can swap a file or a dir (.browser-use) for a link to ~/.ssh or ~/.bashrc.d, or
+	hard-link a file, and this process would read or write there for it. Returns the fd."""
+	nofollow = getattr(os, 'O_NOFOLLOW', 0)
+	if os.open not in os.supports_dir_fd:  # Windows: no sandbox there
+		return os.open(path, flags | getattr(os, 'O_BINARY', 0), 0o600)
+	*dirs, name = path.relative_to(workspace).parts
+	fd = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY)
+	try:
+		for d in dirs:
+			fd, parent = os.open(d, os.O_RDONLY | os.O_DIRECTORY | nofollow, dir_fd=fd), fd
+			os.close(parent)
+		out = os.open(name, flags | nofollow, 0o600, dir_fd=fd)
+	finally:
+		os.close(fd)
+	if os.fstat(out).st_nlink > 1:
+		os.close(out)
+		raise PermissionError(f'{path} has another link')
+	return out
+
+
+def read_own(workspace: Path, path: Path) -> str:
+	"""The text of path, a file in the workspace, read as open_own opens it (no link followed, no hard link)."""
+	with open(open_own(workspace, path), encoding='utf-8') as f:
+		return f.read()
+
+
+def _head(workspace: Path, path: Path) -> str:
 	"""The start of a cell's output file, enough for clip(): a cell may have printed gigabytes before it hung."""
 	try:
-		with open(path, encoding='utf-8', errors='replace') as f:
+		with open(open_own(workspace, path), encoding='utf-8', errors='replace') as f:
 			return f.read(MAX_OUTPUT_CHARS + 1)
-	except FileNotFoundError:
+	except OSError:  # gone, or a link (open_own)
 		return ''
 
 
@@ -322,11 +351,12 @@ class Repl:
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		highlight_actions: bool = False,
 		feedback: Callable[[dict], str] | None = None,
+		sandbox: bool = False,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
-		self.feedback = feedback
+		self.feedback, self.sandbox = feedback, sandbox
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
 		# which a keep_alive Agent outlives (asyncio.run per run); killed after that loop closed, the worker was never
@@ -392,11 +422,14 @@ class Repl:
 			env['BU_MODE'] = 'ultrafast'
 		if self.highlight_actions:
 			env['BU_HIGHLIGHT_ACTIONS'] = '1'
-		log = open(self.state / 'worker.log', 'ab')  # noqa: ASYNC230 - handed to the child process
+		log = open(open_own(self.workspace, self.state / 'worker.log', os.O_WRONLY | os.O_APPEND | os.O_CREAT), 'ab')  # noqa: ASYNC230
 		try:
+			argv = [sys.executable, '-P', '-m', 'browser_use.repl.worker']
+			if self.sandbox:
+				argv = self._sandboxed(env) + argv
 			self.proc = subprocess.Popen(  # noqa: ASYNC220 - asyncio forks synchronously too; see self.proc
 				# -P: the workspace is not sys.path[0]: a json.py there must not shadow the stdlib (worker.py appends it)
-				[sys.executable, '-P', '-m', 'browser_use.repl.worker'],
+				argv,
 				cwd=self.workspace,
 				stdin=subprocess.DEVNULL,
 				stdout=log,
@@ -429,8 +462,11 @@ class Repl:
 			init = {'secrets': self.secrets, 'search': self.search is not None, 'downloads': self.downloads is not None}
 			self.writer.write(json.dumps(init).encode() + b'\n')
 			await self.writer.drain()
-			if not await asyncio.wait_for(self.reader.readline(), 60):
+			ready = await asyncio.wait_for(self.reader.readline(), 60)
+			if not ready:
 				raise ConnectionError('worker exited')
+			if self.sandbox and not json.loads(ready).get('sandbox'):  # fail closed: never run cells unsandboxed
+				raise RuntimeError(f'REPL worker started without its sandbox; see {self.state / "worker.log"}')
 		except BaseException as e:  # cancelled or failed half way: never leave a half-started worker behind
 			await self.close()
 			if isinstance(e, (TimeoutError, ConnectionError)):
@@ -439,6 +475,33 @@ class Repl:
 		finally:
 			log.close()
 			server.close()
+
+	def _sandboxed(self, env: dict[str, str]) -> list[str]:
+		"""Agent(sandbox=True): set env up for a worker confined to the workspace (repl/sandbox.py); returns the argv
+		prefix that launches it confined (macOS: sandbox-exec; Linux: none, the worker Landlocks itself)."""
+		from browser_harness import _ipc as ipc
+
+		from browser_use.repl import sandbox
+
+		# a relative or empty PYTHONPATH entry is the worker's cwd, the workspace: a module a cell wrote there would run
+		# in the next worker before it confines itself
+		if paths := [p for p in env.pop('PYTHONPATH', '').split(os.pathsep) if os.path.isabs(p)]:
+			env['PYTHONPATH'] = os.pathsep.join(paths)
+		tmp = self.state / 'tmp'
+		(tmp / 'browser-harness').mkdir(parents=True, exist_ok=True)
+		env.update(TMPDIR=str(tmp), TMP=str(tmp), TEMP=str(tmp))  # a private temp dir: /tmp holds other runs' files
+		# browser-harness's tmp dir (screenshots, debug files) defaults to ~/.config/browser-harness/tmp, unwritable now.
+		# BH_RUNTIME_DIR falls back to BH_TMP_DIR: pin the daemon's socket dir and file names to the ones it listens on.
+		name = env.get('BU_NAME') or 'default'
+		env['BH_TMP_DIR'], env['BH_TMP_DIR_SHARED'] = str(tmp / 'browser-harness'), '0'
+		env['BH_RUNTIME_DIR'] = str(ipc._RUNTIME)
+		env['BH_RUNTIME_DIR_SHARED'] = '0' if ipc._runtime_stem(name) == 'bu' else '1'
+		sockets = [] if sys.platform == 'win32' else [str(ipc._sock_path(name))]
+		policy = sandbox.policy(self.workspace, env, sockets)
+		env['BU_SANDBOX'] = policy.to_json()
+		if sys.platform == 'darwin':
+			return [sandbox.SANDBOX_EXEC, '-p', sandbox.profile(policy)]
+		return []
 
 	async def close(self) -> None:
 		if (writer := getattr(self, 'writer', None)) is not None:  # our end of the worker connection; idempotent
@@ -555,7 +618,7 @@ class Repl:
 				out = self.state / 'cells' / f'{n:04d}.txt'
 				why = f'Cell timed out after {timeout:g}s' if isinstance(e, TimeoutError) else 'REPL worker exited'
 				return {
-					'output': clip(_head(out), out),
+					'output': clip(_head(self.workspace, out), out),
 					'images': [],
 					'output_file': str(out),
 					'value': None,
