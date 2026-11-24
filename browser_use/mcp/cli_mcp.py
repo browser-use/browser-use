@@ -98,15 +98,16 @@ These rules override the skill below where they differ:
 - It lives {CLOUD_TIMEOUT_MINUTES} minutes unless you pass `timeout=<minutes>` (up to 240), and this server stops it when it
   exits. Once it ends, calls fail with an error: start a new one, never fall back to the local Chrome.
 - Code runs in this server's process: it can read the server's environment (BROWSER_USE_API_KEY when set) and files.
-- Feedback goes through the browser_feedback tool (the same message), not `browser-use feedback`.
+- Feedback goes through the browser_feedback tool (or report_issue() in browser_exec, the same path), not
+  `browser-use feedback`.
 - The live view and CDP URLs grant control of the browser, so they are not shown. Only if the user asks to watch, run
   `os.environ["BH_OPEN_LIVE_URL"] = "1"` before start_remote_daemon: the live view then opens in their browser, and
   both are returned.
 
 """
 
-# browser-harness 0.1.14 (#1000): solve_captcha() and captcha_note(). browser-use pins 0.1.13 until 0.1.14 is released, so
-# the captcha text below appears only where the installed harness has them.
+# browser-harness 0.1.14 (#1000): solve_captcha() and captcha_note(). The captcha text below appears only where the
+# installed harness has them (an older one installed beside this browser-use).
 HAS_CAPTCHA = hasattr(browser_harness.helpers, 'solve_captcha') and hasattr(browser_harness.helpers, 'captcha_note')
 CAPTCHA_GUIDE = """- Captcha or challenge on a cloud browser: its solver handles supported ones. Run `solve_captcha()` in browser_exec and
   wait; do not reload, navigate or switch tabs meanwhile. `still solving` -> call it again. A browser_exec result ends
@@ -783,6 +784,10 @@ class CLIMCPServer:
 			if not sys.flags.utf8_mode and locale.getpreferredencoding(False).lower().replace('-', '') != 'utf8':
 				ns['open'] = _utf8_open
 			harness_cloud.install(ns)
+			# browser-harness 0.1.14's report_issue()/report_run() send as harness-cli to its own events: report_issue is
+			# browser_feedback's path here, and the run is not reported from code
+			ns['report_issue'] = feedback.mcp_report_issue
+			ns.pop('report_run', None)
 			ns['start_remote_daemon'] = self._start_remote
 			ns['stop_remote_daemon'] = lambda name=None: harness_cloud.stop(self._remote)
 			rules = self._browser.domains if self._browser is not None else None  # --mcp with a 0.x config's domains

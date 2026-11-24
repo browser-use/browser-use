@@ -2385,6 +2385,86 @@ def test_python_feedback_is_the_users_consent_sent_with_usage_stats_off_and_noth
 	assert posthog.telemetry.flush() and posthog.state.attempts == 1 and (outbox / 'kept.gz').exists()
 
 
+def _no_harness_reports(monkeypatch) -> list:
+	"""browser-harness 0.1.14's own report_issue()/report_run() sender (its library_feedback/library_judgement, labelled
+	harness-cli): recorded here, never sent."""
+	from browser_harness import report
+
+	sent: list = []
+	monkeypatch.setattr(report, '_send', lambda *a, **k: sent.append(a))
+	return sent
+
+
+async def test_the_agents_cells_have_browser_uses_report_issue_and_no_harness_report_run(posthog, tmp_path, monkeypatch):
+	"""browser-harness 0.1.14's * import brings report_issue() and report_run(): the Agent's REPL keeps its own
+	report_issue (source agent) and drops report_run, since the Agent's judge reports the run."""
+	no_browser(monkeypatch)
+	model, seen = script(
+		('python', {'code': "print('report_run' in globals())\nprint(report_issue('goto_url hangs'))"}),
+		('finish', {'success': True, 'result': 'ok'}),
+	)
+	assert (await Agent('t', model, browser=Browser(local=True), workspace=tmp_path).run()).status == 'completed'
+	(out,) = seen[-1][-1].parts[0].content
+	assert out == 'False\nReported to the Browser Use team. Thanks; carry on.\n', out
+	assert [e['properties']['source'] for e in _feedback(posthog.events(2))] == ['agent']
+
+
+def test_browser_exec_report_issue_is_the_browser_feedback_tool_and_report_run_is_gone(posthog, monkeypatch):
+	"""--cli-mcp: report_issue() in browser_exec code goes the browser_feedback way (source mcp, shared 3 per server),
+	not browser-harness's sender labelled harness-cli; report_run() is not there (browser-harness's would send to its
+	own project)."""
+	from browser_use.mcp import cli_mcp
+	from browser_use.telemetry import feedback
+
+	harness = _no_harness_reports(monkeypatch)
+	ns = cli_mcp.CLIMCPServer()._ensure_namespace()
+	assert 'report_run' not in ns
+	assert ns['report_issue']('js() drops an async return value', 'missing') == feedback.SENT
+	assert feedback.mcp_call({'message': 'two'})[0] == feedback.SENT
+	assert ns['report_issue']('three') == feedback.SENT
+	assert ns['report_issue']('four').startswith('Already reported 3 issues')
+	assert not harness
+	reports = _feedback(posthog.events(3))
+	assert [(r['properties']['source'], r['properties']['category']) for r in reports] == [
+		('mcp', 'missing'),
+		('mcp', 'bug'),
+		('mcp', 'bug'),
+	]
+
+
+def test_cli_piped_report_issue_is_browser_use_feedback_and_report_run_is_gone(posthog, monkeypatch):
+	"""`browser-use` CLI: piped code runs in browser-harness's run module, whose * import has 0.1.14's report_issue()
+	and report_run(). report_issue() is `browser-use feedback` (source cli, sent with usage stats off: the user's own
+	tool); report_run() is not a name there."""
+	from browser_harness import report, run
+
+	from browser_use import cli
+
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	harness = _no_harness_reports(monkeypatch)
+	for name in ('report_issue', 'report_run'):  # as run.py's * import binds them (an earlier CLI test rebound them)
+		monkeypatch.setitem(vars(run), name, getattr(report, name))
+	got = []
+	monkeypatch.setattr(
+		run,
+		'main',
+		lambda **_: got.append((vars(run).get('report_run'), vars(run)['report_issue']('the skill path is wrong', 'docs'))),
+	)
+	monkeypatch.setattr(sys, 'argv', ['browser-use'])
+	monkeypatch.setenv('BH_UPDATE_CHECK', '0')
+	cli._run_browser_harness('print(report_issue("x"))')
+	assert got == [(None, 'Reported to the Browser Use team. Thanks; carry on.')]
+	assert not harness
+	(event,) = posthog.events()
+	p = event['properties']
+	assert (event['event'], p['source'], p['category'], p['message']) == (
+		'library_feedback',
+		'cli',
+		'docs',
+		'the skill path is wrong',
+	)
+
+
 FEEDBACK_CLI = """
 import sys
 import browser_use.telemetry.service as service

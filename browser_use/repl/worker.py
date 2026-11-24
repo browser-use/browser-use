@@ -753,6 +753,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			cdp('Target.activateTarget', targetId=helpers.current_tab()['targetId'])
 	captcha = Captcha(cdp, STATE / 'captcha.json', off=os.environ.get('BU_CAPTCHA_SOLVER') == 'off')
 	exec('from browser_harness.helpers import *', ns)
+	# browser-harness 0.1.14's report_run(): the Agent's judge reports the run (report_issue is the REPL's own, main())
+	ns.pop('report_run', None)
 
 	@functools.wraps(cdp)
 	def agent_cdp(method, session_id=None, **params):  # the agent's own cdp() calls, counted by method

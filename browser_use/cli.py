@@ -866,6 +866,7 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	from browser_use.browser.browser import _name_daemon_files
 	from browser_use.repl.capture import install as install_capture
 	from browser_use.repl.page_info import install as install_page_info
+	from browser_use.telemetry import feedback
 
 	global _delegated_to_harness
 
@@ -881,6 +882,11 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	run.page_info = helpers.page_info
 	install_capture()  # win-cli-5: a hidden tab's screenshot gets the Agent's activate fallback
 	run.cdp = helpers.cdp
+	# browser-harness 0.1.14's report_issue()/report_run() send as harness-cli to its own events: report_issue is
+	# `browser-use feedback` here, and the run is not reported from piped code
+	run.report_issue = feedback.cli_report_issue
+	if hasattr(run, 'report_run'):
+		del run.report_run
 	if not hasattr(helpers, '_proxy_can_reach'):  # browser-harness 0.1.13; delete with that pin
 		# The Agent's http_get, plain HTTP from this machine: 0.1.13's decoded every body (UnicodeDecodeError on binary)
 		# and sent every URL and its headers to the fetch-use proxy whenever BROWSER_USE_API_KEY was set (localhost and
