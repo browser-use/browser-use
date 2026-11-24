@@ -17,7 +17,7 @@ Need 0.x? Pin it: `pip install 'browser-use<1'`.
 |---|---|---|
 | Model (`llm=None`) | required | `bu-4.0` (BU 4.0, high reasoning, $1.80/$9.00 per 1M input/output tokens) on the Browser Use gateway; also `bu-4.0-mini` and `bu-4.0-pro`. `bu-fast` (`gpt-6-luna`, medium reasoning, $0.12/$0.60) and `bu-ultrafast` (the same model at low reasoning on the priority tier) still work |
 | Browser (`Browser()`) | local Chromium | Browser Use Cloud browser (`Browser('chromium')` / `local=True` for a local one) |
-| Key | per provider | one Browser Use key: `browser-use login` (stored in `~/.config/browser-harness/auth.json`, shared with the CLI, the MCP server and browser-harness) or `BROWSER_USE_API_KEY` (wins when set). A `.env` in the working directory is read on import, as in 0.x |
+| Key | per provider | one Browser Use key: `browser-use login` (stored in `~/.config/browser-harness/auth.json`, shared with the CLI, the MCP server and browser-harness) or `BROWSER_USE_API_KEY` (wins when set). A `.env` in the working directory is read on import, as in 0.x. With no key, a run at an interactive terminal (not CI, a notebook or piped input) signs in once and goes on: on a desktop it opens the login, over SSH or on Linux without a desktop it prints a link and a code (not in a container unless `BROWSER_USE_AUTO_LOGIN=true`). Ctrl-C raises `MissingAPIKeyError` as before; `BROWSER_USE_AUTO_LOGIN=false` turns it off |
 | Python | >= 3.11 | >= 3.11 |
 | Tasks with localhost / private IPs | worked | a cloud browser cannot reach them: one warning, use `Browser('chromium')` |
 | Cloud proxy | the API's default, `us` | `us` (`cloud_proxy_country_code=None` turns it off) |
@@ -299,7 +299,10 @@ Spans carry prompts and cell output; pass `InstrumentationSettings(include_conte
 
 The `browser-use` CLI (Python piped to browser-harness), `browser-use skill install` and `browser-use --cli-mcp` work
 as before. New: `browser-use login` / `logout` (same as `browser-use auth login` / `logout`), and a `browser_login`
-MCP tool that opens the browser to approve and stores the same key. The old `browser-use --mcp` server (tools like
+MCP tool that opens the browser to approve and stores the same key. Over SSH or on Linux without a display,
+`browser-use login` signs in with a device code (the browser that approves cannot reach this machine's loopback
+callback); with `--json` its output then has `verification_uri` and `user_code`, not `auth_url` and `callback` (pass
+`--device-code` to always get that form, `--no-open` to keep the link form). The old `browser-use --mcp` server (tools like
 `browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
 `--cli-mcp` tools (`browser_exec`, `browser_screenshot`). Calls to the old tool names return the removed error with the
 `browser_exec` alternative; switch those clients to `--cli-mcp`. Locally `--mcp` still runs its own Chromium on a temp
@@ -367,7 +370,8 @@ longer word or number; `Agent` warns about such values):
   (without ports, query strings or path tokens such as a reset or invite link's), error messages (only the class of an
   error the model's own code raised: its message quotes the page) and the final result, also with emails, API keys, bearer
   tokens, `password=...` values and runs of 6+ digits (phone, card, account numbers, one-time codes) replaced. Never
-  the task text, typed text, code or secrets. `ANONYMIZED_TELEMETRY=false` turns it off
+  the task text, typed text, code or secrets. Provider-masked key fragments (`sk-...***...eeb`, `Incorrect API key
+  provided: ...`) are replaced too. `ANONYMIZED_TELEMETRY=false` turns it off
 - `result.messages`: the model's text, thinking and tool-call arguments, and the retry messages that quote them back (a follow-up task continues the unredacted
   transcript, since providers reject edited signed thinking; screenshots in it stay unredacted)
 

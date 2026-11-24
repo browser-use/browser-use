@@ -28,17 +28,18 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_run
-from browser_use.agent.loop import Session, build_agent, model_kind, reasoning_supported, run, usage_and_cost
+from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_cached, judge_run
+from browser_use.agent.loop import Session, _projected, build_agent, model_kind, reasoning_supported, run, usage_and_cost
 from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
 from browser_use.agent.views import AgentHistoryList
-from browser_use.auth import browser_use_api_key
+from browser_use.auth import browser_use_api_key, record_auth_event
 from browser_use.browser import Browser
 from browser_use.browser import browser as browser_module
 from browser_use.config import load_env
 from browser_use.exceptions import BrowserConfigError, MissingAPIKeyError, removed
 from browser_use.llm import (
 	GATEWAY_URL,
+	KEY_REJECTED,
 	ChatBrowserUse,
 	as_chat_model,
 	gateway_alias,
@@ -326,6 +327,7 @@ class Agent:
 		self.judge, self.judge_context = judge, judge_context or None
 		self._judge_cost: float | None = None  # the last run's judge cost (telemetry)
 		self._final_page: BinaryContent | None = None  # the last run's final page, for the judge
+		self._judge_prefix: tuple[list, Any] = ([], None)  # the last run's sent messages and tool definitions, for the judge
 		self._search: WebSearch | None = None  # set by _build when search() is on
 		# As given, made absolute, symlinks kept: on macOS resolve() turned tempfile's /var/... into /private/var/..., and
 		# result.downloads[0].relative_to(workspace) raised ValueError. Default: made on first use (workspace).
@@ -389,6 +391,11 @@ class Agent:
 		self._gateway = gateway_llm(model)  # any form: ChatBrowserUse, ChatOpenAI(base_url=gateway), pydantic_model()
 		if self._gateway:  # cost is only what the gateway charged (charge_usd), never a retail estimate
 			self._model_ref = f'browser-use:{self._model_name}'
+		# One key runs model and browser: Browser() without BROWSER_USE_API_KEY or a stored key uses the key of
+		# ChatBrowserUse(api_key=...) (it asked for a key it had been given). Only the production gateway's: same cloud.
+		gateway = self._gateway
+		production = gateway is not None and urlparse(gateway.base_url).hostname == urlparse(GATEWAY_URL).hostname
+		self.browser._llm_key = gateway.api_key if gateway and production else None
 		self._provider = getattr(self.llm, 'provider', None) or getattr(model, 'system', '')
 		self._search = self._web_search()
 		if self.reasoning is not None and not reasoning_supported(model):
@@ -437,7 +444,9 @@ class Agent:
 				'Agent(web_search=True) cannot be combined with allowed_domains: search would reach sites the browser may not open'
 			)
 		gateway = self._gateway
-		key = (gateway.api_key if gateway else None) or browser_use_api_key('Agent(web_search=True)', auto_login=True)
+		key = (gateway.api_key if gateway else None) or browser_use_api_key(
+			'Agent(web_search=True)', 'web_search', auto_login=True
+		)
 		return WebSearch(key, search_url(gateway.base_url if gateway else GATEWAY_URL))
 
 	async def run(self, max_steps: int = 100, timeout: float = 1700, **kwargs: Any) -> AgentHistoryList:
@@ -467,8 +476,13 @@ class Agent:
 		self._check_task()
 		raise_fd_limit()  # before the first socket: many concurrent Agents exceed macOS's default 256 open files
 		if self._agent is None:
-			self._build()
+			try:
+				self._build()  # a missing key at an interactive terminal signs in here (auth.auto_login_method)
+			except MissingAPIKeyError as e:  # before the run's telemetry starts: no model, no browser
+				self._capture_gate(e, max_steps, timeout)
+				raise
 		started, result, error_type, session, browser_s = time.monotonic(), None, None, None, None
+		gate: MissingAPIKeyError | None = None
 		tools = frozenset(t.name for t in self.tools.functions) if self.tools else frozenset()
 		rec = RunRecorder(tools, self._model_name, bool(self._gateway))
 		run_id, number, concurrent, phase = uuid.uuid4().hex, next(_RUNS), _ACTIVE[0], 'preflight'
@@ -491,6 +505,8 @@ class Agent:
 					error = await asyncio.to_thread(lambda: check() or (search and search.preflight()))
 					rec.phase('preflight', now() - t)
 					if error:
+						if self._gateway and error.startswith(KEY_REJECTED):
+							record_auth_event('key_rejected', key_gate=self._gateway.key_gate, key_reason='rejected')
 						error_type = 'PreflightError'
 						result = self._failed(error, started)
 						return result
@@ -508,6 +524,8 @@ class Agent:
 				raise  # setup errors (no key, a profile name that matches none), raised before anything was created
 			except Exception as e:  # a failed create (402, 5xx, timeout), or a daemon that could not attach to a billed one
 				rec.phase('browser_start', now() - t)
+				if self.browser.use_cloud and 'failed: HTTP 401' in str(e):
+					record_auth_event('key_rejected', key_gate='cloud_browser', key_reason='rejected')
 				error_type = type(e).__name__
 				result = self._failed(str(e) or error_type, started)  # the preflight's shape; finally stops the browser
 				return result
@@ -544,6 +562,8 @@ class Agent:
 				explain_error=self._gateway.explain_error if self._gateway else None,
 			)
 			self._history = session.messages  # raw: result.messages has secrets redacted
+			# the judge's turn resends what the run's last request sent, so the provider reads it from its prompt cache
+			self._judge_prefix = (_projected(session, session.messages), session.request_params)
 			# the judge sees the page as the run left it, before the browser stops
 			judged = self.judge and self.use_vision and result.steps
 			self._final_page = None
@@ -562,6 +582,7 @@ class Agent:
 			return result
 		except BaseException as e:
 			error_type = type(e).__name__
+			gate = e if isinstance(e, MissingAPIKeyError) else None
 			raise
 		finally:
 			_ACTIVE[0] -= 1
@@ -592,7 +613,14 @@ class Agent:
 					if error_type is None:
 						await self._judge(result)
 				finally:
-					meta = {'run_id': run_id, 'rec': rec, 'phase': phase, 'number': number, 'concurrent': concurrent}
+					meta = {
+						'run_id': run_id,
+						'rec': rec,
+						'phase': phase,
+						'number': number,
+						'concurrent': concurrent,
+						'gate': gate,
+					}
 					self._capture(
 						result, session, error_type, max_steps, timeout, prior, browser_s, time.monotonic() - started, meta
 					)
@@ -606,7 +634,15 @@ class Agent:
 			return
 		task, context = (redact(t, self.sensitive_data) for t in (self.task, self.judge_context))
 		final, self._final_page = self._final_page, None
-		judgement, messages = await judge_run(self._agent, task, result, context, self.sensitive_data, final)
+		judgement, messages = None, []
+		history, params = self._judge_prefix
+		if history and params is not None:
+			judgement, messages = await judge_cached(
+				self._agent, history, params, task, result, context, self.sensitive_data, final
+			)
+		if judgement is None:  # a tool call, no schema-shaped answer or an error: the separate judge, as before
+			judgement, separate = await judge_run(self._agent, task, result, context, self.sensitive_data, final)
+			messages = [*messages, *separate]
 		if not messages:
 			return
 		usage, cost = usage_and_cost(messages, self._model_ref)
@@ -705,6 +741,7 @@ class Agent:
 
 	def _config(self, max_steps: int, timeout: float) -> dict[str, Any]:
 		"""The run's configuration fields: counts, bools, enums and names, never values or paths."""
+		from browser_use.telemetry.auth_events import key_source
 		from browser_use.telemetry.stats import cdp_category, host, is_internal, provider_name
 
 		schema = self.output_model_schema
@@ -773,6 +810,7 @@ class Agent:
 			'compaction_mode': 'server' if kind == 'responses' else 'client',
 			'context_window': window if isinstance(window, int) and not isinstance(window, bool) else None,
 			'sync': self._sync,
+			'key_source': key_source(self.llm),
 		}
 
 	def _telemetry_started(self, run_id: str, rec: RunRecorder, max_steps: int, timeout: float) -> None:
@@ -794,6 +832,47 @@ class Agent:
 		except Exception as e:  # - telemetry never breaks a run
 			logger.debug('telemetry failed: %s', e)
 
+	def _capture_gate(self, error: MissingAPIKeyError, max_steps: int, timeout: float) -> None:
+		"""The agent_event of a run that stopped at a missing key before it built (no model, no browser): status error,
+		error_phase build, the fields known without a model (_config needs one), so the run is counted."""
+		try:
+			from browser_use.telemetry.auth_events import key_source
+			from browser_use.telemetry.service import Job, telemetry
+			from browser_use.telemetry.stats import MAX_ERROR, is_internal, scrub
+			from browser_use.telemetry.views import AgentTelemetryEvent
+			from browser_use.utils import get_browser_use_version, get_install_source
+
+			if not telemetry().enabled:
+				return
+			alias, run_id = gateway_alias(self.llm), uuid.uuid4().hex
+			event = AgentTelemetryEvent(
+				get_browser_use_version(),
+				get_install_source(),
+				run_id=run_id,
+				model=model_id(alias) if alias else '',
+				gateway=alias is not None,
+				mode=self.mode,
+				max_steps=max_steps,
+				timeout_s=timeout,
+				task_chars=len(self.task),
+				browser_mode=self.browser.kind,
+				web_search=self.web_search,
+				follow_up=self._continue,
+				sync=self._sync,
+				is_internal=is_internal(),
+				run_in_process=next(_RUNS),
+				status='error',
+				error_type=type(error).__name__,
+				error_phase='build',
+				error_messages=[m for m in [scrub(error.summary, [], MAX_ERROR, self._tasks)] if m],
+				key_source=key_source(self.llm),
+				key_gate=error.key_gate,
+				key_reason=error.key_reason,
+			)
+			telemetry().capture_run(Job('agent_event', lambda steps, keys: event.properties, run_id=run_id))
+		except Exception as e:  # - telemetry never breaks a run
+			logger.debug('telemetry failed: %s', e)
+
 	def _capture(
 		self,
 		result: AgentHistoryList | None,
@@ -811,6 +890,7 @@ class Agent:
 		text, code or secrets. Here, on the run's path, only what can change after the run is copied; the event is built
 		in the telemetry thread (build())."""
 		try:
+			from browser_use.telemetry.auth_events import keyed_success
 			from browser_use.telemetry.service import Job, telemetry
 			from browser_use.telemetry.stats import (
 				MAX_ERROR,
@@ -858,6 +938,9 @@ class Agent:
 				phase = 'budget'
 			elif phase == 'loop':
 				phase = rec.where or ('delivery' if session and session.finalizing else 'model')
+			gate: MissingAPIKeyError | None = meta.get('gate')
+			if status == 'completed' and (self._gateway or self.browser.use_cloud or self._search):
+				keyed_success()  # the first keyed run of a device that once needed a key: once
 			config = self._config(max_steps, timeout)
 			fields = {
 				**config,
@@ -886,11 +969,13 @@ class Agent:
 				'error_phase': phase,
 				'budget_hit': budget_hit,
 				'feedback_count': self._reports.sent,
+				'key_gate': gate.key_gate if gate else None,
+				'key_reason': gate.key_reason if gate else None,
 			}
 			secrets = self.sensitive_data
 			# a follow-up's result can quote the first task; the judgement can quote judge_context
 			tasks: list[str] = list(dict.fromkeys([*self._tasks, self.task, *filter(None, [self.judge_context])]))
-			run_error = result.error if result else None
+			run_error = result.error if result else gate.summary if gate else None
 			final = result.text if result else None
 			judgement = result.judgement.model_dump() if result and result.judgement else None
 			judge_cost = self._judge_cost
