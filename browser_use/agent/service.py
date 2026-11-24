@@ -256,6 +256,7 @@ class Agent:
 		reasoning: str | None = None,
 		mode: str | None = None,
 		workspace: str | Path | None = None,
+		audit_log: str | Path | None = None,
 		web_search: bool = False,
 		max_context_chars: int | None = None,
 		highlight_actions: bool = True,
@@ -322,6 +323,9 @@ class Agent:
 				f'{output_model_schema!r:.100}. For a JSON-schema dict use pydantic_ai.StructuredDict(schema).'
 			) from e
 		self.sensitive_data = dict(sensitive_data or {})
+		if audit_log == '' or (audit_log is not None and Path(audit_log).expanduser().is_dir()):
+			raise ValueError('audit_log must be a non-empty file path, not a directory')
+		self.audit_log = Path(audit_log).expanduser().resolve() if audit_log is not None else None
 		self.extend_system_message, self.reasoning = extend_system_message or '', reasoning
 		self.web_search, self.max_context_chars, self.highlight_actions = web_search, max_context_chars, highlight_actions
 		self.judge, self.judge_context = judge, judge_context or None
@@ -515,6 +519,9 @@ class Agent:
 				for sub in ('.browser-use', 'downloads'):  # an unwritable workspace fails here, before a browser is billed
 					(self.workspace / sub).mkdir(exist_ok=True)
 			self.browser._downloads_dir = self.workspace / 'downloads'  # a keep_alive browser's later stop() copies there
+			from browser_use.audit import AuditLog
+
+			self.browser._audit = AuditLog(self.audit_log, self.sensitive_data) if self.audit_log else None
 			phase, t = 'browser_start', now()
 			try:
 				env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again
@@ -539,6 +546,7 @@ class Agent:
 					env,
 					mode=self.mode,
 					secrets=self.sensitive_data,
+					audit_log=self.audit_log,
 					reattach=self.browser.reattach,
 					after_cell=self.browser.after_cell if self.browser.domains else None,
 					search=self._search,

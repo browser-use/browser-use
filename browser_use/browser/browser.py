@@ -35,6 +35,7 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from browser_use.audit import AuditLog
 from browser_use.auth import browser_use_api_key, cloud_error_text, harness_dir_setting, record_auth_event
 from browser_use.browser import local as _local
 from browser_use.config import load_env
@@ -89,7 +90,8 @@ REMOVED = {  # 0.x BrowserSession/BrowserProfile options -> the 1.0 alternative 
 	),
 	**dict.fromkeys(
 		('downloads_path', 'accept_downloads', 'auto_download_pdfs'),
-		'downloads land in agent.workspace/downloads (cloud: copied there when the browser stops).',
+		'downloads land in agent.workspace/downloads (cloud: copied there when the browser stops); '
+		'use block_downloads=True to deny them (instead of accept_downloads=False).',
 	),
 	'permissions': 'say it in the task: the agent can send Browser.grantPermissions.',
 	**dict.fromkeys(
@@ -573,6 +575,8 @@ class Browser:
 		allowed_domains: list[str] | None = None,
 		prohibited_domains: list[str] | None = None,
 		block_ip_addresses: bool = False,
+		block_downloads: bool = False,
+		block_uploads: bool = False,
 		**kwargs,
 	):
 		"""Configure a browser; live_view=None prints the link, True also opens it, and False hides it."""
@@ -611,6 +615,11 @@ class Browser:
 					'Browser(allowed_domains=[...]); unset the variable.',
 				)
 			)
+		for name, value in (('block_downloads', block_downloads), ('block_uploads', block_uploads)):
+			if not isinstance(value, bool):
+				raise TypeError(f'{name} must be True or False, not {value!r}')
+		self.block_downloads, self.block_uploads = block_downloads, block_uploads
+		self._audit: AuditLog | None = None
 		self.domains = DomainRules.of(allowed_domains, prohibited_domains, block_ip_addresses)
 		launches = self.kind == 'chromium' or (self.kind == 'chrome' and profile is not None)
 		where = {'cloud': 'Browser() (a cloud browser)', 'chrome': "Browser('chrome') (your open Chrome)"}.get(
@@ -708,6 +717,9 @@ class Browser:
 		"""start() under self._lock. replace_gone_cloud: a kept-alive cloud browser that ended between runs (cloud_timeout,
 		a stop from the dashboard) is replaced by a new one, as a dead local Chrome is; mid-run (reattach) it raises."""
 		await self._stopped()
+		if self._audit and self._guard and self._guard.audit is None:
+			self._guard.close()
+			self._guard = None
 		if self._env is None or not self.name:  # Browser('chrome'): ensuring the shared daemon is idempotent
 			env = await self._start()
 			if self.domains:  # the REPL helpers refuse disallowed URLs (worker.py)
@@ -719,6 +731,10 @@ class Browser:
 						fd, self._tabs_file = tempfile.mkstemp(prefix='browser-use-tabs-')
 						os.close(fd)
 					env['BU_TABS_FILE'] = self._tabs_file
+			if self.block_downloads:
+				env['BU_BLOCK_DOWNLOADS'] = '1'
+			if self.block_uploads:
+				env['BU_BLOCK_UPLOADS'] = '1'
 			self._env = env
 		elif self._local is not None and self._local.proc is not None and self._local.proc.poll() is not None:
 			await self._stop()  # the Chrome this Browser launched died (crash, OOM, kill): launch a new one
@@ -732,6 +748,17 @@ class Browser:
 				logger.warning(f'The cloud browser {(self.id or "")[:8]} ended since the last run; starting a new one')
 				await self._stop()  # every later start() raised until the caller ran browser.stop()
 				return await self._start_locked()
+		if self._audit and self._guard is None and (ws := self._daemon_env.get('BU_CDP_WS')):
+			self._guard = Guard(
+				ws, self.domains, block_downloads=self.block_downloads, block_uploads=self.block_uploads, audit=self._audit
+			)
+			try:
+				await asyncio.to_thread(self._guard.start)
+			except BaseException:
+				await self._stop()
+				raise
+		if self._guard:
+			self._guard.audit = self._audit
 		if self._local is not None and self._downloads_dir:  # Chrome forgets it when the connection that set it closes
 			await asyncio.to_thread(self._send_downloads, self._downloads_dir)
 		return self._env
@@ -758,6 +785,8 @@ class Browser:
 		"""Downloads of a Chrome this Browser launched land in downloads (workspace/downloads), not the real ~/Downloads.
 		Saved as <guid> and renamed once finished (utils.name_download): with 'allow' a repeated name overwrote the
 		earlier file. The REPL worker renames what finishes during a run, _finish_downloads what finishes after it."""
+		if self.block_downloads:
+			return
 		downloads.mkdir(parents=True, exist_ok=True)
 		cdp, params = self._cdp(), {'behavior': 'allowAndName', 'downloadPath': str(downloads), 'eventsEnabled': True}
 		try:
@@ -922,6 +951,19 @@ class Browser:
 				) from None
 			# A daemon that was already running (started by `browser-use`, the MCP server, browser-harness itself or an
 			# older browser-use) keeps its own BH_TAB_MARKER: the worker strips the horse it adds to the agent's tabs.
+			if (self.block_downloads or self.block_uploads or self._audit) and self._guard is None:
+				from browser_harness.daemon import get_ws_url
+
+				ws = await asyncio.to_thread(get_ws_url)
+				self._guard = Guard(
+					ws, DomainRules(), block_downloads=self.block_downloads, block_uploads=self.block_uploads, audit=self._audit
+				)
+				try:
+					await asyncio.to_thread(self._guard.start)
+				except BaseException:
+					self._guard.close()
+					self._guard = None
+					raise
 			return {'BU_SHARED_DAEMON': '1'}
 		if self.use_cloud:
 			# fail (or sign in) before anything starts; on the loop's thread, not a worker thread: only the main thread
@@ -974,8 +1016,10 @@ class Browser:
 				if self.cdp_url:
 					await asyncio.to_thread(self._attach_open_page)
 				self._watchdog = _local.start_watchdog(0, '', self.name, daemon_pid, (self.id or '') if self.use_cloud else '')
-			if self.domains:
-				self._guard = Guard(ws, self.domains)
+			if self.domains or self.block_downloads or self.block_uploads or self._audit:
+				self._guard = Guard(
+					ws, self.domains, block_downloads=self.block_downloads, block_uploads=self.block_uploads, audit=self._audit
+				)
 				await asyncio.to_thread(self._guard.start)
 			if self.use_cloud and not self.captcha_solver:
 				await asyncio.to_thread(_daemon_cdp, self.name, 'BrowserUse.setCaptchaSolverEnabled', enabled=False)
@@ -1053,7 +1097,7 @@ class Browser:
 
 	def _sweep(self) -> list[str]:
 		only = self._touched_tabs() if self._attached() else None
-		return sweep(self._cdp(), self.domains, self._user_tabs or {}, only)
+		return sweep(self._cdp(), self.domains, self._user_tabs or {}, only, audit=self._audit)
 
 	def _disallowed_tabs(self) -> dict[str, str]:
 		return {target: url for target, (url, _) in disallowed_tabs(self._cdp(), self.domains).items()}
@@ -1274,6 +1318,8 @@ class Browser:
 	async def _fetch_downloads(
 		self, dest: str | Path, skip: set[str], out: list[Path], browser_id: str | None, deadline: float | None = None
 	) -> None:
+		if self.block_downloads:
+			return
 		deadline = deadline or time.monotonic() + DOWNLOADS_TIMEOUT_S  # the transfer threads stop on it too
 		try:
 			async with asyncio.timeout(max(deadline - time.monotonic(), 0)):
@@ -1295,6 +1341,10 @@ class Browser:
 		left out of skip, so a later call retries it. A name already in dest gets a ' (1)' suffix, never overwritten.
 		Names in json_page_copies (a JSON page the browser displayed, which the cloud also saves) are left out.
 		deadline: time.monotonic() value at which transfers stop (default: DOWNLOADS_TIMEOUT_S from now)."""
+		if self.block_downloads:
+			if self._audit:
+				self._audit.write('download_blocked', helper='download_files')
+			raise PermissionError('Downloads are blocked (block_downloads=True)')
 		browser_id = browser_id or self.id
 		if not browser_id:
 			return []

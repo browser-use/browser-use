@@ -97,7 +97,7 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | other launch options: `channel`, `args`, `ignore_default_args`, `env`, `chromium_sandbox`, `devtools`, `enable_default_extensions`, `disable_security`, `is_local` | raise. `channel`: pass `executable_path=`. `--no-sandbox` is added on Linux as root or in a container, and once more if Chrome reports no usable sandbox |
 | servers / Docker / CI (`browser-use install`, the 0.x Dockerfile) | `Browser('chromium')` is headless there by default (no display); or `Browser()` (cloud). `browser-use install` still downloads Playwright's Chromium (with system deps on Linux), which `Browser('chromium')` finds when no Chrome is installed; or point `BH_CHROME_PATH` / `CHROME_PATH` at a binary |
 | window and identity: `window_size`, `window_width`, `window_height`, `window_position`, `viewport`, `no_viewport`, `screen`, `device_scale_factor`, `user_agent`; the 0.6 Playwright-era `locale`, `timezone_id`, `color_scheme`, `contrast`, `forced_colors`, `reduced_motion`, `is_mobile`, `has_touch`, `extra_http_headers`, `offline`, `java_script_enabled`, `bypass_csp`, `ignore_https_errors`, `service_workers`, `base_url` | say it in the task: the agent can send `Emulation.setUserAgentOverride` and, on a local browser, `Emulation.setDeviceMetricsOverride` itself. Headless launches use a 1440x900 window. A cloud browser accepts `Emulation.setDeviceMetricsOverride` and `Network.setUserAgentOverride` but changes nothing: the page keeps its viewport and user agent. Use `Emulation.setUserAgentOverride` there, and `Browser('chromium')` for another viewport |
-| downloads: `downloads_path`, `accept_downloads`, `auto_download_pdfs` | cloud: files the browser downloaded are copied to `agent.workspace/downloads` when the run ends (also with `keep_alive=True`). `Browser('chromium')` and `Browser('chrome', profile=...)`: downloads land in `agent.workspace/downloads` directly. `result.downloads` lists the files the run added there. Mid-run the agent checks finished downloads with `downloads()` (cloud: the API's list). `Browser('chrome')` (your Chrome) and `cdp_url`: the browser's own download folder, no `downloads()` |
+| downloads: `downloads_path`, `accept_downloads`, `auto_download_pdfs` | These 0.x options still raise `TypeError`; use `Browser(block_downloads=True)` to deny downloads (the replacement for `accept_downloads=False`). cloud: files the browser downloaded are copied to `agent.workspace/downloads` when the run ends (also with `keep_alive=True`). `Browser('chromium')` and `Browser('chrome', profile=...)`: downloads land in `agent.workspace/downloads` directly. `result.downloads` lists the files the run added there. Mid-run the agent checks finished downloads with `downloads()` (cloud: the API's list). `Browser('chrome')` (your Chrome) and `cdp_url`: the browser's own download folder, no `downloads()` |
 | `permissions` | say it in the task: the agent can send `Browser.grantPermissions` |
 | `proxy` (`server`, `bypass`, `username`, `password`) | cloud: `cloud_proxy_country_code`. Local: not yet |
 | `storage_state`, `cookie_whitelist_domains` | cloud: `cloud_profile_id` keeps logins. Local: `Browser('chrome')` / `Browser('chrome', profile=...)` have yours; `Browser('chromium', user_data_dir=...)` keeps its own |
@@ -105,6 +105,7 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | `highlight_elements`, `interaction_highlight_color`, `interaction_highlight_duration` | removed: actions are highlighted by default (orange corner brackets for 1 s, never in the agent's screenshots); `Agent(highlight_actions=False)` turns it off |
 | 0.x engine tuning: `dom_highlight_elements`, `filter_highlight_ids`, `paint_order_filtering`, `cross_origin_iframes`, `max_iframes`, `max_iframe_depth`, `minimum_wait_page_load_time`, `wait_for_network_idle_page_load_time`, `wait_between_actions`, `deterministic_rendering`, `demo_mode`; 0.1/0.6 `maximum_wait_page_load_time`, `viewport_expansion`, `include_dynamic_attributes`, `cached_state`, `default_timeout`, `default_navigation_timeout`, `slow_mo`, `strict_selectors` | removed: they tuned the 0.x DOM engine. Delete them |
 | 0.6 `handle_sigint`, `handle_sigterm`, `handle_sighup`; `stealth`; `cookies_file`; `context` | removed: a browser 1.0 started is stopped when the process exits; cloud browsers run with stealth settings (`Browser()`); `cookies_file` as `storage_state`; `context`: pass options to `Browser(...)` |
+| `block_downloads`, `block_uploads` | new advanced options, both `False` by default; see [File guards and audit logging](#file-guards-and-audit-logging) |
 | `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | kept, in every mode, with the 0.x patterns: see [Domain restrictions](#domain-restrictions) |
 | `captcha_solver` | kept for cloud browsers: they solve captchas automatically, and `Browser(captcha_solver=False)` turns the solver off when the browser starts and keeps it off (the agent is told to handle captchas itself; `solve_captcha()` reports the solver unavailable). Other browsers have no solver: `captcha_solver=False` raises `ValueError` |
 
@@ -176,6 +177,66 @@ Each raises the one error above (the tuning knobs marked "ignored" warn instead;
 | `@tools.action(domains=...)`, `@tools.action(allowed_domains=...)` | removed | `Browser(allowed_domains=...)` |
 | `ChatAzureOpenAI`, `ChatAWSBedrock`, `ChatDeepSeek`, `ChatGroq`, `ChatOllama` and the other provider classes | removed | each import error names its replacement: see [Models](#models) |
 | `browser-use --mcp` tool names (`browser_navigate`, `browser_click`, `browser_type`, `browser_get_state`, `browser_extract_content`, `browser_get_html`, `browser_scroll`, `browser_go_back`, `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab`, `retry_with_browser_use_agent`, `browser_list_sessions`, `browser_close_session`, `browser_close_all`) | removed | `browser_exec` (Python with the browser-harness helpers) and `browser_screenshot` |
+
+## File guards and audit logging
+
+Advanced, opt-in controls: `Browser(block_downloads=True)`, `Browser(block_uploads=True)`, and
+`Agent(..., audit_log="/path/to/audit.jsonl")`. Both flags default to `False`; `audit_log=None` writes no audit file.
+The 0.x `accept_downloads` option still raises `TypeError`; replace `accept_downloads=False` with
+`block_downloads=True`. Neither `accept_downloads=True` nor the old download path/PDF options are silently accepted.
+
+Downloads are denied with `Browser.setDownloadBehavior(behavior='deny')` on the domain guard's own browser-wide CDP
+connection. Browser Use does not override that denial when setting its workspace download directory. `download_files`
+refuses cloud file copies; `http_get` refuses attachment and non-text/JSON/XML/JavaScript responses before reading
+the body. Direct download navigations refuse with `PermissionError` in both worker and MCP helpers. Ordinary browser downloads started by clicks,
+redirects, scripts, and new tabs are denied by Chrome; a click itself may still succeed.
+
+Uploads: `upload_file`, the shared local/remote upload implementation, and the worker's
+`cdp('DOM.setFileInputFiles', ...)` refuse with `PermissionError`. The same guard connection attaches to page targets,
+including new tabs, enables `Page.setInterceptFileChooserDialog`, and clears the input on a chooser event. This
+suppresses the native chooser; it does **not** provide a browser-wide veto of `DOM.setFileInputFiles` from other CDP
+clients. New page targets wait for interception setup before resuming; if per-tab setup fails with uploads blocked,
+the target is closed with a warning. Same-process frames inherit the page's
+interception; separate iframe targets are not attached by this guard.
+
+The browser controls cover cloud, Chromium, Chrome with a profile, and `cdp_url`, just like the domain guard.
+Opting into file flags or auditing on `Browser('chrome')` also opens a guard connection using the harness's Chrome
+endpoint discovery. Chrome may show **Allow remote debugging?** again; click **Allow**. In a shared browser these
+file controls apply to every page, including your own tabs; existing domain restriction behavior for your tabs stays
+the same. Initial setup failure raises before agent cells run;
+a dropped connection reconnects, with a gap in browser enforcement and browser events until it does.
+
+The JSONL audit file is appended across runs. Each record has a Unix `ts`, an `event`, and `target_id` (null when no
+target is available). Events are `navigation` (committed frame and same-document navigations, with scrubbed `url`
+and `frame_id`), `action` (helper name, tab and available selector/coordinates/target/text), `navigation_blocked`,
+`download_blocked`, `upload_blocked`, and `download_completed` (URL and download GUID). Action records describe
+attempts, including failed helper calls. Read-only helpers are also recorded, without their returned page content.
+The harness recorder's URL credential scrubbing and action detail/password masking functions are reused. Password
+fields are checked before filling; `type_secret` and accessibility typing actions always mask their text.
+Each final serialized JSON line is checked against all `sensitive_data` values and their known encoded forms
+(including short values inside other text, case-insensitive percent escapes and hex digits); matching lines have
+string values and keys in details redacted and are serialized again, then lose all details in favor of
+`"redacted": true` if still matching. If even that serialized line matches (including event, target ID, or schema),
+the record is skipped with a warning containing no record contents; only a final line with no match is written.
+Raw Python source, arbitrary `js`/CDP arguments, and page
+contents are not included. Browser events are
+observed on the guard connection, so helper-bypassing page navigations and completed downloads are included. Existing
+pages before the guard connects and events during a connection gap cannot be reconstructed. Auditing observes page download events without
+changing an existing download behavior or destination. Audit files are created with owner-only permissions (0600),
+also applied to existing files. A short or failed append disables further writes for that AuditLog instance and
+warns once without record contents; enforcement continues.
+
+CLI/MCP: the deprecated `--mcp` path reads `block_downloads` and `block_uploads` from the default browser profile in
+its 0.x config, alongside domain rules. `BROWSER_USE_BLOCK_DOWNLOADS=1` and/or `BROWSER_USE_BLOCK_UPLOADS=1` with
+`--cli-mcp` select a private Chromium controlled by this repository, with the same flags and helper refusals.
+Configured file guards also refuse switching that MCP server to an unguarded cloud daemon. The ordinary harness-owned
+CLI launch/execute path and CLI audit support need browser-harness changes; these are not implemented here.
+
+As with domain restrictions, these are **a guard for an aligned model, not a sandbox**. Python networking and file
+I/O, arbitrary JavaScript (`fetch`, `File`, `DataTransfer`), another CDP client, or deliberately replacing helpers can
+bypass parts of these controls. Upload flags do not block general HTTP POSTs or data exfiltration. The audit file is
+ordinary writable JSONL, not tamper-proof or a log of all Python/JavaScript/CDP activity. Use a VM/container and network
+policy for untrusted agents.
 
 ## Domain restrictions
 

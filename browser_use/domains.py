@@ -37,6 +37,8 @@ from urllib.parse import unquote, urlsplit
 
 import idna
 
+from browser_use.audit import AuditLog
+
 logger = logging.getLogger(__name__)
 
 ALWAYS_ALLOWED = ('about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/')  # 0.x list
@@ -289,8 +291,21 @@ class Guard:
 	turn it off. Iframes and subresources pass. When the connection drops, Chrome stops intercepting until it
 	reconnects (sweep() still runs after each cell)."""
 
-	def __init__(self, ws_url: str, rules: DomainRules):
+	def __init__(
+		self,
+		ws_url: str,
+		rules: DomainRules,
+		*,
+		block_downloads: bool = False,
+		block_uploads: bool = False,
+		audit: AuditLog | None = None,
+	):
 		self.ws_url, self.rules = ws_url, rules
+		self.block_downloads, self.block_uploads, self.audit = block_downloads, block_uploads, audit
+		self.sessions: dict[str, str] = {}
+		self._setup: set[int] = set()
+		self.frames: dict[str, str] = {}
+		self.downloads: dict[str, dict] = {}
 		self.pages: dict[str, str] = {}  # page target id (= its main frame id) -> the URL it last showed
 		self.blocks = 0
 		self._notices: list[str] = []
@@ -310,7 +325,8 @@ class Guard:
 		if not self._ready.wait(GUARD_START_S) or self._error:
 			self.close()
 			why = self._error or f'no answer within {GUARD_START_S:g}s'
-			raise RuntimeError(f'Domain restrictions could not start on this browser ({why}); nothing was left running.')
+			label = 'Domain restrictions' if self.rules else 'File guard / audit'
+			raise RuntimeError(f'{label} could not start on this browser ({why}); nothing was left running.')
 
 	def close(self) -> None:
 		self._closed.set()
@@ -349,14 +365,29 @@ class Guard:
 		tls = tls_context() if self.ws_url.startswith('wss:') else None  # a ws:// URL refuses an ssl argument
 		self._ws = connect(self.ws_url, max_size=None, open_timeout=GUARD_START_S, close_timeout=1, ssl=tls)
 		self.pages.clear()
+		self.sessions.clear()
+		self.frames.clear()
+		self._setup.clear()
 		self._replies.clear()
 		self._discovered = False  # until setDiscoverTargets answered: the targets it reports were already open
 		pending = {
 			self._send('Target.setDiscoverTargets', discover=True),
 			self._send('Fetch.enable', patterns=[{'urlPattern': '*', 'resourceType': 'Document', 'requestStage': 'Request'}]),
 		}
+		if self.block_downloads:
+			pending.add(self._send('Browser.setDownloadBehavior', behavior='deny', eventsEnabled=True))
+		if self.block_uploads or self.audit:
+			pending.add(
+				self._send(
+					'Target.setAutoAttach',
+					autoAttach=True,
+					waitForDebuggerOnStart=self.block_uploads,
+					flatten=True,
+					filter=[{'type': 'page'}, {'exclude': True}],
+				)
+			)
 		deadline = time.monotonic() + GUARD_START_S
-		while pending:
+		while pending or self._setup:
 			msg = json.loads(self._ws.recv(timeout=max(0.1, deadline - time.monotonic())))
 			if msg.get('id') in pending:
 				if 'error' in msg:
@@ -390,12 +421,77 @@ class Guard:
 
 	def _handle(self, msg: dict) -> None:
 		if 'id' in msg:  # a reply to one of the guard's own commands
+			if msg['id'] in self._setup:
+				self._setup.discard(msg['id'])
+				if 'error' in msg:
+					if not self._ready.is_set():
+						raise RuntimeError(f'File guard / audit setup failed: {msg["error"]}')
+					if sid := msg.get('sessionId'):
+						if self.block_uploads:
+							if target := self.sessions.pop(sid, None):
+								self._send('Target.closeTarget', targetId=target)
+						else:
+							self._send('Runtime.runIfWaitingForDebugger', sid)
+					logger.warning('File guard / audit tab setup failed: %s', msg['error'])
 			reply = self._replies.pop(msg['id'], None)
 			if reply is not None and 'result' in msg:
 				reply(msg['result'])
 			return
 		method, params = msg.get('method'), msg.get('params') or {}
-		if method in ('Target.targetCreated', 'Target.targetInfoChanged'):
+		if method == 'Target.attachedToTarget':
+			sid, info = params['sessionId'], params['targetInfo']
+			self.sessions[sid] = info['targetId']
+			self._setup.add(self._send('Page.enable', sid))
+			if self.block_uploads:
+				self._setup.add(
+					self._send(
+						'Page.setInterceptFileChooserDialog',
+						sid,
+						reply=lambda _: self._send('Runtime.runIfWaitingForDebugger', sid) if sid in self.sessions else None,
+						enabled=True,
+					)
+				)
+		elif method == 'Target.detachedFromTarget':
+			if target := self.sessions.pop(params.get('sessionId', ''), None):
+				self.frames = {frame: tab for frame, tab in self.frames.items() if tab != target}
+		elif method == 'Page.fileChooserOpened' and self.block_uploads:
+			sid = msg.get('sessionId')
+			if params.get('backendNodeId'):
+				self._send('DOM.setFileInputFiles', sid, files=[], backendNodeId=params['backendNodeId'])
+			if self.audit:
+				self.audit.write('upload_blocked', self.sessions.get(sid or ''), helper='file_chooser')
+		elif method == 'Page.navigatedWithinDocument' and self.audit:
+			self.audit.write(
+				'navigation', self.sessions.get(msg.get('sessionId', '')), url=params.get('url'), frame_id=params['frameId']
+			)
+		elif method == 'Page.frameNavigated' and self.audit:
+			frame = params['frame']
+			if target := self.sessions.get(msg.get('sessionId', '')):
+				self.frames[frame['id']] = target
+			self.audit.write(
+				'navigation', self.sessions.get(msg.get('sessionId', '')), url=frame.get('url'), frame_id=frame['id']
+			)
+		elif method in ('Browser.downloadWillBegin', 'Page.downloadWillBegin'):
+			if params['guid'] in self.downloads:
+				return
+			self.downloads[params['guid']] = params
+			if self.block_downloads and self.audit:
+				self.audit.write(
+					'download_blocked',
+					self.frames.get(params.get('frameId', ''), params.get('frameId')),
+					url=params.get('url'),
+					guid=params['guid'],
+				)
+		elif method in ('Browser.downloadProgress', 'Page.downloadProgress') and params.get('state') in ('completed', 'canceled'):
+			download = self.downloads.pop(params['guid'], {})
+			if self.audit and download and params['state'] == 'completed':
+				self.audit.write(
+					'download_completed',
+					self.frames.get(download.get('frameId', ''), download.get('frameId')),
+					url=download.get('url'),
+					guid=params['guid'],
+				)
+		elif method in ('Target.targetCreated', 'Target.targetInfoChanged'):
 			info = params.get('targetInfo') or {}
 			if info.get('type') == 'page':
 				target, url = str(info['targetId']), str(info.get('url') or 'about:blank')  # '': before its first commit
@@ -408,12 +504,16 @@ class Guard:
 					# a tab created on that URL has loaded nothing yet: its request, if any, is blocked and reported
 					self._reset(target, url, why, silent=before is None)
 		elif method == 'Target.targetDestroyed':
-			self.pages.pop(str(params.get('targetId')), None)
+			target = str(params.get('targetId'))
+			self.pages.pop(target, None)
+			self.frames = {frame: tab for frame, tab in self.frames.items() if tab != target}
 		elif method == 'Fetch.requestPaused':
 			url = str((params.get('request') or {}).get('url', ''))
 			frame = str(params.get('frameId'))
 			why = self.rules.blocked(url) if frame in self.pages else None  # iframes pass
 			if why:
+				if self.audit:
+					self.audit.write('navigation_blocked', frame, url=url)
 				with self._lock:
 					self.blocks += 1
 					self._notices.append(f'[{why}. The browser did not load {url[:120]}]')
@@ -426,6 +526,8 @@ class Guard:
 
 	def _reset(self, target: str, url: str, why: str, silent: bool = False) -> None:
 		"""Navigate a tab that shows a disallowed URL to about:blank, from the guard's own connection."""
+		if self.audit:
+			self.audit.write('navigation_blocked', target, url=url)
 		with self._lock:
 			failed = self._failed.pop((target, url), 'loaded') != 'loaded'  # the error page of a request this guard failed
 			if not (silent or failed):
@@ -453,7 +555,14 @@ def disallowed_tabs(cdp: Callable[..., dict], rules: DomainRules, only: set[str]
 	return out
 
 
-def sweep(cdp: Callable[..., dict], rules: DomainRules, keep: dict[str, str], only: set[str] | None = None) -> list[str]:
+def sweep(
+	cdp: Callable[..., dict],
+	rules: DomainRules,
+	keep: dict[str, str],
+	only: set[str] | None = None,
+	*,
+	audit: AuditLog | None = None,
+) -> list[str]:
 	"""After a cell: every page tab that shows a disallowed URL is navigated to about:blank (0.x did the same after a
 	navigation). keep: tab -> the disallowed URL it showed when the browser first started (yours, in Browser('chrome')):
 	left alone only while it still shows exactly that URL. only (Browser('chrome')): the agent's tabs; a tab you
@@ -462,6 +571,8 @@ def sweep(cdp: Callable[..., dict], rules: DomainRules, keep: dict[str, str], on
 	for target, (url, why) in disallowed_tabs(cdp, rules, only).items():
 		if keep.get(target) == url:
 			continue
+		if audit:
+			audit.write('navigation_blocked', target, url=url, helper='sweep')
 		try:
 			sid = cdp('Target.attachToTarget', targetId=target, flatten=True)['sessionId']
 			try:

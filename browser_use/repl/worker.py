@@ -38,6 +38,7 @@ from collections import Counter
 from pathlib import Path
 
 from browser_use import ax
+from browser_use.audit import AuditLog
 from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
 from browser_use.remote_upload import set_files, uploader
@@ -349,6 +350,10 @@ def _attached_tab() -> str | None:
 		return None
 
 
+_audit: AuditLog | None = None
+_audit_action = None
+
+
 def _counted(name: str, fn):
 	"""fn, counted in stats under name. page_info()/current_tab() also record the attached tab's hostname once the
 	agent navigated, and its URL in a tab the agent navigated (CellStats.url)."""
@@ -365,10 +370,16 @@ def _counted(name: str, fn):
 			stats.record_key(key if isinstance(key, str) and len(key) == 1 else None, modifiers)
 		elif 'click' in name:  # the next keys go to another field
 			stats.end_keys()
+		if _audit_action is not None:
+			_audit_action(name, args, kwargs)
 		started, failed = time.perf_counter_ns(), True
 		try:
 			result = fn(*args, **kwargs)
 			failed = False
+		except PermissionError:
+			if _audit and name == 'upload_file':
+				_audit.write('upload_blocked', _attached_tab(), helper=name)
+			raise
 		finally:  # an error counts even when the model's code catches it
 			stats.timed('helper_t', name, time.perf_counter_ns() - started, failed)
 		if name in ('page_info', 'current_tab') and isinstance(result, dict):
@@ -432,11 +443,26 @@ def http_get(url, headers=None, timeout=20.0):
 	return _http_get(url, headers, timeout, urllib.request.urlopen)
 
 
-def _http_get(url, headers, timeout, urlopen):
+def _download_navigation_result(result, *, blocked: bool):
+	"""Report aborted navigations without assuming that a download caused the abort."""
+	if blocked and isinstance(result, dict) and 'ERR_ABORTED' in result.get('errorText', ''):
+		raise PermissionError('Navigation aborted (possibly a refused download; block_downloads=True)')
+	return result
+
+
+def _http_get(url, headers, timeout, urlopen, *, block_downloads: bool = False):
 	"""http_get through urlopen. Not on http_get itself: the agent calls that, and passing its own opener skipped the
 	redirect check (--cli-mcp passes its checked opener here)."""
 	h = {'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip', **(headers or {})}
 	with urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+		if block_downloads or os.environ.get('BU_BLOCK_DOWNLOADS') == '1':
+			content_type = r.headers.get('Content-Type', '').lower()
+			if 'attachment' in r.headers.get('Content-Disposition', '').lower() or not any(
+				t in content_type for t in ('text/', 'json', 'xml', 'javascript')
+			):
+				if _audit:
+					_audit.write('download_blocked', _attached_tab(), url=url, helper='http_get')
+				raise PermissionError('Downloads are blocked (block_downloads=True)')
 		data = r.read()
 		if r.headers.get('Content-Encoding') == 'gzip':
 			data = gzip.decompress(data)
@@ -544,6 +570,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	def check_url(url) -> None:
 		"""Browser(allowed_domains=...): refuse a disallowed URL before anything navigates (Browser.domains)."""
 		if rules and (why := rules.blocked(str(url))):
+			if _audit:
+				_audit.write('navigation_blocked', _attached_tab(), url=str(url))
 			stats.count('events', 'domain_blocked')
 			raise PermissionError(why)
 
@@ -644,6 +672,21 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 
 	def _cdp(method, session_id=None, **params):
 		frozen = params.pop('_frozen', False)
+		kind = None
+		if os.environ.get('BU_BLOCK_UPLOADS') == '1' and (
+			method == 'DOM.setFileInputFiles' or method == 'Page.setInterceptFileChooserDialog' and not params.get('enabled')
+		):
+			kind = 'upload'
+		if (
+			os.environ.get('BU_BLOCK_DOWNLOADS') == '1'
+			and method in ('Browser.setDownloadBehavior', 'Page.setDownloadBehavior')
+			and params.get('behavior') != 'deny'
+		):
+			kind = 'download'
+		if kind:
+			if _audit:
+				_audit.write(f'{kind}_blocked', _attached_tab(), helper=method)
+			raise PermissionError(f'{kind.title()}s are blocked (block_{kind}s=True)')
 		if known_secrets:
 			refuse_placeholder(method, params)
 		if method == 'DOM.setFileInputFiles':  # local paths, also on a remote browser (bu's recipe on the cloud default)
@@ -662,6 +705,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			result = raw_cdp(method, session_id, **params)
 			if method == 'Page.navigate' and isinstance(result, dict) and result.get('errorText'):
 				stats.nav_failed(result['errorText'])
+				_download_navigation_result(result, blocked=os.environ.get('BU_BLOCK_DOWNLOADS') == '1')
 			if highlight:
 				highlight.after(method, session_id, params)
 			# Browser._touched_tabs: the agent's tabs are the ones it created or attached to (switch_tab), even one it
@@ -929,6 +973,42 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			print(*('' if isinstance(a, ax.Printed) else a for a in args), **kwargs)
 
 		ns['print'] = print_
+	if _audit:
+		audit = _audit
+		from browser_harness.recorder import _CTX_JS, _details
+
+		def audit_action(name, args, kwargs):
+			ctx = {'input': 'password'}
+			with contextlib.suppress(Exception):
+				ctx = plain('Runtime.evaluate', expression=_CTX_JS, returnByValue=True)['result'].get('value') or {}
+			if name in ('type_text', 'press_key'):
+				ctx['input'] = 'password'
+				with contextlib.suppress(Exception):
+					_, node = _recipient()
+					attrs = (node or {}).get('attributes') or []
+					ctx['input'] = str(dict(zip(attrs[::2], attrs[1::2])).get('type', 'text')).lower()
+			if name == 'fill_input':
+				# The destination need not be focused yet. Unknown fields fail closed for masking.
+				ctx['input'] = 'password'
+				with contextlib.suppress(Exception):
+					selector = args[0] if args else kwargs.get('selector')
+					expression = f'document.querySelector({json.dumps(selector)})?.type'
+					ctx['input'] = (
+						plain('Runtime.evaluate', expression=expression, returnByValue=True)['result'].get('value') or 'password'
+					)
+			details = _details(name, args, kwargs, ctx)
+			if name == 'type_secret' or name.startswith('bu.') and ('type' in name or 'fill' in name):
+				details['text'] = '[REDACTED]'
+			if name == 'dispatch_key' or name == 'press_key' and ctx.get('input', 'password') == 'password':
+				details['key'] = '[REDACTED]'
+			if name == 'upload_file':
+				details['selector'] = args[0] if args else kwargs.get('selector')
+			if name.startswith('bu.') and args and isinstance(args[0], (int, str)):
+				details['target'] = args[0]
+			audit.write('action', _attached_tab(), helper=name, url=ctx.get('url'), **details)
+
+		global _audit_action
+		_audit_action = audit_action
 	# helpers and the ones above (solve_captcha, drain_events too); not stdlib names the * import brought
 	own = {helpers.__name__, __name__, ax.__name__, Captcha.__module__, uploader.__module__, wait_for_network_idle.__module__}
 	for name, value in list(ns.items()):
@@ -1133,7 +1213,7 @@ def _redact_between_cells(secrets: list) -> None:
 
 
 def main() -> None:
-	global _OWN_JOB
+	global _OWN_JOB, _audit
 	if sys.platform == 'win32':  # processes a cell starts join this job, so they die with the worker however it dies
 		from browser_use.repl.session import _job_for  # (the parent's job can miss them: a venv python.exe launcher
 
@@ -1146,6 +1226,8 @@ def main() -> None:
 	wfile.flush()
 	init = json.loads(rfile.readline())
 	secrets = init['secrets']
+	if init.get('audit_log'):
+		_audit = AuditLog(init['audit_log'], secrets)
 	cells = STATE / 'cells'
 	cells.mkdir(parents=True, exist_ok=True)
 	sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
