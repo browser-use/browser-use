@@ -307,7 +307,8 @@ class Repl:
 	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell). search: defines
 	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
 	worker, answered here (Browser.list_downloads). rotate_proxy: defines rotate_proxy() in the worker, answered here
-	(Browser.rotate_proxy; the API key stays in this process). feedback: answers report_issue() with the confirmation the cell
+	(Browser.rotate_proxy; the API key stays in this process). rotate_proxy_cdp: the worker first tries the browser's own
+	BrowserUse.rotateProxy over CDP (no key), then falls back to rotate_proxy. feedback: answers report_issue() with the confirmation the cell
 	gets (telemetry/feedback.RunReports); without it nothing is sent. highlight_actions: orange corner brackets around
 	what the agent clicks or types into (repl/highlight.py)."""
 
@@ -322,13 +323,14 @@ class Repl:
 		search: web.WebSearch | None = None,
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
 		rotate_proxy: Callable[[str | None], Awaitable[dict]] | None = None,
+		rotate_proxy_cdp: bool = False,
 		highlight_actions: bool = False,
 		feedback: Callable[[dict], str] | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
-		self.feedback, self.rotate_proxy = feedback, rotate_proxy
+		self.feedback, self.rotate_proxy, self.rotate_proxy_cdp = feedback, rotate_proxy, rotate_proxy_cdp
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
 		# which a keep_alive Agent outlives (asyncio.run per run); killed after that loop closed, the worker was never
@@ -433,6 +435,7 @@ class Repl:
 				'search': self.search is not None,
 				'downloads': self.downloads is not None,
 				'rotate_proxy': self.rotate_proxy is not None,
+				'rotate_proxy_cdp': self.rotate_proxy_cdp,
 			}
 			self.writer.write(json.dumps(init).encode() + b'\n')
 			await self.writer.drain()

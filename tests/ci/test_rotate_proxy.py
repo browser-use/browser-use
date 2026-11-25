@@ -106,3 +106,37 @@ async def test_repl_without_a_cloud_browser_has_no_rotate_proxy(tmp_path):
 		assert "NameError: name 'rotate_proxy' is not defined" in r['error']
 	finally:
 		await repl.close()
+
+
+async def test_cdp_first_falls_back_to_the_api_on_a_browser_without_the_method(daemon, tmp_path):
+	"""Chrome has no BrowserUse.rotateProxy (our browsers will): with a key the parent's API call answers instead."""
+	asked = []
+
+	async def rotate(country):
+		asked.append(country)
+		return {'mode': 'managed', 'country': country or 'us', 'exitIp': '9.9.9.9'}
+
+	repl = Repl(tmp_path, daemon, rotate_proxy=rotate, rotate_proxy_cdp=True)
+	try:
+		r = await repl.call('exec', "print(rotate_proxy('de')['exitIp'])", 60)
+		assert (r['error'], r['output'].strip(), asked) == (None, '9.9.9.9', ['de'])
+	finally:
+		await repl.close()
+
+
+async def test_cdp_only_says_what_is_missing_on_a_browser_without_the_method(daemon, tmp_path):
+	repl = Repl(tmp_path, daemon, rotate_proxy_cdp=True)
+	try:
+		r = await repl.call('exec', 'rotate_proxy()', 60)
+		assert 'does not support it yet; set BROWSER_USE_API_KEY' in r['error']
+	finally:
+		await repl.close()
+
+
+def test_cdp_rotate_is_offered_without_a_key_only_once_it_ships(monkeypatch):
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+	monkeypatch.setattr(browser_mod, 'browser_use_api_key', lambda **k: (_ for _ in ()).throw(RuntimeError('no key')))
+	b = Browser(cdp_url=f'https://{ID}.cdp.browser-use.com')
+	assert not b.can_rotate_proxy() and not b.has_rotate_key()
+	monkeypatch.setattr(browser_mod, 'CDP_ROTATE_SHIPPED', True)
+	assert b.can_rotate_proxy() and not b.has_rotate_key()

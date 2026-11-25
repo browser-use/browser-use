@@ -989,18 +989,40 @@ def _downloads(ask):
 	return downloads
 
 
-def _rotate_proxy(ask):
-	"""rotate_proxy() for the cell: the parent calls the cloud (Browser.rotate_proxy), so the API key never enters this
+CDP_ROTATE = 'BrowserUse.rotateProxy'  # custom CDP method of Browser Use cloud browsers: authorized by the CDP session
+
+
+def _cdp_method_missing(e: Exception) -> bool:
+	"""A browser that does not serve the method (Chrome: -32601 "... wasn't found")."""
+	return '-32601' in str(e) or "wasn't found" in str(e)
+
+
+def _rotate_proxy(ask, cdp_first: bool, rest: bool):
+	"""rotate_proxy() for the cell. cdp_first: try the browser's own BrowserUse.rotateProxy over the CDP connection (no
+	API key needed). rest: else the parent calls the cloud API (Browser.rotate_proxy), so the key never enters this
 	process. Only defined on a Browser Use cloud browser."""
 
 	def rotate_proxy(country=None):
 		"""Give this cloud browser a new exit IP without restarting it: tabs, cookies and logins stay. For blocks and rate
 		limits (403/429, 'Access denied', 'unusual traffic', a captcha that comes back after it was solved) and for pages
-		that keep stalling after you waited. country: a
-		2-letter code ('us', 'de') to also move the exit there; default keeps the country. -> {'mode', 'country',
-		'exitIp'}."""
+		that keep stalling after you waited. country: a 2-letter code ('us', 'de') to also move the exit there; default
+		keeps the country. -> {'mode', 'country', 'exitIp'}."""
 		if country is not None and not isinstance(country, str):
 			raise TypeError(f'country must be a str like "de", not {type(country).__name__}')
+		if cdp_first:
+			try:
+				from browser_harness import helpers
+
+				r = helpers.cdp(CDP_ROTATE, country=country) if country else helpers.cdp(CDP_ROTATE)
+				return {'mode': r.get('mode', 'managed'), 'country': r.get('country'), 'exitIp': r.get('exitIp')}
+			except Exception as e:  # - the browser lacks the method or refused: the API path may still do it
+				if not rest:
+					if _cdp_method_missing(e):
+						raise RuntimeError(
+							'rotate_proxy(): this browser does not support it yet; set BROWSER_USE_API_KEY to rotate '
+							'through the API'
+						) from None
+					raise
 		return ask('rotate_proxy', {'country': country})
 
 	return rotate_proxy
@@ -1176,8 +1198,9 @@ def main() -> None:
 		ns['search'] = _counted('search', _search(ask))
 	if init.get('downloads'):
 		ns['downloads'] = _counted('downloads', _downloads(ask))
-	if init.get('rotate_proxy'):
-		ns['rotate_proxy'] = _counted('rotate_proxy', _rotate_proxy(ask))
+	if init.get('rotate_proxy') or init.get('rotate_proxy_cdp'):
+		rotate = _rotate_proxy(ask, bool(init.get('rotate_proxy_cdp')), bool(init.get('rotate_proxy')))
+		ns['rotate_proxy'] = _counted('rotate_proxy', rotate)
 	ns['report_issue'] = _counted('report_issue', _report_issue(ask))
 	sys.path.append(os.getcwd())  # after the imports (-P kept it off sys.path[0]): modules the agent writes still import
 	loop = asyncio.new_event_loop()

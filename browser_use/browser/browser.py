@@ -214,6 +214,9 @@ US = _Default('us')
 # https://<browser id>.cdp.browser-use.com (cdpUrl) or wss://<browser id>.cdp.browser-use.com/devtools/browser/... (its ws)
 _CLOUD_CDP_HOST = re.compile(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.cdp\.browser-use\.com', re.I)
 PROXY_WAIT_S = 10.0  # rotate_proxy(): how long to wait for the new exit IP to show up
+# Our cloud browsers serve BrowserUse.rotateProxy over CDP (authorized by the CDP session, no API key). Until that ships,
+# a cdp_url browser without a key gets no rotate_proxy(); with it, the tool is offered there too and tries CDP first.
+CDP_ROTATE_SHIPPED = False
 
 
 def cloud_browser_id(cdp_url: str | None) -> str | None:
@@ -1273,9 +1276,15 @@ class Browser:
 			return True
 		if not self.cloud_id:
 			return False
+		return CDP_ROTATE_SHIPPED or self.has_rotate_key()
+
+	def has_rotate_key(self) -> bool:
+		"""An API key for the REST path of rotate_proxy() (Browser() always has one)."""
+		if self.use_cloud:
+			return True
 		try:
 			return bool(browser_use_api_key(gate='cloud_browser'))
-		except Exception:  # - no key: the tool is not offered
+		except Exception:  # - no key: only the CDP path
 			return False
 
 	async def rotate_proxy(self, country: str | None = None) -> dict:
