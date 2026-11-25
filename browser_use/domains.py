@@ -90,6 +90,8 @@ def parse_url(url: str) -> Url | None:
 		return None
 	if not u.hostname:
 		return None
+	if any(ord(c) < 0x21 or ord(c) == 0x7F for c in unquote(u.hostname)):
+		return None
 	return Url(
 		u.scheme.lower(), canonical_host(u.hostname), port, _dot_segments(u.path or '/') + (f'?{u.query}' if u.query else '')
 	)
