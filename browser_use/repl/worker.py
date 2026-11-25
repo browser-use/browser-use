@@ -995,7 +995,8 @@ def _rotate_proxy(ask):
 
 	def rotate_proxy(country=None):
 		"""Give this cloud browser a new exit IP without restarting it: tabs, cookies and logins stay. For blocks and rate
-		limits (403/429, 'Access denied', 'unusual traffic', a captcha that comes back after it was solved). country: a
+		limits (403/429, 'Access denied', 'unusual traffic', a captcha that comes back after it was solved) and for pages
+		that keep stalling after you waited. country: a
 		2-letter code ('us', 'de') to also move the exit there; default keeps the country. -> {'mode', 'country',
 		'exitIp'}."""
 		if country is not None and not isinstance(country, str):

@@ -74,8 +74,9 @@ CAPTCHA_PROMPT = (
 )
 ROTATE_PROXY_PROMPT = (  # a Browser Use cloud browser (Browser.can_rotate_proxy)
 	"If a site blocks or rate-limits you (HTTP 403/429, 'Access denied', 'unusual traffic', a captcha that returns right "
-	"after it was solved), call rotate_proxy() once and retry: the same browser gets a new exit IP, tabs, cookies and "
-	"logins stay. rotate_proxy('de') also moves it to that country. At most 3 times per site, then report the block. "
+	'after it was solved) or keeps stalling after you waited, call rotate_proxy() once and retry: the same browser gets '
+	"a new exit IP, tabs, cookies and logins stay. rotate_proxy('de') also moves it to that country. At most 3 times per "
+	'site, then report the block. '
 	'Do not rotate in the middle of a login or checkout.'
 )
 NO_CAPTCHA_PROMPT = 'Its automatic captcha solver is off: handle captchas yourself.'  # Browser(captcha_solver=False)
