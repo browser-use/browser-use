@@ -173,6 +173,8 @@ def pattern_matches(pattern: str, u: Url, subdomains: bool = False) -> bool:
 			return False
 		if not slash:
 			return True
+		if subdomains:  # prohibited_domains: keep prefix matching so encoded slashes/suffixes fail closed
+			return fnmatchcase(u.path, f'/{p_path}') if '*' in p_path else u.path.startswith(f'/{p_path}')
 		return _path_matches(u.path, p_path)
 	if u.scheme not in WEB:  # 0.x: a pattern without a scheme never matches chrome://, file:, ...
 		return False

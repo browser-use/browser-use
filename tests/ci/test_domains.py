@@ -278,10 +278,19 @@ def test_path_prefix_patterns_respect_segment_boundaries():
 	assert ok('https://example.com/anything', allowed)
 
 	prohibited = ['https://example.com/admin']
-	for path in ('/admin', '/admin/', '/admin/users', '/admin?x=1'):
+	for path in (
+		'/admin',
+		'/admin/',
+		'/admin/users',
+		'/admin?x=1',
+		'/admin%2Fusers',
+		'/admin%5Cusers',
+		'/admin;x=1',
+		'/admin.json',
+		'/admin-help',
+	):
 		assert not ok(f'https://example.com{path}', prohibited=prohibited), path
-	for path in ('/admin-help', '/administrator'):
-		assert ok(f'https://example.com{path}', prohibited=prohibited), path
+	assert ok('https://example.com/other', prohibited=prohibited)
 
 
 def test_lookalikes_case_trailing_dot_backslash_and_idn():
