@@ -173,7 +173,14 @@ def test_ip_blocking_with_domain_lists():
 def test_invalid_urls_are_blocked():
 	for url in ('not-a-url', '', 'http://', '://example.com', 'http://example.com:99999/'):
 		assert not ok(url, ['example.com']), url
-	for url in ('https://example%00.com/', 'https://evil%00.1/', 'https://ex%20ample.com/', 'https://ex%7fample.com/'):
+	for url in (
+		'https://example%00.com/',
+		'https://evil%00.1/',
+		'https://ex%20ample.com/',
+		'https://ex%7fample.com/',
+		'https://ex\u3000ample.com/',
+		'https://ex%E3%80%80ample.com/',
+	):
 		assert parse_url(url) is None and not ok(url, ['*']), url
 
 
