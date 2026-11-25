@@ -20,6 +20,7 @@ def test_cloud_browser_id_from_cdp_url():
 def test_only_a_cloud_browser_with_a_key_offers_it(monkeypatch):
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
 	assert Browser(cdp_url=f'https://{ID}.cdp.browser-use.com').can_rotate_proxy()
+	assert Browser().can_rotate_proxy()  # cloud, before it starts: the Agent builds its prompt before the browser has an id
 	assert not Browser(cdp_url='http://127.0.0.1:9222').can_rotate_proxy()
 	assert not Browser('chromium').can_rotate_proxy()
 	monkeypatch.delenv('BROWSER_USE_API_KEY')

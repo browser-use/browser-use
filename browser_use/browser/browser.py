@@ -1267,11 +1267,12 @@ class Browser:
 		return self.id if self.use_cloud else cloud_browser_id(self.cdp_url)
 
 	def can_rotate_proxy(self) -> bool:
-		"""rotate_proxy() works here: a Browser Use cloud browser and an API key to call the cloud with."""
-		if not self.cloud_id:
-			return False
+		"""rotate_proxy() works here: a Browser Use cloud browser and an API key to call the cloud with. Browser() (cloud)
+		qualifies before it starts: the Agent builds its prompt before the browser has an id."""
 		if self.use_cloud:
 			return True
+		if not self.cloud_id:
+			return False
 		try:
 			return bool(browser_use_api_key(gate='cloud_browser'))
 		except Exception:  # - no key: the tool is not offered
