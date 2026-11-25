@@ -211,6 +211,16 @@ class _Default(str):
 
 
 US = _Default('us')
+# https://<browser id>.cdp.browser-use.com (cdpUrl) or wss://<browser id>.cdp.browser-use.com/devtools/browser/... (its ws)
+_CLOUD_CDP_HOST = re.compile(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.cdp\.browser-use\.com', re.I)
+PROXY_WAIT_S = 10.0  # rotate_proxy(): how long to wait for the new exit IP to show up
+
+
+def cloud_browser_id(cdp_url: str | None) -> str | None:
+	"""The Browser Use cloud browser id in a cdp_url that points at one, else None."""
+	host = urllib.parse.urlparse(cdp_url or '').hostname or ''
+	m = _CLOUD_CDP_HOST.fullmatch(host)
+	return m.group(1).lower() if m else None
 
 
 def _cloud(path: str, method: str = 'GET', body: dict | None = None, key: str | None = None) -> dict:
@@ -1250,6 +1260,53 @@ class Browser:
 		seen, self._download_lines[log] = self._download_lines.get(log, 0), len(lines)
 		self._download_records += download_records(lines[seen:])
 		self.json_page_copies |= json_page_copies(self._download_records)
+
+	@property
+	def cloud_id(self) -> str | None:
+		"""The Browser Use cloud browser this Browser drives: the one it created, or the one its cdp_url points at."""
+		return self.id if self.use_cloud else cloud_browser_id(self.cdp_url)
+
+	def can_rotate_proxy(self) -> bool:
+		"""rotate_proxy() works here: a Browser Use cloud browser and an API key to call the cloud with."""
+		if not self.cloud_id:
+			return False
+		if self.use_cloud:
+			return True
+		try:
+			return bool(browser_use_api_key(gate='cloud_browser'))
+		except Exception:  # - no key: the tool is not offered
+			return False
+
+	async def rotate_proxy(self, country: str | None = None) -> dict:
+		"""Give the same live cloud browser a new proxy exit IP (in country, an ISO code like 'de', if given). Tabs,
+		cookies and logins stay. Waits until the cloud reports the new IP, then returns {'mode', 'country', 'exitIp'}.
+		Calls PATCH /browsers/{id}/proxy (docs.browser-use.com/cloud/api-v4/browsers/update-browser-proxy)."""
+		browser_id = self.cloud_id
+		if not browser_id:
+			raise RuntimeError('rotate_proxy() needs a Browser Use cloud browser; this one is not.')
+		if country is not None and not (isinstance(country, str) and re.fullmatch(r'[A-Za-z]{2}', country.strip())):
+			raise ValueError(f'country must be a 2-letter code like "us" or "de", not {country!r}')
+		key = self._cloud_key if self.use_cloud else ()  # the key this Browser's own calls use
+		path = f'/browsers/{browser_id}/proxy'
+		before = await asyncio.to_thread(_cloud, path, 'GET', None, *key)
+		body: dict = {'rotate': True, **({'country': country.strip().lower()} if country else {})}
+		try:
+			after = await asyncio.to_thread(_cloud, path, 'PATCH', body, *key)
+		except RuntimeError as e:
+			if ' 409' in str(e) or 'unavailable' in str(e).lower():
+				raise RuntimeError(
+					"rotate_proxy(): this browser's proxy cannot be changed here (409). A browser that a Browser Use Cloud "
+					'agent session runs rotates its own proxy, and a stopped browser has none. '
+					f'Cloud said: {e}'
+				) from None
+			raise
+		deadline = time.monotonic() + PROXY_WAIT_S
+		while not after.get('exitIp') or after.get('exitIp') == before.get('exitIp'):
+			if time.monotonic() > deadline:
+				break
+			await asyncio.sleep(0.5)
+			after = await asyncio.to_thread(_cloud, path, 'GET', None, *key)
+		return {k: after.get(k) for k in ('mode', 'country', 'exitIp')}
 
 	async def list_downloads(self) -> list[dict]:
 		"""The files the browser finished downloading so far, [{'name', 'size'}]: the REPL's downloads(). A cloud browser:

@@ -263,6 +263,12 @@ Results depend on the site and challenge; no browser configuration guarantees th
 </details>
 
 <details>
+<summary><b>What if a site blocks the browser's IP?</b></summary>
+
+On a Browser Use cloud browser the agent gets `rotate_proxy()`: the same live browser gets a new exit IP, and its tabs, cookies and logins stay. `rotate_proxy('de')` also moves the exit to Germany. The agent is told to call it once on a 403/429, "Access denied" or a captcha that keeps coming back, and to stop after 3 tries on a site. It is there for `Browser()` (cloud, the default) and for `Browser(cdp_url=...)` pointing at a cloud browser you created yourself (`https://<id>.cdp.browser-use.com`) when `BROWSER_USE_API_KEY` is set. Your own code can call `await browser.rotate_proxy('us')`. It uses [Update Browser Proxy](https://docs.browser-use.com/cloud/api-v4/browsers/update-browser-proxy); a browser that a Cloud agent session runs answers 409, because that agent rotates its own proxy.
+</details>
+
+<details>
 <summary><b>Can I limit which sites the agent visits?</b></summary>
 
 `Browser(allowed_domains=['example.com', '*.example.org'])`, `Browser(prohibited_domains=['evil.com'])` or `Browser(block_ip_addresses=True)`, with the 0.x patterns, on any browser. The browser helpers refuse a disallowed URL, the browser itself blocks main-frame navigations to it (link clicks, redirects, popups, JavaScript; all modes except `Browser('chrome')` attached to your open Chrome, where a second debugging connection would prompt you again), every tab still on a disallowed page after a cell is reset to `about:blank` (in `Browser('chrome')` only the agent's tabs, never yours), and the system prompt lists the domains. A bare domain in `prohibited_domains` also covers its subdomains.

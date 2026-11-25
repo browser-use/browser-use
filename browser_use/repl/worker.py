@@ -1,7 +1,8 @@
 """Persistent Python REPL for one agent. Runs as a child process so a hung cell can be killed.
 
 Namespace = browser-harness helpers + screenshot/show_image/checkpoint/type_secret/solve_captcha/report_issue (+ bu in
-ultrafast mode, see ax.py; + search when web search is on; + downloads for a cloud browser or a Chrome the Browser launched).
+ultrafast mode, see ax.py; + search when web search is on; + downloads for a cloud browser or a Chrome the Browser launched;
++ rotate_proxy on a Browser Use cloud browser).
 Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init line ({"secrets": [[name, value, domain|null], ...],
 "search": bool, "downloads": bool}), then one JSON line per message. search(), downloads() and report_issue() send
 {"type": "search" | "downloads" | "feedback", "args": {...}} mid-cell and read the parent's one-line answer. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
@@ -988,6 +989,22 @@ def _downloads(ask):
 	return downloads
 
 
+def _rotate_proxy(ask):
+	"""rotate_proxy() for the cell: the parent calls the cloud (Browser.rotate_proxy), so the API key never enters this
+	process. Only defined on a Browser Use cloud browser."""
+
+	def rotate_proxy(country=None):
+		"""Give this cloud browser a new exit IP without restarting it: tabs, cookies and logins stay. For blocks and rate
+		limits (403/429, 'Access denied', 'unusual traffic', a captcha that comes back after it was solved). country: a
+		2-letter code ('us', 'de') to also move the exit there; default keeps the country. -> {'mode', 'country',
+		'exitIp'}."""
+		if country is not None and not isinstance(country, str):
+			raise TypeError(f'country must be a str like "de", not {type(country).__name__}')
+		return ask('rotate_proxy', {'country': country})
+
+	return rotate_proxy
+
+
 def _report_issue(ask):
 	"""report_issue() for the cell: the parent sends it (telemetry/feedback.py), scrubbed of the task, the secrets and
 	what the agent typed, this cell's typing included."""
@@ -1158,6 +1175,8 @@ def main() -> None:
 		ns['search'] = _counted('search', _search(ask))
 	if init.get('downloads'):
 		ns['downloads'] = _counted('downloads', _downloads(ask))
+	if init.get('rotate_proxy'):
+		ns['rotate_proxy'] = _counted('rotate_proxy', _rotate_proxy(ask))
 	ns['report_issue'] = _counted('report_issue', _report_issue(ask))
 	sys.path.append(os.getcwd())  # after the imports (-P kept it off sys.path[0]): modules the agent writes still import
 	loop = asyncio.new_event_loop()
