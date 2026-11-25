@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import base64
+import errno
 import json
 import logging
 import re
@@ -252,11 +253,14 @@ def check_split_delivery(ctx: RunContext[Session]) -> None:
 
 def _exists(path: Path) -> bool:
 	"""Path.exists() raises for a name the filesystem refuses (ENAMETOOLONG: a link target past NAME_MAX or PATH_MAX, like
-	a scheme-less URL with a long query); nothing can be saved under such a name, so it is not a file."""
+	a scheme-less URL with a long query); nothing can be saved under such a name, so it is not a file. Any other OSError
+	(permissions, I/O) says nothing about the file, so it still propagates rather than reading as "missing"."""
 	try:
 		return path.exists()
-	except OSError:
-		return False
+	except OSError as e:
+		if e.errno == errno.ENAMETOOLONG:
+			return False
+		raise
 
 
 def check_delivery(ctx: RunContext[Session], value: Any) -> None:
