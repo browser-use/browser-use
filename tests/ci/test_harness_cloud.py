@@ -892,7 +892,7 @@ async def test_cli_mcp_with_remote_debugging_off_drives_its_own_chromium_and_say
 	(out, note), failed = await _exec(mcp, 'print(NAME)')
 	assert not failed and out == 'own-chromium\n' and kinds == ['chromium'], (out, note)
 	assert "this server's own Chromium on a temp profile, not your Chrome (your Chrome has remote debugging off" in note
-	assert 'chrome://inspect/#remote-debugging' in note and 'restart this MCP server' in note, note
+	assert 'chrome://inspect/#remote-debugging' in note and 'call use_my_chrome()' in note, note
 	assert await _exec(mcp, 'print(NAME)') == (['own-chromium\n'], False) and attempts == [1]
 
 
@@ -946,7 +946,7 @@ def test_every_setup_fallback_note_says_to_restart_the_server():
 		'when remote debugging starts), then run again.'
 	)
 	why = cli_mcp._setup_reason(left)
-	assert why.startswith('/x/DevToolsActivePort is left') and why.endswith('starts), then restart this MCP server'), why
+	assert why.startswith('/x/DevToolsActivePort is left') and why.endswith('starts), then call use_my_chrome()'), why
 	assert cli_mcp._setup_reason(RuntimeError('remote-debugging-setup: none of your browsers ...')) == cli_mcp.CHROME_SETUP
 
 
