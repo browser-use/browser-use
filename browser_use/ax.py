@@ -736,7 +736,7 @@ class AxHelpers:
 		frames_job = self._pool.submit(self._capture)
 		info_job = None if probe else self._pool.submit(self._info)
 		visible_job = self._pool.submit(self._visible_text)
-		need_dom = not probe or probe.get('files') is not False or probe.get('modals') is not False
+		need_dom = not probe or probe.get('files') is not False or (prioritize_overlays and probe.get('modals') is not False)
 		extras_job = self._pool.submit(self._dom_extras) if need_dom else None
 		frames = frames_job.result()
 		info = probe or info_job.result()
@@ -904,7 +904,7 @@ class AxHelpers:
 				is_ov = bool(
 					self._on_node(
 						f['backendNodeId'],
-						'function() { return !!this.closest(\'dialog, [role~=dialog], [role~=alertdialog], [aria-modal="true"], [role~=menu], [role~=listbox]\'); }',
+						'function() { return !!this.closest(\'dialog, [role~=dialog], [role~=alertdialog], [aria-modal="true"], [role~=menu], [role~=listbox], [role~=option]\'); }',
 					)
 				)
 			except Exception:
