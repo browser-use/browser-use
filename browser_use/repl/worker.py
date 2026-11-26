@@ -40,6 +40,7 @@ from pathlib import Path
 from browser_use import ax
 from browser_use.domains import DomainRules
 from browser_use.exceptions import BrowserConnectionLost
+from browser_use.mouse import Mouse
 from browser_use.remote_upload import set_files, uploader
 from browser_use.repl.captcha import Captcha, EventPump
 from browser_use.repl.capture import CDP_TIMEOUT_S, SCREENSHOT_TIMEOUT_S, capture
@@ -708,6 +709,15 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		with contextlib.suppress(Exception):  # the daemon attached to a background tab of its own
 			cdp('Target.activateTarget', targetId=helpers.current_tab()['targetId'])
 	captcha = Captcha(cdp, STATE / 'captcha.json', off=os.environ.get('BU_CAPTCHA_SOLVER') == 'off')
+	mouse = Mouse(cdp)
+	harness_click = helpers.click_at_xy
+
+	@functools.wraps(harness_click)
+	def click_at_xy(x, y, button='left', clicks=1):  # mouse travel first: Akamai refuses teleport clicks (mouse.py)
+		mouse.move_to(x, y)
+		return harness_click(x, y, button=button, clicks=clicks)
+
+	helpers.click_at_xy = click_at_xy
 	exec('from browser_harness.helpers import *', ns)
 
 	@functools.wraps(cdp)
@@ -850,6 +860,18 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			else:
 				helpers.cdp('Input.insertText', text=ch)
 
+	def _click_field(id) -> None:
+		"""Focus a field the way a person does, with a trusted click on it. Best effort: DOM.focus follows."""
+		try:
+			helpers.cdp('DOM.scrollIntoViewIfNeeded', backendNodeId=id)
+			q = helpers.cdp('DOM.getBoxModel', backendNodeId=id)['model']['content']
+			x, y = sum(q[0::2]) / 4, sum(q[1::2]) / 4
+			hit = helpers.cdp('DOM.getNodeForLocation', x=int(x), y=int(y)).get('backendNodeId')
+		except Exception:
+			return
+		if hit == id:  # never click whatever covers the field
+			mouse.click(x, y)
+
 	def type_secret(name, id=None):
 		"""Type the secret called `name` into the input with backendNodeId `id`, replacing its text, or into the focused
 		element. Its value is hidden from your text output.
@@ -860,7 +882,8 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 			raise KeyError(f'No secret named {name!r}; secret_names() lists them')
 		scoped = [(v, scope) for v, scope in candidates if scope is not None]
 		if id is not None:  # Pi's fillSecret(name, backendNodeId); focus and select the text so the keys replace it, as bu.type
-			helpers.cdp('DOM.focus', backendNodeId=id)
+			_click_field(id)
+			helpers.cdp('DOM.focus', backendNodeId=id)  # a no-op once the click focused it
 			a = {'key': 'a', 'code': 'KeyA', 'windowsVirtualKeyCode': 65, 'modifiers': 2}
 			helpers.cdp('Input.dispatchKeyEvent', type='rawKeyDown', **a, commands=['selectAll'])
 			helpers.cdp('Input.dispatchKeyEvent', type='keyUp', **a)
@@ -919,7 +942,7 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 		captcha.pump = events.pump
 		helpers.drain_events = ns['drain_events'] = events.drain_events
 	else:
-		bu = ax.AxHelpers(cdp, on_event=captcha.observe)
+		bu = ax.AxHelpers(cdp, on_event=captcha.observe, mouse=mouse)
 		ns['bu'] = CountedBu(bu)
 		captcha.pump = bu._pump
 		helpers.drain_events = ns['drain_events'] = bu.drain_events  # bu reads the daemon's events; the agent still gets them
