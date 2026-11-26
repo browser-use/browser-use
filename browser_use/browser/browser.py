@@ -1180,9 +1180,7 @@ class Browser:
 					progress = method in ('Browser.downloadProgress', 'Page.downloadProgress')
 					if progress and state.get(p['guid']) in (None, 'inProgress'):
 						state[p['guid']] = p.get('state')
-				published = self._publish_local_downloads(
-					names, stopping=True, canceled={g for g, s in state.items() if s == 'canceled'}
-				)
+				published = self._publish_local_downloads(names, canceled={g for g, s in state.items() if s == 'canceled'})
 				for guid in published:
 					state[guid] = 'completed'  # the worker may have drained completion just before it was closed
 				if not (running := sum(s == 'inProgress' for s in state.values())):
@@ -1231,7 +1229,12 @@ class Browser:
 			}
 			for downloads in directories:
 				staging = download_staging(downloads)
-				for path in list(staging.iterdir()) if staging.is_dir() else []:
+				try:
+					paths = list(staging.iterdir()) if staging.is_dir() else []
+				except OSError as e:
+					logger.debug('Could not enumerate local downloads in %s: %s', staging, e)
+					continue  # an unreadable old workspace must not block other workspaces
+				for path in paths:
 					guid = path.name
 					if (
 						not path.is_file()

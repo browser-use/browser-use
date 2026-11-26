@@ -89,7 +89,9 @@ async def test_downloads_publish_only_after_final_naming(tmp_path, monkeypatch, 
 		monkeypatch.setattr(module, 'DOWNLOADS_TIMEOUT_S', 0)
 		monkeypatch.setattr(module, '_daemon_request', lambda *args: {'events': [begin, done] if finisher == 'stop' else []})
 		(staging / 'pending.crdownload').write_bytes(b'partial')
-		assert await browser._finish_downloads() == 1
+		assert await browser._finish_downloads() == (0 if finisher == 'unannounced' else 1)
+		if finisher == 'unannounced':
+			browser._publish_local_downloads(stopping=True)  # fallback only in the final shutdown scan
 	expected = (
 		guid
 		if finisher == 'unannounced' or name in (None, 'unusable.csv')
@@ -104,7 +106,7 @@ async def test_downloads_publish_only_after_final_naming(tmp_path, monkeypatch, 
 	assert await browser.list_downloads() == sorted([*before, {'name': expected, 'size': 6}], key=lambda f: f['name'])
 
 
-@pytest.mark.parametrize('failure', ['mkdir', 'publish', 'unlink'])
+@pytest.mark.parametrize('failure', ['mkdir', 'publish', 'unlink', 'enumerate'])
 async def test_unwritable_old_workspace_does_not_block_current_downloads(tmp_path, monkeypatch, failure):
 	first, current = tmp_path / 'first', tmp_path / 'current'
 	for workspace, guid, content in ((first, 'first-guid', b'first'), (current, 'current-guid', b'current')):
@@ -120,7 +122,16 @@ async def test_unwritable_old_workspace_does_not_block_current_downloads(tmp_pat
 	browser.note_downloads(first / '.browser-use' / 'downloads.jsonl')
 	browser._downloads_dir = current / 'downloads'
 	blocked = True
-	if failure == 'mkdir':
+	if failure == 'enumerate':
+		iterate = Path.iterdir
+
+		def entries(path):
+			if blocked and path == first / '.browser-use' / 'downloads':
+				raise PermissionError('old staging directory is unreadable')
+			return iterate(path)
+
+		monkeypatch.setattr(Path, 'iterdir', entries)
+	elif failure == 'mkdir':
 		(first / 'downloads').rmdir()
 		mkdir = Path.mkdir
 
@@ -178,6 +189,30 @@ async def test_unwritable_old_workspace_does_not_block_current_downloads(tmp_pat
 	assert not (first / '.browser-use' / 'downloads' / 'first-guid').exists()
 	assert [path.name for path in (first / 'downloads').iterdir()] == ['report.txt']
 	assert [path.name for path in (current / 'downloads').iterdir()] == ['report.txt']
+
+
+async def test_stop_defers_unknown_names_until_final_shutdown_scan(tmp_path, monkeypatch):
+	from browser_use.browser import browser as module
+
+	staging = tmp_path / '.browser-use' / 'downloads'
+	staging.mkdir(parents=True)
+	(staging / 'late-guid').write_bytes(b'report')
+	browser = Browser('chromium')
+	browser._local = local.LocalBrowser()
+	browser._downloads_dir = tmp_path / 'downloads'
+	browser.note_downloads(staging.parent / 'downloads.jsonl')
+	monkeypatch.setattr(module, '_daemon_request', lambda *args: {'events': []})
+	assert await browser._finish_downloads() == 0
+	assert (staging / 'late-guid').read_bytes() == b'report'
+	assert 'late-guid' not in browser._published_downloads
+	# The worker records the begin after the poll, before the final shutdown scan.
+	monkeypatch.setattr(worker, 'STATE', staging.parent)
+	worker.CellStats().observe(
+		[{'method': 'Browser.downloadWillBegin', 'params': {'guid': 'late-guid', 'suggestedFilename': 'report.txt'}}]
+	)
+	browser._publish_local_downloads(stopping=True)
+	assert await browser.list_downloads() == [{'name': 'report.txt', 'size': 6}]
+	assert not (staging / 'late-guid').exists()
 
 
 @pytest.mark.parametrize('alias', ['file', 'directory'])
