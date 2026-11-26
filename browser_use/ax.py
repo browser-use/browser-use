@@ -4,8 +4,8 @@ Same names, defaults, waits and printed text as Pi. Differences forced by Python
 synchronous helpers (no await), keyword options (enter=True, max=30000), and CDP events read from the
 browser-harness daemon's buffer by a background thread instead of an event tap. That buffer is shared by every
 client of one daemon (BU_NAME), so give each ultrafast agent its own daemon: another agent or browser-harness CLI
-on it would miss the dialogs and network events bu reads. Clicks send no mouseMoved (see _click_at): mouseover,
-mouseenter and :hover still fire on press, mousemove handlers do not.
+on it would miss the dialogs and network events bu reads. Clicks move the mouse along a curved path first (mouse.py),
+except in a hidden tab.
 """
 
 # pyright: reportArgumentType=false, reportCallIssue=false, reportOptionalMemberAccess=false
@@ -23,6 +23,8 @@ from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+
+from browser_use.mouse import Mouse
 
 CONTROLS = set(
 	'button link textbox searchbox combobox listbox option checkbox radio switch slider spinbutton tab menuitem '
@@ -263,9 +265,14 @@ class AxHelpers:
 	"""State print and id-based actions on Chrome's accessibility tree. Raw cdp()/js() stays available."""
 
 	def __init__(
-		self, cdp: Callable[..., dict], log: Callable[[str], None] = print, on_event: Callable[[dict], None] | None = None
+		self,
+		cdp: Callable[..., dict],
+		log: Callable[[str], None] = print,
+		on_event: Callable[[dict], None] | None = None,
+		mouse: Mouse | None = None,
 	):
-		"""on_event: called with every daemon event bu reads (the worker's captcha solver state)."""
+		"""on_event: called with every daemon event bu reads (the worker's captcha solver state). mouse: the worker's, so
+		bu.click and click_at_xy share one pointer position."""
 		from browser_harness import helpers
 
 		def pi_cdp(method: str, session_id: str | None = None, **params: Any) -> dict:
@@ -283,6 +290,7 @@ class AxHelpers:
 				raise
 
 		self.cdp, self.log, self._ipc, self._on_event = pi_cdp, log, helpers._send, on_event
+		self.mouse = mouse or Mouse(pi_cdp)
 		self.inflight: dict[str, dict[str, float]] = {}
 		self.last_net: dict[str, float] = {}
 		# The net error of each session's last failed document load (a 401 Basic Auth challenge, DNS, TLS): Chrome then
@@ -757,12 +765,10 @@ class AxHelpers:
 		raise RuntimeError(f'Target covered by {who}; nothing was clicked')
 
 	def _click_at(self, x: float, y: float) -> None:
-		"""Pi page.clickAt without its mouseMoved: browser-harness tabs stay in the background, where Chrome answers
-		mouseMoved only after ~5 s (measured, headless Chrome). Press and release move the pointer anyway."""
+		"""Pi page.clickAt: mouse travel to the point, then a trusted press and release (Mouse.click)."""
 		if not all(math.isfinite(v) for v in (x, y)):
 			raise ValueError('Coordinates must be finite.')
-		self.cdp('Input.dispatchMouseEvent', type='mousePressed', x=x, y=y, button='left', clickCount=1)
-		self.cdp('Input.dispatchMouseEvent', type='mouseReleased', x=x, y=y, button='left', clickCount=1)
+		self.mouse.click(x, y)
 
 	def _act(self, op: str, id: int, body: Callable[[], str]) -> Printed:
 		"""Runs one action on id and prints one line: navigated to <url> / page changed / no change."""
