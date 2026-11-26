@@ -1021,7 +1021,7 @@ def _rotate_proxy(ask, cdp_first: bool, rest: bool):
 
 		Use it only when the page itself is a block for this IP (an 'Access denied' / 403 / 429 error page, or a captcha
 		the solver failed) and it is still there after you waited and reloaded once: then call it once and reload. At
-		most once per site. Never in the middle of a login or checkout, and not for rate limits on APIs or bulk
+		most once per site, never in the middle of a login or checkout, and not for rate limits on APIs or bulk
 		fetching (slow down instead).
 		country: a 2-letter code ('us', 'de') to also move the exit there; default keeps the country. A site that serves
 		one country (a .ru, .de, .co.uk or .kr site, or a local-only store) blocks far less from an exit in that country:
