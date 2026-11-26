@@ -1017,10 +1017,14 @@ def _rotate_proxy(ask, cdp_first: bool, rest: bool):
 	process. Only defined on a Browser Use cloud browser."""
 
 	def rotate_proxy(country=None):
-		"""Give this cloud browser a new exit IP without restarting it: tabs, cookies and logins stay. Only for a page that
-		is itself a block for this IP ('Access denied' / 403 / 429 error page, a captcha the solver failed) after one wait
-		and reload; at most once per site; not for API rate limits. country: a 2-letter code ('us', 'de') to also move the
-		exit there; default keeps the country. -> {'mode', 'country', 'exitIp'}."""
+		"""Give this cloud browser a new exit IP without restarting it: tabs, cookies and logins stay.
+
+		Use it only when the page itself is a block for this IP (an 'Access denied' / 403 / 429 error page, or a captcha
+		the solver failed) and it is still there after you waited and reloaded once: then call it once and reload. At
+		most once per site. Not for rate limits on APIs or bulk fetching (slow down instead), not to change country
+		unless the site says it is unavailable in yours, and never in the middle of a login or checkout.
+		country: a 2-letter code ('us', 'de') to also move the exit there; default keeps the country.
+		-> {'mode', 'country', 'exitIp'}."""
 		if country is not None and not isinstance(country, str):
 			raise TypeError(f'country must be a str like "de", not {type(country).__name__}')
 		if cdp_first:
@@ -1039,6 +1043,33 @@ def _rotate_proxy(ask, cdp_first: bool, rest: bool):
 		return ask('rotate_proxy', {'country': country})
 
 	return rotate_proxy
+
+
+# A page that is itself a block for this IP: the cell output gets a pointer to rotate_proxy() (its docstring holds the
+# rules), so the system prompt stays the same and runs that are never blocked see nothing new.
+BLOCK_PAGE = re.compile(
+	r"Access Denied|You don't have permission to access|The request could not be satisfied|errors\.edgesuite\.net|"
+	r'HTTP ERROR 429|429 Too Many Requests|Pardon Our Interruption|captcha solver: [\w-]+ (?:stopped unsolved|no result)|'
+	r'Доступ ограничен|사용권한이 없습니다'
+)
+ROTATE_HINT = (
+	'[this page looks blocked for this IP. If it is still blocked after one wait and reload, rotate_proxy() gives this '
+	'browser a new exit IP and keeps tabs and logins; read help(rotate_proxy) first]'
+)
+
+
+def _rotate_hint(ns: dict, output: str, hinted: set) -> str:
+	"""ROTATE_HINT once per site, after a cell whose output shows a block page; '' otherwise."""
+	if 'rotate_proxy' not in ns or not BLOCK_PAGE.search(output):
+		return ''
+	try:
+		host = urllib.parse.urlparse(ns['page_info']()['url']).hostname or ''
+	except Exception:  # - no tab or no page: still one hint
+		host = ''
+	if host in hinted:
+		return ''
+	hinted.add(host)
+	return ROTATE_HINT
 
 
 def _report_issue(ask):
@@ -1215,6 +1246,7 @@ def main() -> None:
 		rotate = _rotate_proxy(ask, bool(init.get('rotate_proxy_cdp')), bool(init.get('rotate_proxy')))
 		ns['rotate_proxy'] = _counted('rotate_proxy', rotate)
 	ns['report_issue'] = _counted('report_issue', _report_issue(ask))
+	rotate_hinted: set = set()  # sites that got ROTATE_HINT
 	sys.path.append(os.getcwd())  # after the imports (-P kept it off sys.path[0]): modules the agent writes still import
 	loop = asyncio.new_event_loop()
 	asyncio.set_event_loop(loop)
@@ -1279,6 +1311,8 @@ def main() -> None:
 		with open(out_path, encoding='utf-8', errors='replace') as f:
 			raw = f.read(MAX_OUTPUT_CHARS + 1)
 		output = clip(raw, out_path)
+		if hint := _rotate_hint(ns, raw, rotate_hinted):
+			output = f'{output}\n{hint}'.strip()
 		cell_stats = stats.take()
 		cell_stats['cut'] = len(raw) > MAX_OUTPUT_CHARS
 		send(

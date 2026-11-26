@@ -30,14 +30,7 @@ from pydantic_ai.usage import RequestUsage
 
 from browser_use.agent.judge import FINAL_SCREENSHOT_TIMEOUT_S, judge_cached, judge_run
 from browser_use.agent.loop import Session, _projected, build_agent, model_kind, reasoning_supported, run, usage_and_cost
-from browser_use.agent.prompt import (
-	CAPTCHA_PROMPT,
-	CLOUD_PROMPT,
-	LOCAL_PROMPT,
-	NO_CAPTCHA_PROMPT,
-	ROTATE_PROXY_PROMPT,
-	SEARCH_PROMPT,
-)
+from browser_use.agent.prompt import CAPTCHA_PROMPT, CLOUD_PROMPT, LOCAL_PROMPT, NO_CAPTCHA_PROMPT, SEARCH_PROMPT
 from browser_use.agent.views import AgentHistoryList
 from browser_use.auth import browser_use_api_key, record_auth_event
 from browser_use.browser import Browser
@@ -427,7 +420,6 @@ class Agent:
 						else LOCAL_PROMPT
 						if self._launched()
 						else '',
-						ROTATE_PROXY_PROMPT if self.browser.can_rotate_proxy() else '',  # Browser Use cloud browsers only
 						SEARCH_PROMPT if self._search else '',  # off: the default prompt stays byte-identical
 						self.browser.domains.prompt(
 							browser_blocks=not self.browser._attached()

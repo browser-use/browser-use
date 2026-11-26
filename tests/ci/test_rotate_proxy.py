@@ -173,3 +173,36 @@ def test_cdp_rotate_passes_other_refusals_through():
 	cdp, _ = _fake_cdp([RuntimeError('BrowserUse.setProxy: invalid proxy change: unknown country "zz"')])
 	with pytest.raises(RuntimeError, match='unknown country'):
 		worker._cdp_rotate(cdp, 'zz')
+
+
+def test_rotate_hint_only_after_a_block_page_and_once_per_site():
+	host = {'url': 'https://www.cwjobs.co.uk/jobs'}
+	ns = {'rotate_proxy': object(), 'page_info': lambda: host}
+	hinted: set = set()
+	assert worker._rotate_hint(ns, "{'title': 'Jobs'} 25 results", hinted) == ''  # an ordinary page: nothing new
+	assert worker._rotate_hint(ns, "{'title': 'Access Denied'}\nReference #18.4c85d817", hinted) == worker.ROTATE_HINT
+	assert worker._rotate_hint(ns, 'Access Denied', hinted) == ''  # once per site
+	host['url'] = 'https://www.zepto.com/cn'
+	assert worker._rotate_hint(ns, 'This page isn’t working\nHTTP ERROR 429', hinted) == worker.ROTATE_HINT
+	assert (
+		worker._rotate_hint(ns, '[captcha solver: akamai stopped unsolved after 5s; handle it yourself]', {'x'})
+		== worker.ROTATE_HINT
+	)
+	assert worker._rotate_hint(ns, '[captcha solver: solved recaptcha in 3s]', set()) == ''
+	assert worker._rotate_hint({'page_info': lambda: host}, 'Access Denied', set()) == ''  # no rotate_proxy: no hint
+
+
+async def test_the_hint_reaches_the_cell_output_once(tmp_path):
+	async def rotate(country):
+		return {'mode': 'managed', 'country': 'us', 'exitIp': '9.9.9.9'}
+
+	repl = Repl(tmp_path, rotate_proxy=rotate)
+	try:
+		r = await repl.call('exec', "print('Access Denied')", 30)
+		assert 'rotate_proxy() gives this browser a new exit IP' in r['output'] and 'help(rotate_proxy)' in r['output']
+		r = await repl.call('exec', "print('Access Denied')", 30)
+		assert 'rotate_proxy()' not in r['output']
+		r = await repl.call('exec', 'help(rotate_proxy)', 30)
+		assert 'never in the middle of a login or checkout' in r['output']
+	finally:
+		await repl.close()
