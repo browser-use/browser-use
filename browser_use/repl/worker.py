@@ -1003,10 +1003,10 @@ def _rotate_proxy(ask, cdp_first: bool, rest: bool):
 	process. Only defined on a Browser Use cloud browser."""
 
 	def rotate_proxy(country=None):
-		"""Give this cloud browser a new exit IP without restarting it: tabs, cookies and logins stay. For blocks and rate
-		limits (403/429, 'Access denied', 'unusual traffic', a captcha that comes back after it was solved) and for pages
-		that keep stalling after you waited. country: a 2-letter code ('us', 'de') to also move the exit there; default
-		keeps the country. -> {'mode', 'country', 'exitIp'}."""
+		"""Give this cloud browser a new exit IP without restarting it: tabs, cookies and logins stay. Only for a page that
+		is itself a block for this IP ('Access denied' / 403 / 429 error page, a captcha the solver failed) after one wait
+		and reload; at most once per site; not for API rate limits. country: a 2-letter code ('us', 'de') to also move the
+		exit there; default keeps the country. -> {'mode', 'country', 'exitIp'}."""
 		if country is not None and not isinstance(country, str):
 			raise TypeError(f'country must be a str like "de", not {type(country).__name__}')
 		if cdp_first:

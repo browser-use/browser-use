@@ -73,11 +73,11 @@ CAPTCHA_PROMPT = (
 	'or click the challenge. Take over only after the solver failed or found no captcha.'
 )
 ROTATE_PROXY_PROMPT = (  # a Browser Use cloud browser (Browser.can_rotate_proxy)
-	"If a site blocks or rate-limits you (HTTP 403/429, 'Access denied', 'unusual traffic', a captcha that returns right "
-	'after it was solved) or keeps stalling after you waited, call rotate_proxy() once and retry: the same browser gets '
-	"a new exit IP, tabs, cookies and logins stay. rotate_proxy('de') also moves it to that country. At most 3 times per "
-	'site, then report the block. '
-	'Do not rotate in the middle of a login or checkout.'
+	'rotate_proxy() gives the same browser a new exit IP (tabs, cookies and logins stay). Use it only when the page itself '
+	"is a block for this IP (an 'Access denied' / 403 / 429 error page, or a captcha the solver failed) and it is still "
+	'there after you waited and reloaded once: then call it once and reload. At most once per site. Not for rate limits '
+	'on APIs or bulk fetching (slow down instead), not to change country unless the site says it is unavailable in yours, '
+	'and never in the middle of a login or checkout.'
 )
 NO_CAPTCHA_PROMPT = 'Its automatic captcha solver is off: handle captchas yourself.'  # Browser(captcha_solver=False)
 SEARCH_PROMPT = (  # Agent(web_search=...): Browser Use Pi's SEARCH_PROMPT for the Python search()
