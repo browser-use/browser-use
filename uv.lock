@@ -12,7 +12,7 @@ resolution-markers = [
 exclude-newer = "2026-11-09T09:48:30Z"
 
 [manifest]
-overrides = [{ name = "pillow", specifier = ">=13.0.0,<14" }]
+overrides = [{ name = "pillow", specifier = "==13.0.0" }]
 
 [[package]]
 name = "annotated-types"
@@ -117,7 +117,7 @@ requires-dist = [
     { name = "google-genai", specifier = "==2.34.0" },
     { name = "idna", specifier = "==3.20" },
     { name = "mcp", specifier = "==2.3.0" },
-    { name = "pillow", specifier = ">=13.0.0,<14" },
+    { name = "pillow", specifier = "==13.0.0" },
     { name = "pydantic", specifier = "==2.14.3" },
     { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "google"], specifier = "==2.66.0" },
     { name = "python-dotenv", specifier = "==1.2.4" },
