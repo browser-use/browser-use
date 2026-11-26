@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic_ai import Tool
 
+from browser_use.dacs import wrap_action_with_dacs
 from browser_use.exceptions import removed
 
 logger = logging.getLogger(__name__)
@@ -212,12 +213,13 @@ class Tools:
 			_check_done_results(fn)
 			if param_model is not None and params:  # 0.x: def action(params, ...) with param_model=Model; it wins
 				fn.__annotations__[params[0]] = param_model
+			guarded_fn = wrap_action_with_dacs(fn)
 			# 0.x kept actions by name: registering one again (a notebook cell run twice) replaces it
 			self.functions = [t for t in self.functions if t.name != fn.__name__]
 			self.functions.append(
-				Tool(fn, takes_ctx=False, name=fn.__name__, description=description or None, max_retries=TOOL_RETRIES)
+				Tool(guarded_fn, takes_ctx=False, name=fn.__name__, description=description or None, max_retries=TOOL_RETRIES)
 			)
-			return fn
+			return guarded_fn
 
 		return decorator
 
