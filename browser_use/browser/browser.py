@@ -1309,7 +1309,10 @@ class Browser:
 		Calls PATCH /browsers/{id}/proxy (docs.browser-use.com/cloud/api-v4/browsers/update-browser-proxy)."""
 		browser_id = self.cloud_id
 		if not browser_id:
-			raise RuntimeError('rotate_proxy() needs a Browser Use cloud browser; this one is not.')
+			raise RuntimeError(
+				'rotate_proxy() over the API needs the cloud browser id: a Browser(), or a cdp_url like '
+				'https://<id>.cdp.browser-use.com (the CDP path needs neither)'
+			)
 		if country is not None and not (isinstance(country, str) and re.fullmatch(r'[A-Za-z]{2}', country.strip())):
 			raise ValueError(f'country must be a 2-letter code like "us" or "de", not {country!r}')
 		# the key this Browser's own calls use; a cdp_url browser falls back to the model's gateway key when it has no other

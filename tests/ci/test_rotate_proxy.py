@@ -19,9 +19,20 @@ def test_cloud_browser_id_from_cdp_url():
 
 
 def test_a_cloud_browser_is_one_on_the_browser_use_domain():
-	for url in (f'https://{ID}.cdp.browser-use.com', 'wss://anything.cdp.browser-use.com/devtools/browser/x', 'https://browser-use.com'):
+	for url in (
+		f'https://{ID}.cdp.browser-use.com',
+		'wss://anything.cdp.browser-use.com/devtools/browser/x',
+		'https://browser-use.com',
+	):
 		assert is_cloud_cdp(url), url
-	for url in (None, '', 'http://127.0.0.1:9222', 'https://browser-use.com.evil.test', 'https://evilbrowser-use.com', 'https://x.example.com'):
+	for url in (
+		None,
+		'',
+		'http://127.0.0.1:9222',
+		'https://browser-use.com.evil.test',
+		'https://evilbrowser-use.com',
+		'https://x.example.com',
+	):
 		assert not is_cloud_cdp(url), url
 
 
@@ -237,6 +248,7 @@ async def test_rotate_proxy_fails_when_the_exit_ip_never_changes_and_keeps_503_a
 			if method == 'PATCH':
 				raise RuntimeError(f'Browser Use Cloud answered {code}: service unavailable')
 			return {'exitIp': '1.1.1.1'}
+
 		return _c
 
 	monkeypatch.setattr(bm, '_cloud', refuse(409))
