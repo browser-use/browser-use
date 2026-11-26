@@ -28,6 +28,7 @@ CONTROLS = set(
 	'button link textbox searchbox combobox listbox option checkbox radio switch slider spinbutton tab menuitem '
 	'menuitemcheckbox menuitemradio treeitem'.split(' ')
 )
+OVERLAYS = {'dialog', 'alertdialog', 'menu', 'listbox', 'option'}
 # Text inside these is one line; text across them is not joined.
 BLOCKS = {'paragraph', 'listitem', 'row', 'LabelText'}
 NATIVE_INPUTS = {'Date', 'DateTime', 'InputTime'}
@@ -167,7 +168,34 @@ PROBE_JS = r"""() => {
     title: document.title,
     n: w.__buN,
     doc: w.__buDoc,
-    files: !!document.querySelector('input[type=file]'),
+    files: (() => {
+      const check = (win) => {
+        try {
+          if (win.document?.querySelector('input[type=file]')) return true;
+        } catch(e) { return true; }
+        for (let i = 0; i < win.frames.length; i++) {
+          try {
+            if (check(win.frames[i])) return true;
+          } catch(e) { return true; }
+        }
+        return false;
+      };
+      return check(w);
+    })(),
+    modals: (() => {
+      const check = (win) => {
+        try {
+          if (win.document?.querySelector('[aria-modal="true"]')) return true;
+        } catch(e) { return true; }
+        for (let i = 0; i < win.frames.length; i++) {
+          try {
+            if (check(win.frames[i])) return true;
+          } catch(e) { return true; }
+        }
+        return false;
+      };
+      return check(w);
+    })(),
   };
 }"""
 
@@ -257,6 +285,176 @@ ACTIVE_VALUE_JS = r"""() => {
 }"""
 
 VALUE_JS = "function(){const e=this.nodeType===1?this:this.parentElement;return e.isContentEditable?e.innerText:(e.value??'');}"
+
+
+def _fit_lines(src: list[str], budget: float) -> int:
+	size = 0
+	for i, line in enumerate(src):
+		size += len(line) + 1
+		if size > budget:
+			return i
+	return len(src)
+
+
+def _fit_overlays(lines: list[str], overlay_mask: list[bool], max_budget: int) -> list[str]:
+	"""Assemble truncated page lines preserving page order while prioritizing overlay elements."""
+	if max_budget <= 0:
+		return []
+
+	def marker_for(n: int, budget: int) -> str:
+		full = f'... {n} lines cut here (bu.state(max=30000) or js(...))'
+		if len(full) + 1 <= budget:
+			return full
+		short = f'... {n} lines cut'
+		if len(short) + 1 <= budget:
+			return short
+		tiny = f'... {n} cut'
+		if len(tiny) + 1 <= budget:
+			return tiny
+		if budget >= 4:
+			return '...'
+		return ''
+
+	def make_body(kept: set[int], per_marker: int) -> list[str]:
+		intervals: list[tuple[str, int]] = []
+		last = -1
+		for i in range(len(lines)):
+			if i in kept:
+				if last == -1 and i > 0:
+					intervals.append(('cut', i))
+				elif last != -1 and i > last + 1:
+					intervals.append(('cut', i - last - 1))
+				intervals.append(('line', i))
+				last = i
+		if last != -1 and last < len(lines) - 1:
+			intervals.append(('cut', len(lines) - 1 - last))
+		elif last == -1 and lines:
+			intervals.append(('cut', len(lines)))
+
+		res: list[str] = []
+		for typ, val in intervals:
+			if typ == 'line':
+				res.append(lines[val])
+			else:
+				m = marker_for(val, per_marker)
+				if m:
+					res.append(m)
+		return res
+
+	def cost_of(b: list[str]) -> int:
+		return sum(len(line) + 1 for line in b)
+
+	def count_cuts(kept: set[int]) -> int:
+		cuts = 0
+		last = -1
+		for i in range(len(lines)):
+			if i in kept:
+				if (last == -1 and i > 0) or (last != -1 and i > last + 1):
+					cuts += 1
+				last = i
+		if (last != -1 and last < len(lines) - 1) or (last == -1 and lines):
+			cuts += 1
+		return cuts
+
+	ov_indices = [i for i, ov in enumerate(overlay_mask) if ov]
+	bg_indices = [i for i, ov in enumerate(overlay_mask) if not ov]
+
+	if not ov_indices:
+		num_cuts = 1
+		per_marker = max_budget // num_cuts
+		m = marker_for(len(lines), per_marker)
+		marker_cost = len(m) + 1 if m else 0
+		content_budget = max(0, max_budget - marker_cost)
+
+		head_k = _fit_lines(lines, content_budget * 0.8)
+		tail_k = _fit_lines(lines[::-1], content_budget * 0.2)
+		kept = set(range(head_k)) | set(range(len(lines) - tail_k, len(lines)))
+		body = make_body(kept, per_marker)
+		prune_order = list(range(head_k - 1, -1, -1)) + list(range(len(lines) - tail_k, len(lines)))
+		while cost_of(body) > max_budget and prune_order:
+			kept.discard(prune_order.pop(0))
+			body = make_body(kept, per_marker)
+
+		for idx in range(head_k, len(lines) - tail_k):
+			candidate = kept | {idx}
+			cand_body = make_body(candidate, per_marker)
+			if cost_of(cand_body) <= max_budget:
+				kept = candidate
+				body = cand_body
+			else:
+				break
+		while cost_of(body) > max_budget and body:
+			body.pop()
+		return body
+
+	candidate_kept = set(ov_indices)
+	cuts = count_cuts(candidate_kept)
+	ov_content_cost = sum(len(lines[i]) + 1 for i in candidate_kept)
+	rem_for_markers = max(0, max_budget - ov_content_cost)
+	per_marker = rem_for_markers // cuts if cuts > 0 else max_budget
+
+	body = make_body(candidate_kept, per_marker)
+
+	if cost_of(body) <= max_budget:
+		rem = max_budget - cost_of(body)
+		if rem > 0 and bg_indices:
+			bg_lines = [lines[i] for i in bg_indices]
+			head_k = _fit_lines(bg_lines, rem * 0.8)
+			tail_k = _fit_lines(bg_lines[::-1], rem * 0.2)
+			bg_head = bg_indices[:head_k]
+			bg_tail = bg_indices[len(bg_indices) - tail_k :]
+
+			candidate_kept |= set(bg_head) | set(bg_tail)
+			body = make_body(candidate_kept, per_marker)
+
+			bg_prune = list(bg_head[::-1]) + list(bg_tail)
+			while cost_of(body) > max_budget and bg_prune:
+				candidate_kept.discard(bg_prune.pop(0))
+				body = make_body(candidate_kept, per_marker)
+
+			for idx in bg_indices[head_k : len(bg_indices) - tail_k]:
+				candidate = candidate_kept | {idx}
+				cand_body = make_body(candidate, per_marker)
+				if cost_of(cand_body) <= max_budget:
+					candidate_kept = candidate
+					body = cand_body
+				else:
+					break
+		while cost_of(body) > max_budget and body:
+			body.pop()
+		return body
+	else:
+		ov_lines = [lines[i] for i in ov_indices]
+		cuts_est = 2 if len(lines) > len(ov_indices) else 1
+		per_m = max_budget // cuts_est
+		m = marker_for(len(ov_lines), per_m)
+		m_cost = (len(m) + 1) * cuts_est if m else 0
+		content_budget = max(0, max_budget - m_cost)
+		head_k = _fit_lines(ov_lines, content_budget * 0.8)
+		tail_k = _fit_lines(ov_lines[::-1], content_budget * 0.2)
+		kept = set(ov_indices[:head_k]) | set(ov_indices[len(ov_indices) - tail_k :])
+		cuts = count_cuts(kept)
+		per_m = max_budget // cuts if cuts > 0 else max_budget
+		body = make_body(kept, per_m)
+
+		prune_order = list(ov_indices[head_k - 1 : -1 : -1]) + list(ov_indices[len(ov_indices) - tail_k :])
+		while cost_of(body) > max_budget and prune_order:
+			kept.discard(prune_order.pop(0))
+			cuts = count_cuts(kept)
+			per_m = max_budget // cuts if cuts > 0 else max_budget
+			body = make_body(kept, per_m)
+
+		for idx in ov_indices[head_k : len(ov_indices) - tail_k]:
+			candidate = kept | {idx}
+			cand_body = make_body(candidate, per_m)
+			if cost_of(cand_body) <= max_budget:
+				kept = candidate
+				body = cand_body
+			else:
+				break
+		while cost_of(body) > max_budget and body:
+			body.pop()
+		return body
 
 
 class AxHelpers:
@@ -476,19 +674,59 @@ class AxHelpers:
 
 				def frame(c: tuple[str, str]) -> dict:
 					try:
-						return {'url': c[0], 'nodes': self.cdp('Accessibility.getFullAXTree', frameId=c[1])['nodes']}
+						return {'url': c[0], 'id': c[1], 'nodes': self.cdp('Accessibility.getFullAXTree', frameId=c[1])['nodes']}
 					except Exception:
-						return {'url': c[0], 'nodes': []}
+						return {'url': c[0], 'id': c[1], 'nodes': []}
 
-				return [{'url': '', 'nodes': nodes}, *self._pool.map(frame, children)]
+				return [{'url': '', 'id': '', 'nodes': nodes}, *self._pool.map(frame, children)]
 			except Exception as e:
 				if i >= 20 or not is_context_loss(e):
 					raise
 				time.sleep(0.05)
 		raise AssertionError('unreachable')
 
-	def state(self, max: int = 3000) -> Printed:  # - Pi's option name
-		"""The page as one list in page order."""
+	def _dom_extras(self) -> tuple[list[dict], set[int]]:
+		for i in range(21):
+			try:
+				files: list[dict] = []
+				modals: set[int] = set()
+				doc = self.cdp('DOM.getFlattenedDocument', depth=-1, pierce=True)
+				for n in doc.get('nodes') or []:
+					attrs = n.get('attributes') or []
+					tag = n.get('nodeName', '').lower()
+					for j in range(0, len(attrs), 2):
+						k, v = attrs[j].lower(), attrs[j + 1].lower()
+						if k == 'aria-modal' and v == 'true':
+							modals.add(n['backendNodeId'])
+						if tag == 'input' and k == 'type' and v == 'file':
+							files.append(n)
+				return files, modals
+			except Exception as e:
+				if i >= 20 or not is_context_loss(e):
+					self.log(f'_dom_extras failed: {e}')
+					return [], set()
+				time.sleep(0.05)
+		return [], set()
+
+	def state(self, max: int = 3000, prioritize_overlays: bool = True) -> Printed:  # - Pi's option name
+		"""The page as one list in page order.
+
+		Args:
+			max: Maximum character budget for the page state body lines (excluding header and
+				[/state] delimiter). Defaults to 3000. When lines are truncated, cut markers
+				are accounted for within this budget. For smaller budgets where the standard cut marker
+				(~55 characters) would exceed the limit, an adaptive shorter cut marker (e.g. "... N lines cut"
+				or "...") is used, guaranteeing that body cost never exceeds max.
+			prioritize_overlays: When True (default) and the snapshot exceeds max budget, dialogs,
+				alertdialogs, menus, listboxes, options, and aria-modal="true" elements (including
+				hidden file uploaders inside them) are prioritized over background page content.
+				Overlay elements are preserved in page order along with their cut markers as long
+				as their total cost fits within max. If overlay elements alone (including cut markers)
+				exceed max, an 80% head / 20% tail truncation is applied to the overlay lines, with
+				zero space allocated to background content. When prioritize_overlays is False,
+				standard 80% head / 20% tail truncation is applied across all page lines regardless
+				of overlay status.
+		"""
 		# A look right after an action continues that action's quiet window instead of starting a new one.
 		since = self.acted_at if self.acted else 0
 		self.acted = False  # a look after the last action replaces the automatic print
@@ -498,7 +736,8 @@ class AxHelpers:
 		frames_job = self._pool.submit(self._capture)
 		info_job = None if probe else self._pool.submit(self._info)
 		visible_job = self._pool.submit(self._visible_text)
-		files_job = None if probe and probe.get('files') is False else self._pool.submit(self._file_inputs)
+		need_dom = not probe or probe.get('files') is not False or (prioritize_overlays and probe.get('modals') is not False)
+		extras_job = self._pool.submit(self._dom_extras) if need_dom else None
 		frames = frames_job.result()
 		info = probe or info_job.result()
 		try:
@@ -506,44 +745,64 @@ class AxHelpers:
 		except Exception:
 			visible = None
 		try:
-			files = files_job.result() if files_job else []
+			files, aria_modals = extras_job.result() if extras_job else ([], set())
 		except Exception:
-			files = []
+			files, aria_modals = [], set()
 		previous = self.last
 		self.last = {}
 		lines: list[str] = []
+		overlay_mask: list[bool] = []
 		text: list[str] = []
+		text_ov: bool = False
 
 		def flush() -> None:
+			nonlocal text_ov
 			if text:
 				lines.append(' '.join(text))
+				overlay_mask.append(text_ov)
 				text.clear()
+				text_ov = False
 
+		overlay_frame_ids: set[str] = set()
 		for frame in frames:
 			by_id = {n['nodeId']: n for n in frame['nodes']}
 			start = len(lines)
 
-			def walk(n: dict | None, inside: str) -> None:
+			def walk(n: dict | None, inside: str, overlay: bool = False) -> None:
+				nonlocal text_ov
 				if not n:
 					return
 				role = val(n.get('role'))
 				role = '' if role is None else str(role)
+				is_overlay = overlay or (role in OVERLAYS) or bool(prop(n, 'modal')) or (n.get('backendDOMNodeId') in aria_modals)
+				if is_overlay and 'frame' in role.lower() and n.get('backendDOMNodeId'):
+					try:
+						desc = self.cdp('DOM.describeNode', backendNodeId=n['backendDOMNodeId'])
+						fid = (desc.get('node') or {}).get('frameId')
+						if fid:
+							overlay_frame_ids.add(fid)
+					except Exception:
+						pass
 				name = norm(val(n.get('name')))
 				kids = n.get('childIds') or []
 				if n.get('ignored'):
 					for c in kids:
-						walk(by_id.get(c), inside)
+						walk(by_id.get(c), inside, is_overlay)
 					return
 				if role == 'StaticText':
 					t = fold(name)
 					if t and t not in inside and (visible is None or t in visible):
+						if text and text_ov != is_overlay:
+							flush()
+						text_ov = is_overlay
 						text.append(name)
 					return
 				if role == 'heading' and name:
 					flush()
 					lines.append(f'## {name}')
+					overlay_mask.append(is_overlay)
 					for c in kids:
-						walk(by_id.get(c), fold(name))
+						walk(by_id.get(c), fold(name), is_overlay)
 					return
 				id = n.get('backendDOMNodeId')
 				# Focusable wrappers (tabindex=-1 dialogs, <main>) are only controls if they carry a name, value or editing.
@@ -553,15 +812,16 @@ class AxHelpers:
 				if not id or not (role in CONTROLS or focusable):
 					if role not in BLOCKS:
 						for c in kids:
-							walk(by_id.get(c), inside)
+							walk(by_id.get(c), inside, is_overlay)
 						return
 					flush()
 					for c in kids:
-						walk(by_id.get(c), inside)
+						walk(by_id.get(c), inside, is_overlay)
 					return flush()
 				flush()
 				if lines and lines[-1].lower() == name.lower():
 					lines.pop()  # its label, printed as its name
+					overlay_mask.pop()
 				value = norm(val(n.get('value')))
 				checked, expanded = prop(n, 'checked'), prop(n, 'expanded')
 				states = [
@@ -609,20 +869,25 @@ class AxHelpers:
 					+ (' ' + ' '.join(states) if states else '')
 					+ ('  options: ' + ' | '.join(options[:5]) + more if options else '')
 				)
+				overlay_mask.append(is_overlay)
 				if popup or role in NATIVE_INPUTS:
 					return  # their children are the browser's own widget parts
 				# Only what the line showed counts as said: a card link's text past the clipped name still prints.
 				inside = fold(f'{inside} {clip(name, 150)} {value}')
 				for c in kids:
-					walk(by_id.get(c), inside)
+					walk(by_id.get(c), inside, is_overlay)
 				flush()
 
-			walk(frame['nodes'][0] if frame['nodes'] else None, '')
+			frame_overlay = bool(frame.get('id') and frame['id'] in overlay_frame_ids)
+			walk(frame['nodes'][0] if frame['nodes'] else None, '', overlay=frame_overlay)
 			flush()
 			if frame['url'] and len(lines) > start:
+				frame_has_overlay = frame_overlay or any(overlay_mask[start:])
 				lines.insert(start, f'--- frame {frame["url"]} ---')
+				overlay_mask.insert(start, frame_has_overlay)
 		# Styled uploaders hide their file input, which drops it from the AX tree; its id still works for uploads.
 		hidden = []
+		hidden_mask = []
 		for f in files:
 			if f['backendNodeId'] in self.last:
 				continue
@@ -634,19 +899,23 @@ class AxHelpers:
 			name = next((v for v in (at('aria-label'), at('name'), at('id')) if v is not None), '')
 			self.last[f['backendNodeId']] = ('file', name)
 			hidden.append(f'[{f["backendNodeId"]}] file "{name}" (hidden)')
+			is_ov = False
+			try:
+				is_ov = bool(
+					self._on_node(
+						f['backendNodeId'],
+						'function() { return !!this.closest(\'dialog, [role~=dialog], [role~=alertdialog], [aria-modal="true"], [role~=menu], [role~=listbox], [role~=option]\'); }',
+					)
+				)
+			except Exception:
+				pass
+			hidden_mask.append(is_ov)
 		lines[:0] = hidden
+		overlay_mask[:0] = hidden_mask
 		pending = settled['pending']
 		header = (
 			f'[state] {info["title"]} | {info["url"]}' + (f' | loading: {pending}' if pending else '') + self._flush_dialogs()
 		)
-
-		def fit(src: list[str], budget: float) -> int:
-			size = 0
-			for i, line in enumerate(src):
-				size += len(line) + 1
-				if size > budget:
-					return i
-			return len(src)
 
 		failed = self._nav_error(info['url'])
 		body = lines or [
@@ -654,23 +923,19 @@ class AxHelpers:
 			if failed
 			else '(nothing in the accessibility tree: the page is blank, or a popup, often in a cross-origin iframe, hides it; screenshot() to see it)'
 		]
+
 		# Over max, keep the top and the last fifth: a dialog's Done/Submit is usually its last line.
-		if fit(lines, max) < len(lines):
-			head = fit(lines, max * 0.8)
-			tail = fit(lines[::-1], max * 0.2)
-			body = [
-				*lines[:head],
-				f'... {len(lines) - head - tail} lines cut here (bu.state(max=30000) or js(...))',
-				*lines[len(lines) - tail :],
-			]
+		# If prioritize_overlays is active and there are overlay elements (dialog, popup), prioritize them
+		# so active modals and popups are not crowded out by page-background elements while preserving page order.
+		if _fit_lines(body, max) < len(body):
+			mask = overlay_mask if (prioritize_overlays and len(overlay_mask) == len(body)) else [False] * len(body)
+			body = _fit_overlays(body, mask, max)
 		out = well_formed(f'{header}\n' + '\n'.join(body) + '\n[/state]')
 		self.log(out)
 		return Printed(out)
 
 	def _file_inputs(self) -> list[dict]:
-		root = self.cdp('DOM.getDocument', depth=0)['root']
-		ids = self.cdp('DOM.querySelectorAll', nodeId=root['nodeId'], selector='input[type=file]')['nodeIds']
-		return [self.cdp('DOM.describeNode', nodeId=i)['node'] for i in ids]
+		return self._dom_extras()[0]
 
 	def _on_node(self, id: int, fn: str, argument: Any = None) -> Any:
 		obj = self.cdp('DOM.resolveNode', backendNodeId=id)['object']

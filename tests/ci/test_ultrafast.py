@@ -13,7 +13,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from browser_use import Agent, Browser, ChatBrowserUse, ChatOpenAI
 from browser_use.agent.loop import build_agent
 from browser_use.agent.prompt import SYSTEM_PROMPT
-from browser_use.ax import AX_PROMPT
+from browser_use.ax import AX_PROMPT, _fit_overlays
 from browser_use.llm import GATEWAY_URL
 from browser_use.repl import Repl
 
@@ -69,6 +69,49 @@ PAGES = {
 	# the-internet.herokuapp.com/basic_auth: a 401 Basic Auth challenge fails the navigation to a blank error page.
 	'/dead': '<title>Dead</title><a href="/auth">Staging site</a>',
 	'/long': '<title>Long</title>' + ''.join(f'<button>Item number {i}</button>' for i in range(60)),
+	'/modal_in_long': '<title>Modal in Long</title>'
+	+ ''.join(f'<p>Background paragraph number {i}</p>' for i in range(40))
+	+ '<div role="dialog"><h2>Active Modal</h2><p>Modal notification body</p><button>Confirm Modal</button><label>Upload doc<input type="file" name="doc" style="display:none"></label></div>'
+	+ ''.join(f'<p>Trailing paragraph number {i}</p>' for i in range(40)),
+	'/popup_in_long': '<title>Popup in Long</title>'
+	+ ''.join(f'<p>Popup background intro {i}</p>' for i in range(40))
+	+ '<div role="menu"><button role="menuitem">Save Item</button></div>'
+	+ '<div role="listbox"><div role="option">Option Alpha</div></div>'
+	+ ''.join(f'<p>Popup background outro {i}</p>' for i in range(40)),
+	'/alert_modal': '<title>Alert Modal</title>'
+	+ ''.join(f'<p>Alert context {i}</p>' for i in range(40))
+	+ '<div role="alertdialog"><h3>Alert Warning</h3><button>Acknowledge Alert</button></div>'
+	+ '<dialog open aria-modal="true"><button>Native Dialog Modal</button></dialog>'
+	+ ''.join(f'<p>Alert context trailing {i}</p>' for i in range(40)),
+	'/long_modal': '<title>Long Modal</title>'
+	+ '<div role="dialog" aria-modal="true">'
+	+ ''.join(f'<p>Terms clause number {i}</p>' for i in range(40))
+	+ '<button>Accept Final Terms</button></div>'
+	+ ''.join(f'<p>Background line {i}</p>' for i in range(30)),
+	'/frame_modal': '<title>Frame Modal</title>'
+	+ ''.join(f'<p>Host paragraph {i}</p>' for i in range(40))
+	+ '<div role="dialog" aria-modal="true"><h3>Parent Dialog</h3><iframe src="/inner_modal" style="border:0"></iframe></div>'
+	+ ''.join(f'<p>Host trailing {i}</p>' for i in range(40)),
+	'/inner_modal': '<title>Inner Modal</title><p>Payment iframe</p><button>Inner Confirm</button>',
+	'/aria_modal_pure': '<title>Pure ARIA Modal</title>'
+	+ ''.join(f'<p>Preceding text {i}</p>' for i in range(40))
+	+ '<div aria-modal="true"><h3>Aria Only Modal</h3><button>Aria Only Button</button></div>'
+	+ ''.join(f'<p>Succeeding text {i}</p>' for i in range(40)),
+	'/iframe_modal_host': '<title>Iframe Modal Host</title>'
+	+ ''.join(f'<p>Host background {i}</p>' for i in range(40))
+	+ '<iframe src="/iframe_modal_inner" style="border:0"></iframe>'
+	+ ''.join(f'<p>Host trailing {i}</p>' for i in range(40)),
+	'/iframe_modal_inner': '<title>Iframe Modal Inner</title>'
+	+ '<p>Unrelated host text</p>'
+	+ '<div aria-modal="true"><h3>Inner ARIA Title</h3><button>Inner Modal Action</button></div>',
+	'/nested_iframe_outer': '<title>Nested Outer</title>'
+	+ ''.join(f'<p>Nested outer background {i}</p>' for i in range(40))
+	+ '<iframe src="/nested_iframe_mid" style="border:0"></iframe>'
+	+ ''.join(f'<p>Nested outer trailing {i}</p>' for i in range(40)),
+	'/nested_iframe_mid': '<title>Nested Mid</title>' + '<iframe src="/nested_iframe_inner" style="border:0"></iframe>',
+	'/nested_iframe_inner': '<title>Nested Inner</title>'
+	+ '<div aria-modal="true"><h3>Deep ARIA Modal</h3><button>Deep Modal Button</button></div>',
+	'/blank': '<title>Blank Page</title>',
 }
 
 
@@ -220,6 +263,167 @@ async def test_state_marks_new_ids_and_truncates(repl, site):
 	assert cut and re.fullmatch(r'\.\.\. \d+ lines cut here \(bu\.state\(max=30000\) or js\(\.\.\.\)\)', cut[0])
 	assert lines[-2].endswith('button "Item number 59"')  # the last fifth is kept
 	assert 260 <= len('\n'.join(lines[1:-1])) <= 400
+
+
+async def test_state_prioritizes_dialog_overlays_on_truncation(repl, site):
+	out, err = await cell(repl, f"goto_url('{site}/modal_in_long'); bu.state(max=400)")
+	assert err is None, err
+	assert 'file "doc" (hidden)' in out
+	assert 'button "Confirm Modal"' in out
+	assert '## Active Modal' in out
+	assert 'Modal notification body' in out
+	assert 'lines cut here' in out
+	# Ensure page order is preserved (head background, then modal, then tail background)
+	pos_head_bg = out.find('Background paragraph number 0')
+	pos_modal = out.find('button "Confirm Modal"')
+	pos_tail_bg = out.find('Trailing paragraph number 39')
+	assert 0 <= pos_head_bg < pos_modal < pos_tail_bg
+	body_lines = out.strip().splitlines()[1:-1]
+	assert 250 <= len('\n'.join(body_lines)) <= 400
+
+	# When prioritize_overlays=False, the middle dialog is omitted in favor of normal head/tail
+	out_no_prioritize, err = await cell(repl, 'bu.state(max=400, prioritize_overlays=False)')
+	assert err is None, err
+	assert 'button "Confirm Modal"' not in out_no_prioritize
+	assert 'lines cut here' in out_no_prioritize
+
+	# Popups (menu, listbox, option) are prioritized over page-background elements
+	out_popup, err = await cell(repl, f"goto_url('{site}/popup_in_long'); bu.state(max=400)")
+	assert err is None, err
+	assert 'menuitem "Save Item"' in out_popup
+	assert 'option "Option Alpha"' in out_popup
+	assert 'lines cut here' in out_popup
+
+	# alertdialog and aria-modal="true" independently trigger overlay prioritization
+	out_alert, err = await cell(repl, f"goto_url('{site}/alert_modal'); bu.state(max=400)")
+	assert err is None, err
+	assert 'button "Acknowledge Alert"' in out_alert
+	assert 'button "Native Dialog Modal"' in out_alert
+	assert 'lines cut here' in out_alert
+
+	# Pure aria-modal="true" container without dialog/alertdialog role is prioritized
+	out_pure_modal, err = await cell(repl, f"goto_url('{site}/aria_modal_pure'); bu.state(max=400)")
+	assert err is None, err
+	assert '## Aria Only Modal' in out_pure_modal
+	assert 'button "Aria Only Button"' in out_pure_modal
+	assert 'lines cut here' in out_pure_modal
+
+	# A long overlay exceeding max still preserves both its head and its trailing action buttons
+	out_long_ov, err = await cell(repl, f"goto_url('{site}/long_modal'); bu.state(max=350)")
+	assert err is None, err
+	assert 'button "Accept Final Terms"' in out_long_ov
+	assert 'Terms clause number 0' in out_long_ov
+	assert 'lines cut here' in out_long_ov
+
+	# Dialog embedding an iframe inherits overlay status and keeps frame marker + controls
+	out_frame_modal, err = await cell(repl, f"goto_url('{site}/frame_modal'); bu.state(max=350)")
+	assert err is None, err
+	assert f'--- frame {site}/inner_modal ---' in out_frame_modal
+	assert 'Payment iframe' in out_frame_modal
+	assert 'button "Inner Confirm"' in out_frame_modal
+
+	# Iframe-only aria-modal="true" (host document has no modal attributes or dialog elements)
+	out_iframe_aria, err = await cell(repl, f"goto_url('{site}/iframe_modal_host'); bu.state(max=400)")
+	assert err is None, err
+	assert f'--- frame {site}/iframe_modal_inner ---' in out_iframe_aria
+	assert 'button "Inner Modal Action"' in out_iframe_aria
+	assert 'lines cut here' in out_iframe_aria
+
+	# Deeply nested iframe-only aria-modal="true" (2 iframe levels deep)
+	out_nested, err = await cell(repl, f"goto_url('{site}/nested_iframe_outer'); bu.state(max=400)")
+	assert err is None, err
+	assert f'--- frame {site}/nested_iframe_inner ---' in out_nested
+	assert 'button "Deep Modal Button"' in out_nested
+	assert 'lines cut here' in out_nested
+
+	# Blank page fallback text adheres to max budget when max is small
+	out_blank, err = await cell(repl, f"goto_url('{site}/blank'); bu.state(max=50)")
+	assert err is None, err
+	body_blank = out_blank.strip().splitlines()[1:-1]
+	assert len('\n'.join(body_blank)) <= 50
+	assert any('lines cut' in line or '...' in line for line in body_blank)
+
+
+def test_fit_overlays_budgeting_and_invariants():
+	def cost(lines: list[str]) -> int:
+		return sum(len(line) + 1 for line in lines)
+
+	# 1. No overlays: standard 80% head and 20% tail truncation strictly accounting for marker
+	lines = [f'line {i:02d}' for i in range(50)]
+	mask = [False] * 50
+	res = _fit_overlays(lines, mask, max_budget=150)
+	assert any('lines cut here' in line for line in res)
+	assert res[0] == 'line 00'
+	assert res[-1] == 'line 49'
+	assert cost(res) <= 150
+
+	# 2. Codex reproduction: all overlay lines and their cut markers fit within budget -> all preserved
+	bg_prefix = [f'bg-pre-{i:02d}' for i in range(30)]
+	ov_lines = [f'ov-line-{i}' for i in range(8)]  # each len is 9, 8 lines -> 80 chars
+	bg_suffix = [f'bg-suf-{i:02d}' for i in range(30)]
+	all_lines = bg_prefix + ov_lines + bg_suffix
+	all_mask = [False] * len(bg_prefix) + [True] * len(ov_lines) + [False] * len(bg_suffix)
+
+	res_codex = _fit_overlays(all_lines, all_mask, max_budget=220)
+	for ov in ov_lines:
+		assert ov in res_codex, f'Overlay line {ov} was lost despite fitting in budget!'
+	assert cost(res_codex) <= 220
+
+	# 3. Disjoint overlay groups: multiple separate dialogs/popups across page
+	disjoint_lines = (
+		[f'bg1-{i}' for i in range(20)]
+		+ ['[10] dialog "First Dialog"']
+		+ [f'bg2-{i}' for i in range(20)]
+		+ ['[30] menu "Second Popup"']
+		+ [f'bg3-{i}' for i in range(20)]
+	)
+	disjoint_mask = [False] * len(disjoint_lines)
+	disjoint_mask[20] = True
+	disjoint_mask[41] = True
+	res_disjoint = _fit_overlays(disjoint_lines, disjoint_mask, max_budget=220)
+	assert '[10] dialog "First Dialog"' in res_disjoint
+	assert '[30] menu "Second Popup"' in res_disjoint
+	assert res_disjoint.index('[10] dialog "First Dialog"') < res_disjoint.index('[30] menu "Second Popup"')
+	assert cost(res_disjoint) <= 220
+
+	# 4. Many disjoint overlays with small budget: strictly enforces budget bound
+	many_lines: list[str] = []
+	many_mask: list[bool] = []
+	for i in range(8):
+		many_lines.extend([f'background-{i}-' + 'x' * 10, f'overlay-{i}-' + 'y' * 8])
+		many_mask.extend([False, True])
+	res_many = _fit_overlays(many_lines, many_mask, max_budget=160)
+	assert cost(res_many) <= 160
+	assert all(f'overlay-{i}-' in ''.join(res_many) for i in range(8))
+
+	# 5. Large overlay exceeding max_budget: keeps 80% head and 20% tail of overlay
+	huge_ov_lines = [f'large-overlay-control-number-{i:03d}' for i in range(50)]
+	huge_ov_mask = [True] * len(huge_ov_lines)
+	res_huge = _fit_overlays(huge_ov_lines, huge_ov_mask, max_budget=250)
+	assert res_huge[0] == 'large-overlay-control-number-000'
+	assert res_huge[-1] == 'large-overlay-control-number-049'
+	assert any('lines cut here' in line for line in res_huge)
+	assert cost(res_huge) <= 250
+
+	# 6. Single oversized overlay line: exceeds budget, marker-only fallback
+	res_single = _fit_overlays(['x' * 500], [True], max_budget=100)
+	assert cost(res_single) <= 100
+	assert any('lines cut here' in line for line in res_single)
+
+	# 7. Adaptive markers & budget invariants across all budgets including disjoint overlays
+	codex_lines = ['x'] * 10 + ['A'] + ['x'] * 10 + ['B'] + ['x'] * 10
+	codex_mask = [False] * 10 + [True] + [False] * 10 + [True] + [False] * 10
+	res_codex_60 = _fit_overlays(codex_lines, codex_mask, max_budget=60)
+	assert 'A' in res_codex_60 and 'B' in res_codex_60, f'Fitting overlays dropped: {res_codex_60}'
+	assert cost(res_codex_60) <= 60
+
+	for b in (60, 59, 50, 10, 4, 3, 1, 0):
+		res_no_ov = _fit_overlays(['x'] * 100, [False] * 100, max_budget=b)
+		assert cost(res_no_ov) <= b, f'cost({cost(res_no_ov)}) > budget({b})'
+		res_ov = _fit_overlays(['x' * 500], [True], max_budget=b)
+		assert cost(res_ov) <= b, f'cost({cost(res_ov)}) > budget({b})'
+		res_disjoint_b = _fit_overlays(codex_lines, codex_mask, max_budget=b)
+		assert cost(res_disjoint_b) <= b, f'cost({cost(res_disjoint_b)}) > budget({b})'
 
 
 async def test_state_shadow_dom_iframe_and_hidden_file_input(repl, site):
