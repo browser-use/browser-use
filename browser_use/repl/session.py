@@ -326,11 +326,16 @@ class Repl:
 		rotate_proxy_cdp: bool = False,
 		highlight_actions: bool = False,
 		feedback: Callable[[dict], str] | None = None,
+		browser_op: Callable[[dict], Awaitable[dict]] | None = None,
+		browser_tools: tuple[str, ...] = (),
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
 		self.feedback, self.rotate_proxy, self.rotate_proxy_cdp = feedback, rotate_proxy, rotate_proxy_cdp
+		# browser_tools: 'rotate' (rotate_browser()) and/or 'multi' (new_browser / use_browser / close_browser), answered by
+		# browser_op({'op': 'rotate' | 'open' | 'close', ...}) here, where the API key is
+		self.browser_op, self.browser_tools = browser_op, tuple(browser_tools) if browser_op else ()
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
 		# which a keep_alive Agent outlives (asyncio.run per run); killed after that loop closed, the worker was never
@@ -436,6 +441,7 @@ class Repl:
 				'downloads': self.downloads is not None,
 				'rotate_proxy': self.rotate_proxy is not None,
 				'rotate_proxy_cdp': self.rotate_proxy_cdp,
+				'browser_tools': list(self.browser_tools),
 			}
 			self.writer.write(json.dumps(init).encode() + b'\n')
 			await self.writer.drain()
@@ -532,6 +538,18 @@ class Repl:
 		except Exception as e:  # - the cloud refused or timed out: the cell's error says what
 			return {'error': f'rotate_proxy() failed: {e}'}
 
+	async def _browser_op(self, args: Any) -> dict[str, Any]:
+		"""{'value': ...} or {'error': the message the cell's rotate_browser()/new_browser()/close_browser() raises}."""
+		if self.browser_op is None or not isinstance(args, dict):
+			return {'error': 'browser tools are only available on a Browser Use cloud browser.'}
+		try:
+			value = await asyncio.wait_for(self.browser_op(args), 120)
+		except Exception as e:  # - the cloud refused or timed out: the cell's error says what
+			return {'error': f'{args.get("op", "browser")} failed: {type(e).__name__}: {e}'}
+		if args.get('op') == 'rotate' and isinstance(value, dict) and value.get('name'):
+			self.env['BU_NAME'] = value['name']  # a worker restarted later attaches to the new browser's daemon
+		return {'value': value}
+
 	def _feedback(self, args: Any) -> dict[str, Any]:
 		"""{'value': what report_issue() returns}: it never fails the cell."""
 		if self.feedback is None or not isinstance(args, dict):
@@ -563,9 +581,12 @@ class Repl:
 							'downloads',
 							'feedback',
 							'rotate_proxy',
+							'browser',
 						):  # the cell called one: answered while it waits
 							if msg['type'] == 'feedback':
 								answer = self._feedback(msg.get('args'))
+							elif msg['type'] == 'browser':
+								answer = await self._browser_op(msg.get('args'))
 							elif msg['type'] == 'rotate_proxy':
 								answer = await self._rotate_proxy(msg.get('args'))
 							else:

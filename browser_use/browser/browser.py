@@ -1269,6 +1269,49 @@ class Browser:
 		"""The Browser Use cloud browser this Browser drives: the one it created, or the one its cdp_url points at."""
 		return self.id if self.use_cloud else cloud_browser_id(self.cdp_url)
 
+	# What one started cloud browser is, at runtime: rotate_browser() swaps these between this Browser and a fresh one.
+	_RUNTIME = ('name', 'id', 'live_url', 'cloud_cdp_url', 'stopped', '_watchdog', '_daemon_env', '_env', '_guard',
+	            '_tabs_file', '_agent_tab', '_agent_tabs', '_creating', '_create_deadline', '_cloud_key')
+
+	def sibling(self, country: str | None = None) -> 'Browser':
+		"""A new, not yet started cloud browser with this one's settings (profile, exit country, timeout, captcha solver,
+		domain rules, key): rotate_browser() and an agent's extra browsers. country overrides the exit country."""
+		if not self.use_cloud or self.cdp_url:
+			raise RuntimeError('only a Browser Use cloud browser (Browser()) can start another like it')
+		b = Browser(
+			'cloud',
+			cloud_profile_id=self.profile,
+			cloud_proxy_country_code=(country or self.proxy) or None,
+			cloud_timeout=self.timeout,
+			captcha_solver=self.captcha_solver,
+			live_view=False,
+		)
+		b.domains, b._llm_key = self.domains, self._llm_key
+		return b
+
+	async def rotate_browser(self, country: str | None = None) -> dict[str, str]:
+		"""Replace this cloud browser by a fresh one (new fingerprint and exit IP; same profile, country, solver and domain
+		rules), then stop the old one. This Browser object stays the one you hold. Returns the REPL worker's new env (its
+		BU_NAME names the new browser's daemon); the caller reopens the page. Tabs, cookies and logins of the old browser
+		are lost unless they live in the profile."""
+		if not self.use_cloud or self.cdp_url or not self.id or self.stopped:
+			raise RuntimeError('rotate_browser() needs a running Browser Use cloud browser (Browser())')
+		new = self.sibling(country)
+		env = await new.start()  # its own daemon, watchdog and domain guard; on failure nothing changed here
+		async with self._lock:
+			for attr in self._RUNTIME:
+				mine, theirs = getattr(self, attr), getattr(new, attr)
+				setattr(self, attr, theirs)
+				setattr(new, attr, mine)
+			if country:
+				self.proxy = country.lower()
+			_LIVE.add(self)
+		try:
+			await asyncio.to_thread(new._stop_now)  # `new` now holds the old browser: its daemon, then PATCH stop
+		except Exception as e:  # - the old one times out on its own; the new one is in use already
+			logger.warning('rotate_browser: the old cloud browser did not stop cleanly: %s', e)
+		return env
+
 	def can_rotate_proxy(self) -> bool:
 		"""rotate_proxy() works here: a Browser Use cloud browser (BrowserUse.setProxy over CDP needs no key; without
 		CDP_ROTATE_SHIPPED it needs an API key). Browser() (cloud) qualifies before it starts: the Agent builds its prompt
