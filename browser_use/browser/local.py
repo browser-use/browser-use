@@ -163,7 +163,7 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			raise FileNotFoundError(f'executable_path={executable_path!r} is not a file')
 		if is_snap(str(Path(executable_path).expanduser())):
 			raise RuntimeError(_snap_error(executable_path))
-		return str(Path(executable_path).expanduser())
+		return str(Path(executable_path).expanduser().resolve())
 	tried = [p for k in ('BH_CHROME_PATH', 'CHROME_PATH') if (p := (os.environ.get(k) or '').strip())]
 	for path in tried:  # it silently fell back to another browser
 		if not Path(path).expanduser().is_file():
@@ -193,7 +193,7 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			if is_snap(str(Path(path).expanduser())):
 				snaps.append(path)
 				continue
-			return str(Path(path).expanduser())
+			return str(Path(path).expanduser().resolve())
 	if snaps:
 		raise RuntimeError(_snap_error(snaps[0]))
 	tried += [f'{n} on PATH' for n in on_path]
@@ -232,7 +232,7 @@ def playwright_chromium() -> list[str]:
 		rels = ['chrome-win*/chrome.exe']
 	else:
 		rels = ['chrome-linux*/chrome']
-	return [str(hit) for build in builds for rel in rels for hit in sorted(build.glob(rel))]
+	return [str(hit.resolve()) for build in builds for rel in rels for hit in sorted(build.glob(rel))]
 
 
 def is_snap(path: str) -> bool:
