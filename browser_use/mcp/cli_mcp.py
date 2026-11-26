@@ -81,6 +81,7 @@ NOTHING_RUNNING = 'Nothing is running: every earlier browser_exec has ended and 
 BUSY = (
 	f'Not run: an earlier browser_exec or browser_screenshot call still held the browser after {CALL_SECONDS:.0f} s. Call again.'
 )
+SCREENSHOT_STILL_RUNNING = f'Screenshot did not finish after {CALL_SECONDS:.0f} s. Call browser_screenshot again to retry.'
 NO_CLOUD_WITH_DOMAINS = (
 	"{name}() is off: this server's allowed_domains / prohibited_domains hold only on its own Chromium, and a cloud "
 	'browser would open any site'
@@ -611,13 +612,10 @@ class CLIMCPServer:
 						content=[types.TextContent(type='text', text="Error: 'max_dim' must be a positive integer")],
 						is_error=True,
 					)
-				try:
-					png = await self._locked(self._screenshot, bool(arguments.get('full', False)), max_dim)
-				except Exception as e:  # a tool result the model reads, never a JSON-RPC error
-					_error_class(e)
-					return types.CallToolResult(content=[types.TextContent(type='text', text=self._error(e))], is_error=True)
-				content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
-				return types.CallToolResult(content=content)
+				return await self._screenshot_call(
+					bool(arguments.get('full', False)),
+					max_dim,
+				)
 			if name == 'browser_login':
 				text, call['login_state'] = await asyncio.to_thread(self._sign_in, bool(arguments.get('force', False)))
 				failed = call['login_state'] in ('failed', 'start_failed')  # ok=True always made a failed login invisible
@@ -691,6 +689,42 @@ class CLIMCPServer:
 			return await self._exec_reply(code, deadline)
 		finally:
 			self._exec_lock.release()
+
+	async def _screenshot_call(self, full: bool, max_dim: int | None) -> types.CallToolResult:
+		"""Capture within the same deadline as browser_exec and return before the MCP client times out."""
+		deadline = time.monotonic() + CALL_SECONDS
+		try:
+			async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+				await self._exec_lock.acquire()
+		except TimeoutError:
+			_count('busy')
+			return types.CallToolResult(content=[types.TextContent(type='text', text=BUSY)], is_error=True)
+		capture_timeout = asyncio.timeout(max(0.0, deadline - time.monotonic()))
+		try:
+			async with capture_timeout:
+				png = await asyncio.to_thread(self._screenshot, full, max_dim)
+		except TimeoutError as e:
+			if not capture_timeout.expired():
+				# TimeoutError from capture() itself, e.g. a CDP response timeout: keep the real error
+				# (and its _error_class telemetry) instead of reporting a missed deadline.
+				_error_class(e)
+				return types.CallToolResult(content=[types.TextContent(type='text', text=self._error(e))], is_error=True)
+			# The timed-out capture keeps running in its thread (asyncio.to_thread cannot be cancelled);
+			# releasing the lock mirrors _exec_call's outliving-cell pattern, so a hung capture never
+			# blocks later calls (including stop_remote_daemon). A retry may run concurrently with it.
+			# Both captures write the same default shot.png, so a retry can return the orphaned capture's image.
+			_count('screenshot_timeout')
+			return types.CallToolResult(
+				content=[types.TextContent(type='text', text=SCREENSHOT_STILL_RUNNING)],
+				is_error=True,
+			)
+		except Exception as e:  # a tool result the model reads, never a JSON-RPC error
+			_error_class(e)
+			return types.CallToolResult(content=[types.TextContent(type='text', text=self._error(e))], is_error=True)
+		finally:
+			self._exec_lock.release()
+		content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
+		return types.CallToolResult(content=content)
 
 	async def _exec_reply(self, code: str, deadline: float) -> types.CallToolResult:
 		"""The first block is the code's own output (a client may parse it as JSON); then whether it still runs, what
