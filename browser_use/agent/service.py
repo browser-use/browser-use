@@ -543,6 +543,10 @@ class Agent:
 					after_cell=self.browser.after_cell if self.browser.domains else None,
 					search=self._search,
 					downloads=self._list_downloads if self.browser.use_cloud or self._launched() else None,
+					rotate_proxy=self.browser.rotate_proxy
+					if self.browser.can_rotate_proxy() and self.browser.has_rotate_key()
+					else None,
+					rotate_proxy_cdp=self.browser.can_rotate_proxy() and browser_module.CDP_ROTATE_SHIPPED,
 					highlight_actions=self.highlight_actions,
 					feedback=self._reports,
 				)

@@ -306,7 +306,9 @@ class Repl:
 	daemon again after a cell lost it (Browser.start). after_cell: runs after each cell, outside the worker; returns
 	(lines appended to the cell's output, blocks counted as domain_blocked) (Browser.after_cell). search: defines
 	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
-	worker, answered here (Browser.list_downloads). feedback: answers report_issue() with the confirmation the cell
+	worker, answered here (Browser.list_downloads). rotate_proxy: defines rotate_proxy() in the worker, answered here
+	(Browser.rotate_proxy; the API key stays in this process). rotate_proxy_cdp: the worker first tries the browser's own
+	BrowserUse.setProxy over CDP (no key), then falls back to rotate_proxy. feedback: answers report_issue() with the confirmation the cell
 	gets (telemetry/feedback.RunReports); without it nothing is sent. highlight_actions: orange corner brackets around
 	what the agent clicks or types into (repl/highlight.py)."""
 
@@ -320,13 +322,15 @@ class Repl:
 		after_cell: Callable[[], Awaitable[tuple[list[str], int]]] | None = None,
 		search: web.WebSearch | None = None,
 		downloads: Callable[[], Awaitable[list[dict]]] | None = None,
+		rotate_proxy: Callable[[str | None], Awaitable[dict]] | None = None,
+		rotate_proxy_cdp: bool = False,
 		highlight_actions: bool = False,
 		feedback: Callable[[dict], str] | None = None,
 	):
 		self.workspace, self.env, self.mode = workspace, env or {}, check_mode(mode)
 		self.highlight_actions = highlight_actions
 		self.reattach, self.after_cell, self.search, self.downloads = reattach, after_cell, search, downloads
-		self.feedback = feedback
+		self.feedback, self.rotate_proxy, self.rotate_proxy_cdp = feedback, rotate_proxy, rotate_proxy_cdp
 		self.secrets = scoped_secrets(secrets)  # (name, value, domain pattern or None)
 		# a plain Popen, not an asyncio subprocess: asyncio's child watcher belongs to the loop that started the worker,
 		# which a keep_alive Agent outlives (asyncio.run per run); killed after that loop closed, the worker was never
@@ -426,7 +430,13 @@ class Repl:
 			if connected not in done:
 				raise RuntimeError(f'REPL worker failed to start; see {self.state / "worker.log"}')
 			self.reader, self.writer = connected.result()
-			init = {'secrets': self.secrets, 'search': self.search is not None, 'downloads': self.downloads is not None}
+			init = {
+				'secrets': self.secrets,
+				'search': self.search is not None,
+				'downloads': self.downloads is not None,
+				'rotate_proxy': self.rotate_proxy is not None,
+				'rotate_proxy_cdp': self.rotate_proxy_cdp,
+			}
 			self.writer.write(json.dumps(init).encode() + b'\n')
 			await self.writer.drain()
 			if not await asyncio.wait_for(self.reader.readline(), 60):
@@ -512,6 +522,16 @@ class Repl:
 		except Exception as e:  # - the API failed or timed out: the cell's error says what
 			return {'error': f'downloads() failed: {type(e).__name__}: {e}'}
 
+	async def _rotate_proxy(self, args: Any) -> dict[str, Any]:
+		"""{'value': {'mode', 'country', 'exitIp'}} or {'error': the message rotate_proxy() raises in the cell}."""
+		if self.rotate_proxy is None:
+			return {'error': 'rotate_proxy() is only available on a Browser Use cloud browser.'}
+		country = args.get('country') if isinstance(args, dict) else None
+		try:
+			return {'value': await asyncio.wait_for(self.rotate_proxy(country), 60)}
+		except Exception as e:  # - the cloud refused or timed out: the cell's error says what
+			return {'error': f'rotate_proxy() failed: {str(e) or type(e).__name__}'}
+
 	def _feedback(self, args: Any) -> dict[str, Any]:
 		"""{'value': what report_issue() returns}: it never fails the cell."""
 		if self.feedback is None or not isinstance(args, dict):
@@ -538,9 +558,16 @@ class Repl:
 						if not line:
 							raise ConnectionError('worker exited')
 						msg = json.loads(line)
-						if msg.get('type') in ('search', 'downloads', 'feedback'):  # the cell called one: answered while it waits
+						if msg.get('type') in (
+							'search',
+							'downloads',
+							'feedback',
+							'rotate_proxy',
+						):  # the cell called one: answered while it waits
 							if msg['type'] == 'feedback':
 								answer = self._feedback(msg.get('args'))
+							elif msg['type'] == 'rotate_proxy':
+								answer = await self._rotate_proxy(msg.get('args'))
 							else:
 								answer = await (self._search(msg.get('args')) if msg['type'] == 'search' else self._downloads())
 							self.writer.write(json.dumps(answer).encode() + b'\n')
