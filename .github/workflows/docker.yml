@@ -12,7 +12,9 @@ on:
       - stable
       - 'releases/**'
     tags:
-      - '*'
+      - '[0-9]*'  # Python tags only; JS releases use js-v* (publish-js.yml)
+    paths-ignore:
+      - 'js/**'
   release:
     types: [published]
   pull_request:
@@ -34,6 +36,8 @@ jobs:
     # Every image is built and run before anything is pushed: --version, then one Agent run on the image's Chromium
     # with a scripted model (docker/smoke.py: no provider, no cloud). Native runners per arch, no QEMU. Never pushes.
     name: smoke (${{ matrix.platform }})
+    # JS releases (js-v*) are not Python images
+    if: ${{ !(startsWith(github.ref, 'refs/tags/js-')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -68,7 +72,7 @@ jobs:
     needs: smoke
     # Release candidates (X.Y.ZrcN tags, GitHub pre-releases) get no image.
     # Pull requests only run the smoke job.
-    if: ${{ github.event_name != 'pull_request' && !(startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, 'rc')) && !(github.event_name == 'release' && github.event.release.prerelease) }}
+    if: ${{ github.event_name != 'pull_request' && !(startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, 'rc')) && !(github.event_name == 'release' && github.event.release.prerelease) && !(startsWith(github.ref, 'refs/tags/js-')) }}
     runs-on: ubuntu-latest
     permissions:
       packages: write

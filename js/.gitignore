@@ -1,0 +1,23 @@
+node_modules/
+dist/
+artifacts/
+.env
+*.tgz
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
+python/browser_use_next/runtime/
+python/build/
+python/*.egg-info/
+**/__pycache__/
+.venv/
+
+# root .gitignore ignores *.json and *.txt
+!*.json
+!*.txt
+# but keep the root's secret-file ignores
+credentials.json
+cookies.json
+browser_cookies.json
+token.json
+gcp-login.json

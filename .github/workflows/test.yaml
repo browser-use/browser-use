@@ -14,8 +14,12 @@ on:
       - stable
       - 'releases/**'
     tags:
-      - '*'
+      - '[0-9]*'  # Python tags only; JS releases use js-v* (publish-js.yml)
+    paths-ignore:
+      - 'js/**'
   pull_request:
+    paths-ignore:
+      - 'js/**'
   workflow_dispatch:
 
 env:

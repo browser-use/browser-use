@@ -1,0 +1,762 @@
+import { mkdir, mkdtemp, open, readdir, type FileHandle } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import { streamSimple as responsesStream } from '@earendil-works/pi-ai/api/openai-responses';
+import { randomUUID } from 'node:crypto';
+import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
+import type { Api, Model, Usage } from '@earendil-works/pi-ai';
+import { Type, type Static, type TSchema } from 'typebox';
+import { navigationPolicy, validateSensitiveData } from './policy.js';
+import { telemetry } from './telemetry.js';
+import { launchesBrowser, openBrowser, validCdpUrl } from './browser.js';
+import {
+  GATEWAY_PROVIDER,
+  ULTRAFAST_ALIASES,
+  gatewayModel,
+  gatewayModelName,
+  gatewayPreflight,
+  gatewayStream,
+  upstreamOf,
+} from './gateway.js';
+import { BrowserRuntime, workerExecutable } from './runtime.js';
+import { runAgent, zeroUsage } from './agent.js';
+import { judgeRun } from './judge.js';
+import { Recorder } from './recording.js';
+import { RunControl } from './control.js';
+import {
+  loadHistory,
+  saveHistory,
+  workspaceFiles,
+  redact,
+  type SessionHistory,
+} from './history.js';
+import { EventStream, formatEvent, type SessionEvent, type SessionEventData } from './events.js';
+import {
+  positiveInteger,
+  DEFAULT_CELL_TIMEOUT_MS,
+  DEFAULT_OPERATION_TIMEOUT_MS,
+} from './protocol.js';
+import type { BrowserUseOptions, RunOptions, RunResult } from './types.js';
+
+export type {
+  BrowserUseOptions,
+  RunOptions,
+  RunResult,
+  StopReason,
+  RunMetrics,
+  ContextMetrics,
+  ContextSettings,
+} from './types.js';
+export { Browser } from './browser.js';
+export type {
+  BrowserOptions,
+  CloudBrowserOptions,
+  ChromeBrowserOptions,
+  LocalBrowserOptions,
+} from './browser.js';
+export type { CellResult, Image } from './protocol.js';
+export { CellError } from './runtime.js';
+export type { AgentTool, AgentEvent, StreamFn } from '@earendil-works/pi-agent-core';
+export { Type, type Static, type TSchema } from 'typebox';
+export { builtinModels } from '@earendil-works/pi-ai/providers/all';
+
+/** One browser, workspace and JavaScript namespace. run() resets context; followUp() retains it. */
+export class BrowserUse {
+  private readonly reportRun: ReturnType<typeof telemetry>;
+  private active = false;
+  private closed = false;
+  private controller: AbortController | undefined;
+  private closing: Promise<void> | undefined;
+  private messages: AgentMessage[] = [];
+  private totalUsage = zeroUsage();
+  private runs = 0;
+  private control: RunControl | undefined;
+  private streams = new Set<EventStream>();
+  private sequence = 0;
+  private activeRun: Promise<RunResult<unknown>> | undefined;
+  private manualCell: Promise<unknown> | undefined;
+  private runId = '';
+  private hasConversation = false;
+
+  private constructor(
+    private readonly config: BrowserUseOptions & { model: string; streamFn: StreamFn },
+    private readonly model: Model<Api>,
+    private readonly runtime: BrowserRuntime,
+    private readonly browser: Awaited<ReturnType<typeof openBrowser>>,
+    readonly workspace: string,
+  ) {
+    this.reportRun = telemetry(config.telemetry, config.browser);
+  }
+
+  static async create(options: BrowserUseOptions): Promise<BrowserUse> {
+    if (options.telemetry !== undefined && typeof options.telemetry !== 'boolean')
+      throw new Error('telemetry must be boolean.');
+    navigationPolicy(options);
+    validateSensitiveData(options.sensitiveData);
+    options = {
+      ...options,
+      redact: [
+        ...(options.redact ?? []),
+        ...Object.values(options.sensitiveData ?? {}).map((secret) => secret.value),
+        ...(options.webSearch ? [options.webSearch.token] : []),
+      ],
+    };
+    if (options.highlightActions !== undefined && typeof options.highlightActions !== 'boolean')
+      throw new Error('highlightActions must be boolean.');
+    if (options.researchTools !== undefined && typeof options.researchTools !== 'boolean')
+      throw new Error('researchTools must be boolean.');
+    if (options.shellTimeoutMs !== undefined)
+      positiveInteger('shellTimeoutMs', options.shellTimeoutMs);
+    if (options.browserSwitching !== undefined && typeof options.browserSwitching !== 'boolean')
+      throw new Error('browserSwitching must be boolean.');
+    if (options.dedicatedBrowser !== undefined && typeof options.dedicatedBrowser !== 'boolean')
+      throw new Error('dedicatedBrowser must be boolean.');
+    if (options.focusTab !== undefined && typeof options.focusTab !== 'boolean')
+      throw new Error('focusTab must be boolean.');
+    if (
+      options.shellEnv !== undefined &&
+      (typeof options.shellEnv !== 'object' ||
+        options.shellEnv === null ||
+        Object.values(options.shellEnv).some((value) => typeof value !== 'string'))
+    )
+      throw new Error('shellEnv must map names to strings.');
+    if (options.mode !== undefined && options.mode !== 'default' && options.mode !== 'ultrafast')
+      throw new Error("mode must be 'default' or 'ultrafast'.");
+    if (
+      options.webSearch !== undefined &&
+      (typeof options.webSearch?.url !== 'string' || typeof options.webSearch?.token !== 'string')
+    )
+      throw new Error('webSearch must be {url, token}.');
+    if (options.recording && typeof options.recording === 'object') {
+      positiveInteger('recording.intervalMs', options.recording.intervalMs ?? 750);
+      positiveInteger('recording.maxFrames', options.recording.maxFrames ?? 400);
+      if (
+        (options.recording.intervalMs ?? 750) < 100 ||
+        (options.recording.maxFrames ?? 400) > 10000
+      )
+        throw new Error('Recording requires intervalMs >= 100 and maxFrames <= 10000.');
+    }
+    const modelName = gatewayModelName(options.model);
+    options = { ...options, model: modelName };
+    const restored = options.historyFile
+      ? await loadHistory(options.historyFile, modelName)
+      : undefined;
+    positiveInteger('hookTimeoutMs', options.hookTimeoutMs ?? 30_000);
+    positiveInteger('modelTimeoutMs', options.modelTimeoutMs ?? 300_000);
+    positiveInteger('modelStreamTimeoutMs', options.modelStreamTimeoutMs ?? 930_000);
+    positiveInteger('compactionTimeoutMs', options.compactionTimeoutMs ?? 120_000);
+    positiveInteger('compactionRetryDelayMs', options.compactionRetryDelayMs ?? 1000);
+    const separator = modelName.indexOf('/');
+    if (separator < 1) throw new Error('model must be provider/model, for example openai/gpt-5.4.');
+    const models = options.models ?? builtinModels();
+    const provider = modelName.slice(0, separator);
+    const modelId = modelName.slice(separator + 1);
+    const gateway = provider === GATEWAY_PROVIDER;
+    const registered = models.getModel(provider, modelId);
+    const resolvedModel =
+      registered ??
+      (gateway
+        ? gatewayModel(modelId, builtinModels().getModel('openai', upstreamOf(modelId)))
+        : undefined);
+    // Pi 0.85.1 sends configuration_update via Messages, which OpenRouter Opus 5 rejects.
+    // Keep caller-supplied model collections untouched. Remove when upstream fixes routing.
+    const model =
+      !options.models && modelName === 'openrouter/anthropic/claude-opus-5' && resolvedModel
+        ? {
+            ...resolvedModel,
+            api: 'openai-completions' as const,
+            baseUrl: 'https://openrouter.ai/api/v1',
+          }
+        : resolvedModel;
+    if (!model)
+      throw new Error(
+        `Unknown model ${modelName}. Supply a Pi models collection with this model registered.`,
+      );
+    // One Browser Use key runs model and browser (Python browser_use_api_key).
+    const gatewayKey = gateway
+      ? process.env.BROWSER_USE_API_KEY?.trim() ||
+        (options.browser?.kind === 'cloud' ? options.browser.apiKey?.trim() : undefined)
+      : undefined;
+    if (gateway && !gatewayKey && !options.streamFn)
+      throw new Error(
+        `The model ${modelName} runs on the Browser Use gateway and needs BROWSER_USE_API_KEY (or Browser.cloud({apiKey})). Or pass your own model, e.g. model: 'openai/gpt-6-luna'.`,
+      );
+    // Python mode=None: ultrafast on bu-fast and bu-ultrafast, else default.
+    options = {
+      ...options,
+      mode: options.mode ?? (gateway && ULTRAFAST_ALIASES.has(modelId) ? 'ultrafast' : 'default'),
+    };
+    const names = new Set([
+      'javascript',
+      'finish',
+      'finish_from_js',
+      ...(options.researchTools ? ['read', 'write', 'edit', 'bash'] : []),
+    ]);
+    for (const tool of options.tools ?? []) {
+      if (names.has(tool.name)) throw new Error(`Duplicate or reserved tool name: ${tool.name}`);
+      names.add(tool.name);
+    }
+    const operationTimeoutMs = positiveInteger(
+      'operationTimeoutMs',
+      options.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
+    );
+    positiveInteger('cellTimeoutMs', options.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS);
+    const maxOutputChars = positiveInteger('maxOutputChars', options.maxOutputChars ?? 12_000);
+    const executable = await workerExecutable(); // Fail before launching or provisioning a browser.
+    // Python ChatBrowserUse.preflight: a missing gateway, a rejected key or an unlisted model fails before a browser.
+    if (gateway && gatewayKey && !options.streamFn) {
+      const error = await gatewayPreflight(modelId, gatewayKey, model.baseUrl);
+      if (error) throw new Error(error);
+    }
+    const workspace = options.workspace
+      ? resolve(options.workspace)
+      : await mkdtemp(join(tmpdir(), 'browser-use-artifacts-'));
+    await mkdir(workspace, { recursive: true });
+    const browser = await openBrowser(options.browser);
+    const runtime = new BrowserRuntime(
+      {
+        mode: options.mode ?? 'default',
+        ...(options.webSearch ? { webSearch: options.webSearch } : {}),
+        endpoint: browser.endpoint,
+        ...(options.browser?.kind === 'pending'
+          ? {
+              browserWaitMs: positiveInteger(
+                'browser.timeoutMs',
+                options.browser.timeoutMs ?? 60_000,
+              ),
+            }
+          : {}),
+        ...(options.allowedDomains !== undefined ? { allowedDomains: options.allowedDomains } : {}),
+        ...(options.prohibitedDomains !== undefined
+          ? { prohibitedDomains: options.prohibitedDomains }
+          : {}),
+        ...(options.sensitiveData ? { sensitiveData: options.sensitiveData } : {}),
+        ...(options.redact ? { redact: options.redact } : {}),
+        approveConnection:
+          options.browser?.kind === 'chrome' && !!options.browser.approveConnection,
+        recording: !!options.recording,
+        highlightActions: !!options.highlightActions,
+        ...(options.browser && 'targetId' in options.browser && options.browser.targetId
+          ? { targetId: options.browser.targetId }
+          : {}),
+        ...(options.focusTab ? { focusTab: true } : {}),
+        ...(options.browserSwitching ? { browserSwitching: true } : {}),
+        ...(options.dedicatedBrowser ? { dedicatedBrowser: true } : {}),
+        ...(options.browser?.kind === 'cloud' ? { browserKind: 'cloud' as const } : {}),
+        ...(options.browser?.kind === 'cloud' && options.browser.captchaSolver === false
+          ? { captchaSolver: false as const }
+          : {}),
+        workspace,
+        ...(launchesBrowser(options.browser) ? { downloadPath: join(workspace, 'downloads') } : {}),
+        operationTimeoutMs,
+        maxOutputChars,
+      },
+      executable,
+    );
+    // A gateway model this SDK defines streams through pi-ai's Responses API directly: no Pi provider is registered.
+    const baseStream =
+      options.streamFn ??
+      (gateway && !registered
+        ? (responsesStream as unknown as StreamFn)
+        : models.streamSimple.bind(models));
+    const config = {
+      ...options,
+      model: modelName,
+      streamFn:
+        gateway && gatewayKey
+          ? gatewayStream(baseStream, gatewayKey, { aliasEffort: options.reasoning === undefined })
+          : baseStream,
+    };
+    const instance = new BrowserUse(config, model, runtime, browser, workspace);
+    if (restored) {
+      instance.messages = restored.messages;
+      instance.totalUsage = restored.usage;
+      instance.runs = restored.runs;
+      instance.hasConversation = true;
+      instance.messages.push({
+        role: 'user',
+        content:
+          'This conversation was restored from disk. JavaScript bindings and connections were reset. Inspect browser state and workspace before continuing. Never replay uncertain actions automatically.',
+        timestamp: Date.now(),
+      });
+    }
+    return instance;
+  }
+
+  run(task: string, options?: RunOptions): Promise<RunResult<string>>;
+  run<S extends TSchema>(
+    task: string,
+    options: RunOptions & { schema: S },
+  ): Promise<RunResult<Static<S>>>;
+  async run(
+    task: string,
+    options: RunOptions & { schema?: TSchema } = {},
+  ): Promise<RunResult<unknown>> {
+    return this.startRun(task, options, false);
+  }
+
+  followUp(task: string, options?: RunOptions): Promise<RunResult<string>>;
+  followUp<S extends TSchema>(
+    task: string,
+    options: RunOptions & { schema: S },
+  ): Promise<RunResult<Static<S>>>;
+  async followUp(
+    task: string,
+    options: RunOptions & { schema?: TSchema } = {},
+  ): Promise<RunResult<unknown>> {
+    if (!this.hasConversation) throw new Error('Run a task or restore history before followUp().');
+    return this.startRun(task, options, true);
+  }
+
+  private startRun(
+    task: string,
+    options: RunOptions & { schema?: TSchema },
+    followUp: boolean,
+  ): Promise<RunResult<unknown>> {
+    this.assertIdle();
+    if (!task.trim()) throw new Error('Provide a nonempty task.');
+    this.active = true;
+    if (!followUp) this.messages = [];
+    this.runId = randomUUID();
+    this.controller = new AbortController();
+    this.control = new RunControl((paused) => this.emit({ type: paused ? 'paused' : 'resumed' }));
+    this.activeRun = this.performRun(task, options, followUp);
+    return this.activeRun;
+  }
+
+  private async performRun(
+    task: string,
+    options: RunOptions & { schema?: TSchema },
+    followUp: boolean,
+  ): Promise<RunResult<unknown>> {
+    const controller = this.controller!;
+    const control = this.control!;
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal;
+    const directory = join(this.workspace, '.browser-use', 'runs');
+    const historyPath = join(directory, `${this.runId}.json`);
+    const eventsPath = join(directory, `${this.runId}.jsonl`);
+    let recorder: Recorder | undefined;
+    let journal: FileHandle | undefined;
+    let journalFailure: string | undefined;
+    let recoveryCheckpoint = false;
+    let journalQueue = Promise.resolve();
+    // The journal is diagnostics, never a run's outcome. A handle held open across a long model
+    // call goes stale on some network mounts (EBADF on write, EIO on close): reopen it once for
+    // the failed write; after a second failure stop journaling with one warning.
+    const stopJournal = async (error: unknown) => {
+      await journal?.close().catch(() => {});
+      journal = undefined;
+      journalFailure = `Event log stopped: ${String(error)}`;
+      this.emit({ type: 'warning', message: journalFailure });
+    };
+    const journalWrite = (line: string) =>
+      (journalQueue = journalQueue
+        .then(async () => {
+          if (!journal) return;
+          try {
+            await journal.writeFile(line);
+          } catch {
+            try {
+              await journal.close().catch(() => {});
+              journal = await open(eventsPath, 'a', 0o600);
+              await journal.writeFile(line);
+            } catch (error) {
+              await stopJournal(error);
+            }
+          }
+        })
+        .catch(() => {}));
+    try {
+      let unopened: unknown;
+      try {
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        journal = await open(eventsPath, 'wx', 0o600);
+      } catch (error) {
+        unopened = error;
+      }
+      const journaled = journal !== undefined;
+      const record = async (data: SessionEventData) => {
+        const event = this.emit(data);
+        // Deltas stream live. Persist finalized messages, not a full transcript for every token.
+        if (
+          data.type === 'agent_event' &&
+          ['message_update', 'agent_end'].includes(data.event.type)
+        )
+          return;
+        const serialized = JSON.stringify(event, (key, value: unknown) =>
+          key === 'data' && typeof value === 'string' && value.length > 10000
+            ? '[image omitted from event log]'
+            : value,
+        );
+        const line =
+          serialized.length > 256000
+            ? JSON.stringify({
+                sequence: event.sequence,
+                timestamp: event.timestamp,
+                runId: event.runId,
+                type: event.type,
+                truncated: true,
+              }) + '\n'
+            : serialized + '\n';
+        await journalWrite(line);
+      };
+      await record({ type: 'run_start', task, followUp });
+      if (unopened !== undefined) await stopJournal(unopened); // After run_start, so it stays first.
+      if (this.config.recording && !signal.aborted) {
+        recorder = new Recorder(
+          join(this.workspace, '.browser-use', 'recordings', this.runId),
+          task,
+          typeof this.config.recording === 'object' ? this.config.recording : {},
+        );
+        try {
+          const targetId = await this.runtime.initialize(signal);
+          await recorder.start(
+            this.runtime.endpoint,
+            targetId,
+            this.config.browser?.kind === 'chrome' && !!this.config.browser.approveConnection,
+          );
+          this.runtime.onAction = (action) => recorder?.action(action);
+        } catch (error) {
+          await record({ type: 'warning', message: `Recording unavailable: ${String(error)}` });
+        }
+      }
+      const downloadsDir = join(this.workspace, 'downloads');
+      const listDownloads = async () =>
+        new Set(
+          (await readdir(downloadsDir, { withFileTypes: true }).catch(() => []))
+            .filter((entry) => entry.isFile() && !entry.name.endsWith('.crdownload'))
+            .map((entry) => join(downloadsDir, entry.name)),
+        );
+      const downloadsBefore = await listDownloads();
+      const result = await runAgent(
+        this.runtime,
+        this.model,
+        this.config,
+        this.workspace,
+        task,
+        options.schema ?? Type.String(),
+        {
+          ...options,
+          signal,
+          onEvent: async (event, eventSignal) => {
+            await record({ type: 'agent_event', event });
+            await options.onEvent?.(event, eventSignal);
+          },
+        },
+        {
+          messages: this.messages,
+          control,
+          ...(journaled ? { eventsPath } : {}),
+          checkpoint: async (messages, usage) => {
+            recoveryCheckpoint = true;
+            this.messages = messages;
+            this.hasConversation = true;
+            const history = this.history;
+            for (const key of [
+              'input',
+              'output',
+              'cacheRead',
+              'cacheWrite',
+              'totalTokens',
+            ] as const)
+              history.usage[key] += usage[key];
+            for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+              history.usage.cost[key] += usage.cost[key];
+            await saveHistory(
+              join(this.workspace, '.browser-use', 'session.json'),
+              history,
+              this.config.redact,
+            );
+          },
+          save: (messages) => {
+            this.messages = messages;
+            this.hasConversation = true;
+          },
+        },
+      );
+      const judgeWarning = await this.judge(task, result, signal);
+      this.runs++;
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
+        this.totalUsage[key] += result.usage[key];
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+        this.totalUsage.cost[key] += result.usage.cost[key];
+      this.runtime.onAction = undefined;
+      const warnings: string[] = [
+        ...(result.warnings ?? []),
+        ...(journalFailure ? [journalFailure] : []),
+        ...(judgeWarning ? [judgeWarning] : []),
+      ];
+      let recordingPath: string | undefined;
+      if (recorder) {
+        try {
+          recordingPath = await recorder.stop(result.status, this.runtime.currentTarget);
+        } catch (error) {
+          warnings.push(`Recording could not be saved: ${String(error)}`);
+        }
+      }
+      recorder = undefined;
+      // Python result.downloads: files the browser saved in workspace/downloads during this run.
+      const downloads = [...(await listDownloads())]
+        .filter((path) => !downloadsBefore.has(path))
+        .sort();
+      const delivered: RunResult<unknown> = {
+        ...result,
+        costUsd: result.usage.cost.total,
+        downloads,
+        ...(recordingPath ? { recordingPath } : {}),
+        runId: this.runId,
+        ...(journaled ? { eventsPath } : {}),
+      };
+      if (recoveryCheckpoint) {
+        try {
+          await saveHistory(
+            join(this.workspace, '.browser-use', 'session.json'),
+            this.history,
+            this.config.redact,
+          );
+        } catch (error) {
+          warnings.push(`Recovery checkpoint could not be finalized: ${String(error)}`);
+        }
+      }
+      try {
+        await saveHistory(historyPath, this.history, this.config.redact);
+        delivered.historyPath = historyPath;
+      } catch (error) {
+        warnings.push(`History could not be saved: ${String(error)}`);
+      }
+      if (warnings.length) delivered.warnings = warnings;
+      await record({ type: 'run_end', result: delivered });
+      // A journal that failed on run_end itself is reported here; earlier failures are in warnings.
+      if (journalFailure && !delivered.warnings?.includes(journalFailure))
+        delivered.warnings = [...(delivered.warnings ?? []), journalFailure];
+      this.reportRun(delivered);
+      return redact(delivered, this.config.redact ?? []);
+    } finally {
+      this.runtime.onAction = undefined;
+      await this.manualCell?.catch(() => {});
+      if (recorder) await recorder.stop('error', this.runtime.currentTarget).catch(() => {});
+      await journalQueue.catch(() => {});
+      await journal?.close().catch(() => {});
+      control.finish();
+      this.active = false;
+      this.controller = undefined;
+      this.control = undefined;
+    }
+  }
+
+  private emit(data: SessionEventData): SessionEvent {
+    const event = redact(
+      { ...data, sequence: ++this.sequence, timestamp: Date.now(), runId: this.runId },
+      this.config.redact ?? [],
+    );
+    for (const stream of this.streams) stream.push(event);
+    const line =
+      this.config.log === 'json'
+        ? JSON.stringify(event)
+        : this.config.log === 'pretty'
+          ? formatEvent(event)
+          : undefined;
+    if (line) process.stderr.write(line + '\n');
+    return event;
+  }
+
+  /** Subscribe before starting work. Iterators finish when the session closes.
+   * `accept` drops events before they count against the stream's bounds. */
+  events(accept?: (event: SessionEvent) => boolean): EventStream {
+    if (this.closed) throw new Error('BrowserUse is closed.');
+    const stream = new EventStream(() => this.streams.delete(stream), 256, accept);
+    this.streams.add(stream);
+    return stream;
+  }
+
+  get history(): SessionHistory {
+    return redact(
+      {
+        version: 1,
+        model: this.config.model,
+        messages: this.messages,
+        usage: this.totalUsage,
+        runs: this.runs,
+      },
+      this.config.redact ?? [],
+    );
+  }
+  get usage(): Usage {
+    return structuredClone(this.totalUsage);
+  }
+  get isPaused() {
+    return this.control?.paused ?? false;
+  }
+  files() {
+    return workspaceFiles(this.workspace);
+  }
+  async saveHistory(path = join(this.workspace, '.browser-use', 'session.json')) {
+    this.assertIdle();
+    await saveHistory(path, this.history, this.config.redact);
+    return path;
+  }
+  pause(): Promise<void> {
+    if (!this.control) throw new Error('No active run to pause.');
+    return this.control.pause();
+  }
+  async resume() {
+    await this.manualCell?.catch(() => {});
+    this.control?.resume();
+  }
+  steer(text: string) {
+    if (!text.trim()) throw new Error('Provide nonempty steering text.');
+    if (!this.control?.steer)
+      throw new Error('No active agent to steer; use followUp() after a run.');
+    this.control.steer(text);
+  }
+  /** Compact the context before the next model call. */
+  compact() {
+    if (!this.control?.compact) throw new Error('No active agent to compact.');
+    this.control.compact();
+  }
+  cancel() {
+    this.controller?.abort();
+    this.control?.resume();
+  }
+
+  /**
+   * Python Agent._judge: one request to the run's own model judges a run that took steps (judge: false, none). Its
+   * usage, also a failed one's, is added to result.usage. A failure leaves result.judgement unset and returns a
+   * warning: the judge never fails a run. The final page is captured first (10 s at most) when the model sees images.
+   */
+  private async judge(task: string, result: RunResult<unknown>, signal: AbortSignal) {
+    if (this.config.judge === false || !result.steps || result.status === 'cancelled') return;
+    if (signal.aborted) return;
+    // Only on a worker the run already started: never a new browser connection for the judge. The cell bounds itself
+    // (7 s) inside its 10 s deadline: a deadline hit kills the worker and loses the agent's JavaScript state, which
+    // Python's thread-and-socket timeout never did.
+    const final =
+      this.model.input.includes('image') && this.runtime.started
+        ? await this.runtime
+            .execute(
+              'await Promise.race([screenshot().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 7000))])',
+              10_000,
+              signal,
+            )
+            .then((cell) => cell.images.at(-1))
+            .catch(() => undefined)
+        : undefined;
+    const judged = await judgeRun({
+      model: this.model,
+      streamFn: this.config.streamFn,
+      run: {
+        task,
+        status: result.status,
+        text: result.text,
+        ...(result.success !== undefined ? { success: result.success } : {}),
+        ...('error' in result && result.error ? { error: result.error } : {}),
+        ...(result.status === 'completed' ? { output: result.output } : {}),
+      },
+      messages: this.messages,
+      ...(final ? { final } : {}),
+      ...(this.config.judgeContext ? { judgeContext: this.config.judgeContext } : {}),
+      redact: this.config.redact ?? [],
+      signal,
+    });
+    for (const usage of judged.usage) {
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
+        result.usage[key] += usage[key];
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+        result.usage.cost[key] += usage.cost[key];
+    }
+    if (judged.judgement) result.judgement = judged.judgement;
+    return judged.error
+      ? `The judge failed (${judged.error}); result.judgement is unset.`
+      : undefined;
+  }
+
+  /** Direct browser code. Use the same page and variables as the agent. */
+  async execute(code: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}) {
+    const duringPause = this.isPaused;
+    if (!duringPause) this.assertIdle();
+    if (this.closed) throw new Error('BrowserUse is closed.');
+    if (duringPause && this.manualCell)
+      throw new Error('A manual browser cell is already running.');
+    if (!duringPause) this.active = true;
+    try {
+      const signal =
+        duringPause && this.controller
+          ? options.signal
+            ? AbortSignal.any([options.signal, this.controller.signal])
+            : this.controller.signal
+          : options.signal;
+      const cell = this.runtime.execute(
+        code,
+        options.timeoutMs ?? this.config.cellTimeoutMs ?? DEFAULT_CELL_TIMEOUT_MS,
+        signal,
+      );
+      if (duringPause) this.manualCell = cell;
+      return await cell;
+    } finally {
+      if (duringPause) this.manualCell = undefined;
+      else this.active = false;
+    }
+  }
+
+  private assertIdle() {
+    if (this.closed) throw new Error('BrowserUse is closed. Create a new session.');
+    if (this.active)
+      throw new Error(
+        'This session is busy. Await the active operation or create a separate session.',
+      );
+  }
+
+  /** Attach the browser of a session created with Browser.pending(). The model may already
+   * be running; its first browser cell waits for this. */
+  connectBrowser(cdpUrl: string, options: { targetId?: string } = {}) {
+    if (this.config.browser?.kind !== 'pending')
+      throw new Error('connectBrowser() needs a session created with Browser.pending().');
+    if (options.targetId !== undefined && typeof options.targetId !== 'string')
+      throw new Error('targetId must be a string.');
+    this.runtime.connect(validCdpUrl(cdpUrl), options.targetId);
+  }
+
+  /** The tab the agent is working in, for a host that resumes it in a later session. */
+  get currentTarget(): string | undefined {
+    return this.runtime.currentTarget;
+  }
+
+  /** Idempotent. Cancels execution, closes our tab, and shuts down only browsers we launched. */
+  close(options: { keepTabs?: boolean | 'current' } = {}): Promise<void> {
+    if (this.closing) return this.closing;
+    this.closed = true;
+    this.cancel();
+    this.closing = (async () => {
+      try {
+        await this.activeRun?.catch(() => {});
+        await this.runtime.close(options);
+      } finally {
+        try {
+          await this.browser.close();
+        } finally {
+          for (const stream of [...this.streams]) stream.end();
+        }
+      }
+    })();
+    return this.closing;
+  }
+
+  async [Symbol.asyncDispose]() {
+    await this.close();
+  }
+}
+
+export { CDP } from './cdp.js';
+export { Page, Tabs, type AXNode } from './page.js';
+
+export type { SessionHistory, WorkspaceFile } from './history.js';
+export type { SessionEvent } from './events.js';
+export { formatEvent } from './events.js';
+
+export { exportRecording, type VideoOptions } from './video.js';
+export type { RecordingOptions } from './recording.js';
+
+export type { DomainOptions, SensitiveData } from './policy.js';

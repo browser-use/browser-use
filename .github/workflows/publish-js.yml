@@ -1,0 +1,94 @@
+# Publishes Browser Use JS (js/) to npm. Python releases (bare X.Y.Z tags) never run this workflow; publish.yml skips js-* releases.
+# Release: bump js/package.json, then `gh release create js-vX.Y.Z --latest=false` (keeps Python as the repo's Latest release).
+# X.Y.Z-rc.N goes to the `next` dist-tag, everything else to `latest`.
+# Auth: npm trusted publishing (OIDC) bound to this file and the `release` environment; no npm token is stored.
+
+name: publish-js
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing js-vX.Y.Z tag to publish (must point at the dispatched commit)"
+        required: true
+        type: string
+
+concurrency:
+  group: publish-js-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # Only JS tags. A Python release (e.g. 1.0.6) skips this job before the release environment asks for approval.
+    if: startsWith(github.event.release.tag_name || inputs.tag || '', 'js-v')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and provenance
+    defaults:
+      run:
+        working-directory: js
+    env:
+      DO_NOT_TRACK: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+      # Trusted publishing needs npm >= 11.5.1
+      - run: npm install -g npm@11.6.2
+      - name: Tag equal to js-v<package.json version> is this commit
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "js-v$version" ]; then
+            echo "::error::Tag $TAG does not match js/package.json version (expected js-v$version)"
+            exit 1
+          fi
+          if ! git fetch --no-tags --depth=1 origin "+refs/tags/$TAG:refs/tags/$TAG"; then
+            echo "::error::Tag $TAG does not exist"
+            exit 1
+          fi
+          head=$(git rev-parse HEAD)
+          if [ "$(git rev-parse "refs/tags/$TAG^{commit}")" != "$head" ]; then
+            echo "::error::Tag $TAG is not the checked-out commit $head"
+            exit 1
+          fi
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "dist_tag=next" >> "$GITHUB_OUTPUT"
+          elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Version $version is neither X.Y.Z nor X.Y.Z-rc.N"
+            exit 1
+          fi
+      # A version already on npm (the one-time manual first publish of a new package, MONOREPO.md) is not republished.
+      - name: Skip a version that is already on npm
+        id: published
+        run: |
+          set -euo pipefail
+          spec="$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")"
+          if npm view "$spec" version >/dev/null 2>&1; then
+            echo "::notice::$spec is already on npm; nothing to publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.published.outputs.skip != 'true'
+        run: npm ci
+      - if: steps.published.outputs.skip != 'true'
+        run: npm run build
+      - if: steps.published.outputs.skip != 'true'
+        run: npm run check
+      - if: steps.published.outputs.skip != 'true'
+        run: npm publish --provenance --access public --tag "${{ steps.version.outputs.dist_tag }}"

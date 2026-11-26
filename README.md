@@ -183,6 +183,16 @@ Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI 
 - **Telemetry:** anonymized usage stats; `ANONYMIZED_TELEMETRY=false` or `browser-use telemetry disable` turns them off (no event, no file). `agent_event`, one per run: model, steps, cost, timing, helper names, the URLs visited without query strings, scrubbed error messages and result, and `key_source` (`param`, `env`, `login_oauth`, `login_device`, `login_manual`, `none`), plus `key_gate` and `key_reason` when a run stopped for a missing key. `library_auth`, one per step of getting a key: `stage` (`missing_key`, `key_rejected`, `login_started`, `login_succeeded`, `login_failed`, `login_cancelled`, `key_available`, `cloud_browser_started`, `live_view_printed`, `keyed_success`: the first completed keyed run of a device that needed a key), `method` (`browser`, `device`, `manual`; `env`, `stored`), `automatic`, `key_gate` (`default_model`, `gateway_model`, `web_search`, `cloud_browser`, `cli_cloud`, `mcp_cloud`), `key_reason` (`missing`, `corrupt_store`, `unwritable_store`, `bad_chars`, `rejected`), `outcome` (`stored`, `callback_timeout`, `device_timeout`, `cancelled`, `invalid_key`, `network`, `denied`, `error`), `entry` (`agent`, `cli`, `mcp`), `gate_count`, `seconds_since_first_gate` (from a timestamp kept in the local telemetry dir), the environment (OS, Python, `is_ci`, `is_docker`, `is_notebook`, `is_colab`, `is_ssh`, `has_display`) and `is_internal`. Never the task text, typed text, code, secrets, the key or its id, the project id or the sign-in link, state or code.
 - **Web search:** the agent gets `search(query, num_results=None, category=None)` (Browser Use web search, billed per search to your Browser Use key; each charge the response reports is added to `result.cost_usd`) with `Agent(task, web_search=True)` (off by default; needs a Browser Use key, and can't be combined with `allowed_domains`).
 
+## TypeScript
+
+Browser Use JS is Browser Use in TypeScript, built on Pi Mono: the model writes JavaScript in a persistent V8 REPL with raw CDP. It lives in [`js/`](https://github.com/browser-use/browser-use/tree/main/js) in this repo. Node 22.19+ or Bun 1.3.14+.
+
+```bash
+npm install @browser_use/core
+```
+
+See [js/README.md](https://github.com/browser-use/browser-use/blob/main/js/README.md).
+
 <br/>
 
 # Browser Use Benchmark v2
@@ -293,7 +303,6 @@ You can also host the Python library and browsers on your own infrastructure.
 
 | Repository | What it's for |
 | --- | --- |
-| [Browser Use Pi](https://github.com/browser-use/browser-use-pi) | Run a TypeScript browser agent built on Pi. |
 | [Cloud SDK](https://github.com/browser-use/sdk) | Integrate Browser Use Cloud into your application. |
 | [Video Use](https://github.com/browser-use/video-use) | Edit videos with your coding agent. |
 | [macOS Harness](https://github.com/browser-use/macos-harness) | Give your agent control of Mac apps, browsers, and files. |

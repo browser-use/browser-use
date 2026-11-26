@@ -13,7 +13,7 @@ on:
       - stable
       - 'releases/**'
     tags:
-      - '*'
+      - '[0-9]*'  # Python tags only; JS releases use js-v* (publish-js.yml)
   pull_request:
   workflow_dispatch:
 

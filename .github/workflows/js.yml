@@ -1,0 +1,79 @@
+# Browser Use JS (js/). Runs only when js/ or this file changes; Python workflows ignore js/**.
+name: js
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'js/**'
+      - '.github/workflows/js.yml'
+  pull_request:
+    paths:
+      - 'js/**'
+      - '.github/workflows/js.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: js
+
+env:
+  DO_NOT_TRACK: '1'
+
+jobs:
+  build:
+    name: build (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.19', '24']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run check
+      - run: npm run format:check
+      # Tests that need no browser (they pass with every Chrome spawn blocked). The chrome job runs the rest.
+      - name: Tests without a browser
+        run: >-
+          node --test --test-concurrency=1
+          test/context-budget.test.mjs
+          test/context-retention.test.mjs
+          test/context-settings-run.test.mjs
+          test/context-settings.test.mjs
+          test/events.test.mjs
+          test/images.test.mjs
+          test/model-stream.test.mjs
+          test/recovery.test.mjs
+
+  chrome:
+    # Full suite on the runner's Chrome. Not a required check yet: Pi had no CI, so there is no green baseline.
+    name: chrome (full suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+      # Recording and the qa example encode video with ffmpeg; the runner image has none.
+      - run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends ffmpeg
+      - run: npm ci
+      - run: npm test
