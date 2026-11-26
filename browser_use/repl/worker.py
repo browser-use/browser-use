@@ -1021,9 +1021,11 @@ def _rotate_proxy(ask, cdp_first: bool, rest: bool):
 
 		Use it only when the page itself is a block for this IP (an 'Access denied' / 403 / 429 error page, or a captcha
 		the solver failed) and it is still there after you waited and reloaded once: then call it once and reload. At
-		most once per site. Not for rate limits on APIs or bulk fetching (slow down instead), not to change country
-		unless the site says it is unavailable in yours, and never in the middle of a login or checkout.
-		country: a 2-letter code ('us', 'de') to also move the exit there; default keeps the country.
+		most once per site. Not for rate limits on APIs or bulk fetching (slow down instead), and never in the middle of
+		a login or checkout.
+		country: a 2-letter code ('us', 'de') to also move the exit there; default keeps the country. A site that serves
+		one country (a .ru, .de, .co.uk or .kr site, or a local-only store) blocks far less from an exit in that country:
+		pass it (rotate_proxy(country='ru')) on the first block there.
 		-> {'mode', 'country', 'exitIp'}."""
 		if country is not None and not isinstance(country, str):
 			raise TypeError(f'country must be a str like "de", not {type(country).__name__}')
@@ -1053,8 +1055,9 @@ BLOCK_PAGE = re.compile(
 	r'Доступ ограничен|사용권한이 없습니다'
 )
 ROTATE_HINT = (
-	'[this page looks blocked for this IP. If it is still blocked after one wait and reload, rotate_proxy() gives this '
-	'browser a new exit IP and keeps tabs and logins; read help(rotate_proxy) first]'
+	'[this page looks blocked for this IP. If the site serves one country (.ru, .de, .co.uk, .kr...), '
+	"rotate_proxy(country='xx') with that country is the best fix; otherwise, if it is still blocked after one wait "
+	'and reload, rotate_proxy() gives a new exit IP. Both keep tabs and logins; read help(rotate_proxy) first]'
 )
 
 
