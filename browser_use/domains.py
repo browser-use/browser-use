@@ -194,6 +194,38 @@ def _patterns(value: Any, option: str) -> tuple[str, ...]:
 	return patterns
 
 
+def login_patterns(value: Any) -> tuple[str, ...]:
+	"""Browser('chrome', profile=..., logins_for=[...]): host patterns only, 'github.com' (with www.github.com) or
+	'*.atlassian.net' (atlassian.net and every subdomain), as in allowed_domains. A scheme, path, port or other glob
+	has no meaning for a cookie's domain, so it raises instead of matching nothing; so does a cookie-style '.github.com',
+	which kept only github.com's domain cookies and dropped its host-only login."""
+	patterns = _patterns(value, 'logins_for')
+	if not patterns:
+		raise ValueError("Browser(logins_for=[]) keeps no logins: use Browser('chromium') for a browser without any")
+	for p in patterns:
+		host = p.strip().removeprefix('*.')
+		if any(c in host for c in '*/:@?#') or host.startswith('.') or not host.strip('.'):
+			raise ValueError(
+				f"Browser(logins_for=...): {p!r} is not a host pattern; use 'example.com' or '*.example.com' (no scheme, "
+				'path or port)'
+			)
+	return tuple(p.strip() for p in patterns)
+
+
+def cookie_for(domain: str, patterns: tuple[str, ...]) -> bool:
+	"""A cookie with this domain is one Chrome sends to a host the patterns match. A host-only cookie ('github.com')
+	goes to its host alone; a domain cookie ('.atlassian.net') to the host and every subdomain, so 'acme.atlassian.net'
+	keeps it too (its login needs it) while 'github.com' never keeps '.gist.github.com'."""
+	host = canonical_host(domain.removeprefix('.'))
+	u = Url('https', host, '', '/')
+	for p in patterns:
+		if pattern_matches(p, u):
+			return True
+		if domain.startswith('.') and canonical_host(p.removeprefix('*.')).endswith(f'.{host}'):
+			return True
+	return False
+
+
 @dataclass(frozen=True)
 class DomainRules:
 	allowed: tuple[str, ...] = ()

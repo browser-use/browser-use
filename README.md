@@ -167,6 +167,7 @@ print(agent.run_sync().final_result())  # in async code: result = await agent.ru
 | `Browser('chromium')` | a fresh local Chrome/Chromium/Edge with its own temp profile, deleted afterwards. Headless when there is no display (Docker, CI); `headless=`, `executable_path=`, `user_data_dir=` (a profile dir kept between runs) |
 | `Browser('chrome')` | the Chrome you have open, with your logins (turn on chrome://inspect/#remote-debugging once) |
 | `Browser('chrome', profile='Work')` | a new Chrome on a temporary copy of your Chrome profile `Work` (sync off); your Chrome can stay open, except on Windows |
+| `Browser('chrome', profile='Work', logins_for=['github.com', '*.atlassian.net'])` | the same copy with only the cookies of those sites: no other logins, saved passwords, autofill, cards, history, extensions or site storage |
 
 Other models: `ChatAnthropic`, `ChatGoogle` (both built in), or any Pydantic AI model string such as `llm='groq:llama-3.3-70b-versatile'` (after `pip install 'pydantic-ai-slim[groq]'`).
 
@@ -247,7 +248,7 @@ This open-source library is licensed under the MIT License. For Browser Use serv
 <details>
 <summary><b>How do I handle authentication?</b></summary>
 
-- **Local browser:** `Browser('chrome')` drives the Chrome you have open, with your logins; `Browser('chrome', profile='Work')` uses a copy of that profile; `Browser('chromium', user_data_dir='~/bu-profile')` keeps its own logins between runs.
+- **Local browser:** `Browser('chrome')` drives the Chrome you have open, with your logins; `Browser('chrome', profile='Work')` uses a copy of that profile, and `logins_for=['github.com']` keeps only the logins the task needs (see [least-privilege logins](https://github.com/browser-use/browser-use/blob/main/MIGRATING.md#least-privilege-logins)); `Browser('chromium', user_data_dir='~/bu-profile')` keeps its own logins between runs.
 - **Cloud browser:** `Browser(cloud_profile_id='work')` keeps logins in a cloud profile; see the [profile sync guide](https://github.com/browser-use/browser-harness/blob/main/interaction-skills/profile-sync.md).
 - **Passwords:** pass them as `sensitive_data`; the model types them with `type_secret(name)` and their values are redacted from cell output, checkpoints, tool results, the task and the result. Not a sandbox: model-written Python can read them, and screenshots, page JavaScript and a cloud live view can reveal a typed value.
 </details>

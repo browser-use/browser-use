@@ -76,7 +76,7 @@ it is not a 1.0 option (`Agent(max_steps=...)` points to `agent.run(max_steps=..
 | `Browser(use_cloud=False)` | `Browser('chromium')` (`Browser(local=True)` is the same): a fresh local Chrome/Chromium/Edge with its own temp profile, launched like 0.x did, deleted when it stops |
 | `headless`, `executable_path` | kept for browsers 1.0 launches (`'chromium'`, `'chrome'` with `profile=`). `headless=None` (default) is headless only without a display |
 | `user_data_dir` | kept with `Browser('chromium', user_data_dir=...)`: a dedicated profile dir kept between runs. Chrome's own default dir raises: Chrome 136+ refuses remote debugging on it |
-| `Browser.from_system_chrome()`, `profile_directory` | `Browser('chrome')` attaches to the Chrome you have open (enable chrome://inspect/#remote-debugging once, click Allow). `Browser('chrome', profile='Work')` launches a new Chrome on a temporary copy of that profile (display name or directory such as `'Profile 1'`): your logins, Chrome sync off, nothing is written back. Your Chrome can stay open (Windows: quit it first, Chrome locks its cookies there) |
+| `Browser.from_system_chrome()`, `profile_directory` | `Browser('chrome')` attaches to the Chrome you have open (enable chrome://inspect/#remote-debugging once, click Allow). `Browser('chrome', profile='Work')` launches a new Chrome on a temporary copy of that profile (display name or directory such as `'Profile 1'`): your logins, Chrome sync off, nothing is written back. Your Chrome can stay open (Windows: quit it first, Chrome locks its cookies there). New: `logins_for=['github.com', '*.atlassian.net']` keeps only those sites' cookies, see [Least-privilege logins](#least-privilege-logins) |
 | `keep_alive=True` | kept; a cloud browser that ended between runs (`cloud_timeout`, stopped from the dashboard) is replaced by a new one at the next run, with a warning |
 | `await browser.close()`, `await browser.kill()` | kept: they stop the browser, as `await browser.stop()` does (also a `keep_alive=True` one). `stop_session()` raises: use `stop()`. `Agent.run()` stops the browser unless `keep_alive=True` |
 | `cdp_url` | kept. `headers` (0.x: sent on the `cdp_url` connect request, e.g. for AWS Bedrock AgentCore SigV4) raises until the browser daemon can send them on the WebSocket handshake: use a `cdp_url` that needs no headers |
@@ -100,7 +100,8 @@ Every other 0.x `BrowserProfile` / `BrowserSession` option raises `TypeError` na
 | downloads: `downloads_path`, `accept_downloads`, `auto_download_pdfs` | cloud: files the browser downloaded are copied to `agent.workspace/downloads` when the run ends (also with `keep_alive=True`). `Browser('chromium')` and `Browser('chrome', profile=...)`: downloads land in `agent.workspace/downloads` directly. `result.downloads` lists the files the run added there. Mid-run the agent checks finished downloads with `downloads()` (cloud: the API's list). `Browser('chrome')` (your Chrome) and `cdp_url`: the browser's own download folder, no `downloads()` |
 | `permissions` | say it in the task: the agent can send `Browser.grantPermissions` |
 | `proxy` (`server`, `bypass`, `username`, `password`) | cloud: `cloud_proxy_country_code`. Local: not yet |
-| `storage_state`, `cookie_whitelist_domains` | cloud: `cloud_profile_id` keeps logins. Local: `Browser('chrome')` / `Browser('chrome', profile=...)` have yours; `Browser('chromium', user_data_dir=...)` keeps its own |
+| `cookie_whitelist_domains` | raises: it listed sites for 0.x's cookie-banner extension, which 1.0 does not load. It never filtered cookies; `Browser('chrome', profile=..., logins_for=[...])` does |
+| `storage_state` | cloud: `cloud_profile_id` keeps logins. Local: `Browser('chrome')` / `Browser('chrome', profile=...)` have yours; `Browser('chromium', user_data_dir=...)` keeps its own |
 | recording: `record_video_dir`, `record_video_size`, `record_video_framerate`, `record_har_path`, `record_har_content`, `record_har_mode`, `record_har_omit_content`, `record_har_url_filter`, `traces_dir` | removed. `result.messages` is the transcript; `live_view=True` shows a cloud browser live |
 | `highlight_elements`, `interaction_highlight_color`, `interaction_highlight_duration` | removed: actions are highlighted by default (orange corner brackets for 1 s, never in the agent's screenshots); `Agent(highlight_actions=False)` turns it off |
 | 0.x engine tuning: `dom_highlight_elements`, `filter_highlight_ids`, `paint_order_filtering`, `cross_origin_iframes`, `max_iframes`, `max_iframe_depth`, `minimum_wait_page_load_time`, `wait_for_network_idle_page_load_time`, `wait_between_actions`, `deterministic_rendering`, `demo_mode`; 0.1/0.6 `maximum_wait_page_load_time`, `viewport_expansion`, `include_dynamic_attributes`, `cached_state`, `default_timeout`, `default_navigation_timeout`, `slow_mo`, `strict_selectors` | removed: they tuned the 0.x DOM engine. Delete them |
@@ -332,6 +333,25 @@ of the browser) are neither opened nor returned unless `BH_OPEN_LIVE_URL=1`, and
 `upload_file` sends the file's bytes through the page on a cloud browser. `stop_remote_daemon(name)` stops the cloud
 browser even after its daemon was killed (again on a stopped one: a no-op), and a new `start_remote_daemon(name)` first stops one still recorded.
 
+## Least-privilege logins
+
+`Browser('chrome', profile='Work', logins_for=['github.com', '*.atlassian.net'])` gives the agent the logins the task
+needs and no others. Patterns are hosts as in `allowed_domains`: `'github.com'` (and `www.github.com`) or
+`'*.atlassian.net'` (the domain and every subdomain); a scheme, path, port or leading dot (`'.github.com'`) raises `ValueError`, and so does
+`logins_for` without `profile=`.
+
+What the copy holds:
+
+| Carried over | Left behind |
+|---|---|
+| `Local State` (it holds the cookie key on Windows) and the cookie database, holding only the cookies Chrome sends to a listed host (a domain cookie `.atlassian.net` is kept for `acme.atlassian.net`, which receives it). The others are deleted from the copied file before Chrome starts, so Chrome never loads them; a file it cannot filter fails the start. Once Chrome runs, every cookie is read over CDP before any daemon, tab or agent connects: one of an unlisted site fails the start | saved passwords (`Login Data`, `Login Data For Account`), autofill, cards and the Google account's tokens (`Web Data`, `Account Web Data`), history, bookmarks, sessions, settings, extensions, and the site storage of every site (`Local Storage`, `Session Storage`, `IndexedDB`, `Service Worker`, `WebStorage`) |
+
+Site storage is not filtered per site: Local Storage is one LevelDB for all origins, and no CDP command lists the
+origins that have storage, so `Storage.clearDataForOrigin` cannot be pointed at the rest. A site that keeps its login
+in `localStorage` or IndexedDB (some single-page apps, Firebase Auth) asks you to sign in again. Not a sandbox: the
+agent's Python runs as your user and can read your real Chrome profile files on disk. It limits what the browser it
+drives, and its CDP access, can reach; run untrusted tasks in a container or VM.
+
 ## Trust model for secrets
 
 The REPL worker runs model-written Python as your user. 1.0 limits what it can see by default:
@@ -393,7 +413,8 @@ Nothing else is redacted. This is not a sandbox:
 Run untrusted tasks in a container or VM.
 
 `Browser('chrome')` and `Browser('chrome', profile=...)` drive your real logins: model-written CDP can read their
-cookies and (attached) your open tabs. `Browser('chromium')` and the cloud browser start with no cookies. Model code
+cookies and (attached) your open tabs. `logins_for=[...]` limits a profile copy to the listed sites' cookies (see
+[Least-privilege logins](#least-privilege-logins)). `Browser('chromium')` and the cloud browser start with no cookies. Model code
 still runs as your user and can attach to any browser on this machine with a debugging port open: other runs'
 `Browser('chromium')` need no approval, your Chrome asks "Allow remote debugging?". Once the browser is gone and
 cannot be reattached, the agent runs no more cells and delivers what it has.
