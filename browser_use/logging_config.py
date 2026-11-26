@@ -4,12 +4,13 @@ import re
 import sys
 from typing import TYPE_CHECKING
 
-_CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]')  # C0 but tab and newline, DEL, C1
+_CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f\ud800-\udfff]')  # C0 but tab and newline, DEL, C1, lone surrogates
 
 
 def printable(text: str) -> str:
 	"""Text with control characters escaped (ESC as \\x1b): page and model text logged raw could rewrite the terminal
-	(erase or fake log lines, set its title, write the clipboard over OSC 52)."""
+	(erase or fake log lines, set its title, write the clipboard over OSC 52). Lone surrogates are escaped too: they
+	cannot be encoded as UTF-8, so a log record carrying one would fail to write to a UTF-8 stderr."""
 	return _CONTROL.sub(lambda m: m[0].encode('unicode_escape').decode(), text)
 
 
