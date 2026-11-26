@@ -530,7 +530,7 @@ class Repl:
 		try:
 			return {'value': await asyncio.wait_for(self.rotate_proxy(country), 60)}
 		except Exception as e:  # - the cloud refused or timed out: the cell's error says what
-			return {'error': f'rotate_proxy() failed: {e}'}
+			return {'error': f'rotate_proxy() failed: {str(e) or type(e).__name__}'}
 
 	def _feedback(self, args: Any) -> dict[str, Any]:
 		"""{'value': what report_issue() returns}: it never fails the cell."""

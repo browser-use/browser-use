@@ -211,19 +211,25 @@ class _Default(str):
 
 
 US = _Default('us')
-# https://<browser id>.cdp.browser-use.com (cdpUrl) or wss://<browser id>.cdp.browser-use.com/devtools/browser/... (its ws)
-_CLOUD_CDP_HOST = re.compile(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.cdp\.browser-use\.com', re.I)
 PROXY_WAIT_S = 10.0  # rotate_proxy(): how long to wait for the new exit IP to show up
 # Our cloud browsers serve BrowserUse.setProxy over CDP (authorized by the CDP session, no API key), so a cdp_url cloud
 # browser gets rotate_proxy() without a key: CDP first, then the API when a key is set.
 CDP_ROTATE_SHIPPED = True
 
 
+def is_cloud_cdp(cdp_url: str | None) -> bool:
+	"""cdp_url points at a Browser Use cloud browser: its host is browser-use.com or a subdomain of it."""
+	host = (urllib.parse.urlparse(cdp_url or '').hostname or '').lower()
+	return host == 'browser-use.com' or host.endswith('.browser-use.com')
+
+
 def cloud_browser_id(cdp_url: str | None) -> str | None:
-	"""The Browser Use cloud browser id in a cdp_url that points at one, else None."""
-	host = urllib.parse.urlparse(cdp_url or '').hostname or ''
-	m = _CLOUD_CDP_HOST.fullmatch(host)
-	return m.group(1).lower() if m else None
+	"""The cloud browser's id for the API fallback: the first label of a Browser Use cdp_url's host
+	(https://<id>.cdp.browser-use.com or its wss:// endpoint), else None."""
+	if not is_cloud_cdp(cdp_url):
+		return None
+	host = (urllib.parse.urlparse(cdp_url or '').hostname or '').lower()
+	return host.split('.')[0] if host.endswith('.cdp.browser-use.com') and host.count('.') == 3 else None
 
 
 def _cloud(path: str, method: str = 'GET', body: dict | None = None, key: str | None = None) -> dict:
@@ -1275,17 +1281,26 @@ class Browser:
 		before the browser has an id."""
 		if self.use_cloud:
 			return True
-		if not self.cloud_id:
+		if not is_cloud_cdp(self.cdp_url):
 			return False
-		return CDP_ROTATE_SHIPPED or self.has_rotate_key()
+		return CDP_ROTATE_SHIPPED or (self.has_rotate_key() and bool(self.cloud_id))
 
 	def has_rotate_key(self) -> bool:
 		"""An API key for the REST path of rotate_proxy() (Browser() always has one)."""
 		if self.use_cloud:
 			return True
+		return self._own_key() or bool(self._llm_key)
+
+	def _own_key(self) -> bool:
+		"""BROWSER_USE_API_KEY or a stored login key, looked up without recording a missing-key auth event (a cdp_url
+		cloud browser rotates over CDP without any key)."""
+		from browser_use.auth import _stored_api_key
+
+		if (os.environ.get('BROWSER_USE_API_KEY') or '').strip():
+			return True
 		try:
-			return bool(browser_use_api_key(gate='cloud_browser'))
-		except Exception:  # - no key: only the CDP path
+			return bool(_stored_api_key('Browser Use Cloud', 'cloud_browser'))
+		except Exception:  # - no stored key
 			return False
 
 	async def rotate_proxy(self, country: str | None = None) -> dict:
@@ -1297,14 +1312,15 @@ class Browser:
 			raise RuntimeError('rotate_proxy() needs a Browser Use cloud browser; this one is not.')
 		if country is not None and not (isinstance(country, str) and re.fullmatch(r'[A-Za-z]{2}', country.strip())):
 			raise ValueError(f'country must be a 2-letter code like "us" or "de", not {country!r}')
-		key = self._cloud_key if self.use_cloud else ()  # the key this Browser's own calls use
+		# the key this Browser's own calls use; a cdp_url browser falls back to the model's gateway key when it has no other
+		key = self._cloud_key if self.use_cloud else ((self._llm_key,) if self._llm_key and not self._own_key() else ())
 		path = f'/browsers/{browser_id}/proxy'
 		before = await asyncio.to_thread(_cloud, path, 'GET', None, *key)
 		body: dict = {'rotate': True, **({'country': country.strip().lower()} if country else {})}
 		try:
 			after = await asyncio.to_thread(_cloud, path, 'PATCH', body, *key)
 		except RuntimeError as e:
-			if ' 409' in str(e) or 'unavailable' in str(e).lower():
+			if ' 409' in str(e):
 				raise RuntimeError(
 					"rotate_proxy(): this browser's proxy cannot be changed here (409). A browser that a Browser Use Cloud "
 					'agent session runs rotates its own proxy, and a stopped browser has none. '
@@ -1314,7 +1330,9 @@ class Browser:
 		deadline = time.monotonic() + PROXY_WAIT_S
 		while not after.get('exitIp') or after.get('exitIp') == before.get('exitIp'):
 			if time.monotonic() > deadline:
-				break
+				raise RuntimeError(
+					f'rotate_proxy(): the cloud reported no new exit IP within {PROXY_WAIT_S:g}s; the old one may still be in use'
+				)
 			await asyncio.sleep(0.5)
 			after = await asyncio.to_thread(_cloud, path, 'GET', None, *key)
 		return {k: after.get(k) for k in ('mode', 'country', 'exitIp')}

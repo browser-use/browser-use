@@ -1066,7 +1066,8 @@ def _rotate_hint(ns: dict, output: str, hinted: set) -> str:
 	if 'rotate_proxy' not in ns or not BLOCK_PAGE.search(output):
 		return ''
 	try:
-		host = urllib.parse.urlparse(ns['page_info']()['url']).hostname or ''
+		probe = getattr(ns['page_info'], '__wrapped__', ns['page_info'])  # uncounted: the agent did not call it
+		host = urllib.parse.urlparse(probe()['url']).hostname or ''
 	except Exception:  # - no tab or no page: still one hint
 		host = ''
 	if host in hinted:

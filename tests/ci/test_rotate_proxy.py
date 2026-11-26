@@ -4,7 +4,7 @@ import pytest
 
 from browser_use import Browser
 from browser_use.browser import browser as browser_mod
-from browser_use.browser.browser import cloud_browser_id
+from browser_use.browser.browser import cloud_browser_id, is_cloud_cdp
 from browser_use.repl import worker
 from browser_use.repl.session import Repl
 
@@ -16,6 +16,13 @@ def test_cloud_browser_id_from_cdp_url():
 	assert cloud_browser_id(f'wss://{ID.upper()}.cdp.browser-use.com/devtools/browser/{ID}') == ID
 	for url in (None, '', 'http://127.0.0.1:9222', f'https://{ID}.cdp.browser-use.com.evil.test', f'https://x.{ID}.example.com'):
 		assert cloud_browser_id(url) is None, url
+
+
+def test_a_cloud_browser_is_one_on_the_browser_use_domain():
+	for url in (f'https://{ID}.cdp.browser-use.com', 'wss://anything.cdp.browser-use.com/devtools/browser/x', 'https://browser-use.com'):
+		assert is_cloud_cdp(url), url
+	for url in (None, '', 'http://127.0.0.1:9222', 'https://browser-use.com.evil.test', 'https://evilbrowser-use.com', 'https://x.example.com'):
+		assert not is_cloud_cdp(url), url
 
 
 def test_only_a_cloud_browser_offers_it_with_or_without_a_key(monkeypatch):
@@ -213,3 +220,29 @@ def test_the_block_hint_and_docstring_point_one_country_sites_at_that_country():
 	assert "rotate_proxy(country='xx')" in worker.ROTATE_HINT and 'serves one country' in worker.ROTATE_HINT
 	doc = worker._rotate_proxy(lambda *a, **k: {}, cdp_first=False, rest=False).__doc__
 	assert "rotate_proxy(country='ru')" in doc and 'serves' in doc
+
+
+@pytest.mark.asyncio
+async def test_rotate_proxy_fails_when_the_exit_ip_never_changes_and_keeps_503_apart_from_409(monkeypatch):
+	from browser_use.browser import browser as bm
+
+	monkeypatch.setattr(bm, 'PROXY_WAIT_S', 0.3)
+	monkeypatch.setattr(bm, '_cloud', lambda path, method='GET', body=None, *key: {'exitIp': '1.1.1.1', 'mode': 'managed'})
+	b = bm.Browser(cdp_url=f'https://{ID}.cdp.browser-use.com')
+	with pytest.raises(RuntimeError, match='no new exit IP'):
+		await b.rotate_proxy()
+
+	def refuse(code):
+		def _c(path, method='GET', body=None, *key):
+			if method == 'PATCH':
+				raise RuntimeError(f'Browser Use Cloud answered {code}: service unavailable')
+			return {'exitIp': '1.1.1.1'}
+		return _c
+
+	monkeypatch.setattr(bm, '_cloud', refuse(409))
+	with pytest.raises(RuntimeError, match=r'cannot be changed here \(409\)'):
+		await b.rotate_proxy()
+	monkeypatch.setattr(bm, '_cloud', refuse(503))
+	with pytest.raises(RuntimeError) as e:
+		await b.rotate_proxy()
+	assert '409' not in str(e.value) and '503' in str(e.value)
