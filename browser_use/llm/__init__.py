@@ -335,9 +335,7 @@ class ChatOpenAI(_Chat):
 			from pydantic_ai.models.openrouter import OpenRouterModel
 			from pydantic_ai.providers.openrouter import OpenRouterProvider
 
-			router = OpenRouterProvider(
-				api_key=self.api_key or os.environ.get('OPENROUTER_API_KEY') or _env_key('OPENAI_API_KEY')
-			)
+			router = OpenRouterProvider(api_key=self.api_key or _env_key('OPENROUTER_API_KEY', 'OPENAI_API_KEY'))
 			return OpenRouterModel(
 				self.model,
 				provider=router,

@@ -1278,7 +1278,10 @@ async def test_claude_is_cached_on_openrouter_bedrock_and_chatopenai_openrouter(
 	router = OpenRouterModel(
 		'anthropic/claude-sonnet-4.6', provider=OpenRouterProvider(openai_client=AsyncOpenAI(base_url=url, api_key='x'))
 	)
-	await run(build_agent(router), 'task', Session(repl=Repl(tmp_path)), 'claude')  # the reply is not OpenRouter-shaped
+	result = await run(build_agent(router), 'task', Session(repl=Repl(tmp_path)), 'claude')
+	# the local server's reply lacks OpenRouter's response fields, so the run ends on exactly that validation error and
+	# nothing earlier: a regression that breaks the request or the client fails here instead of passing silently
+	assert result.status == 'error' and 'Invalid response from openrouter' in (result.error or ''), result.error
 	assert requests and 'cache_control' in json.dumps(requests[0][1])
 
 
