@@ -791,7 +791,7 @@ class Compaction(AbstractCapability[Session]):
 		overflowed = s.overflowed_step == ctx.run_step  # this attempt follows a context-window error
 		if overflowed or (not self.overflow_only and self._due(s, request_context)):
 			started, covered, summaries, failed = now(), s.covered, len(s.summaries), False
-			before = _estimate(_projected(s, messages))
+			before = _estimate(_pi(_projected(s, messages)))
 			try:
 				await _compact(s, messages, request_context)
 			except Exception as e:
@@ -800,7 +800,7 @@ class Compaction(AbstractCapability[Session]):
 					redact(f'Compaction failed, continuing with the full history: {type(e).__name__}: {e}', s.repl.secrets)
 				)
 			if failed or len(s.summaries) > summaries:  # a summary was asked for (not: too little history to compact)
-				after = _estimate(_projected(s, messages))
+				after = _estimate(_pi(_projected(s, messages)))
 				s.rec.compaction('overflow' if overflowed else 'client', now() - started, before, after, s.covered != covered)
 		request_context.messages = _projected(s, messages)
 		return request_context
@@ -809,6 +809,13 @@ class Compaction(AbstractCapability[Session]):
 		messages, window = request_context.messages, request_context.model.context_window
 		params = request_context.model_request_parameters
 		system = sum(len(p.content) for p in params.instruction_parts or [])
+		history = _pi(_projected(s, messages))
+		if self.token_threshold is None:
+			max_chars = self.max_chars or (window * 4 if window else 240_000)
+			if len(_js(history)) + system > 0.75 * max_chars:
+				return True
+			if not window:
+				return False
 		tools = len(
 			_js(
 				[
@@ -817,12 +824,11 @@ class Compaction(AbstractCapability[Session]):
 				]
 			)
 		)
-		tokens = _tokens(s, messages, system + tools)
+		estimate = _estimate(history) + -(-(system + tools) // 4)
+		tokens = _tokens(s, messages, estimate)
 		if self.token_threshold is not None:
 			return tokens >= self.token_threshold
-		max_chars = self.max_chars or (window * 4 if window else 240_000)
-		chars = _chars(_projected(s, messages)) + system
-		return chars > 0.75 * max_chars or bool(window and tokens > 0.65 * window)
+		return bool(window and tokens > 0.65 * window)
 
 	async def on_model_request_error(self, ctx: RunContext[Session], *, request_context: ModelRequestContext, error: Exception):
 		s = ctx.deps
@@ -944,10 +950,10 @@ def _chars(messages: list[ModelMessage]) -> int:
 	return len(_js(_pi(messages)))
 
 
-def _estimate(messages: list[ModelMessage]) -> int:
+def _estimate(history: list[dict[str, Any]]) -> int:
 	"""pi-coding-agent estimateTokens, summed: content characters / 4 per message, an image 4800 characters."""
 	total = 0
-	for m in _pi(messages):
+	for m in history:
 		content = m['content']
 		if isinstance(content, str):
 			n = len(content)
@@ -962,14 +968,13 @@ def _estimate(messages: list[ModelMessage]) -> int:
 	return total
 
 
-def _tokens(s: Session, messages: list[ModelMessage], fixed: int) -> int:
+def _tokens(s: Session, messages: list[ModelMessage], estimate: int) -> int:
 	"""bu-pi RunContext.tokens: the last response's context (measured after the last checkpoint) plus the estimate of
-	what came after it, at least the estimate of the request. fixed: system prompt and tool definition characters."""
-	estimate = _estimate(_projected(s, messages)) + -(-fixed // 4)
+	what came after it, at least the estimate of the request including system prompt and tool definitions."""
 	for i in range(len(messages) - 1, s.usage_after - 1, -1):
 		m = messages[i]
 		if isinstance(m, ModelResponse) and m.finish_reason != 'error' and m.usage.total_tokens > 0:
-			return max(estimate, m.usage.total_tokens + _estimate(messages[i + 1 :]))
+			return max(estimate, m.usage.total_tokens + _estimate(_pi(messages[i + 1 :])))
 	return estimate
 
 
