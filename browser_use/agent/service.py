@@ -66,6 +66,11 @@ LOCAL_TARGET = re.compile(
 	re.I,
 )
 REASONING = (None, 'low', 'medium', 'high')
+# Agent tools for a site that blocks the cloud browser even after rotate_proxy(): 'rotate' = rotate_browser() (a fresh
+# browser replaces this one), 'multi' = new_browser()/use_browser()/close_browser() (more browsers side by side).
+# Off by default; BU_BROWSER_TOOLS=rotate,multi turns them on.
+BROWSER_TOOLS: tuple[str, ...] = tuple(t for t in os.environ.get('BU_BROWSER_TOOLS', '').split(',') if t in ('rotate', 'multi'))
+MAX_EXTRA_BROWSERS = 3  # new_browser(): at most this many open at once next to the run's own
 _RUNS = itertools.count(1)  # Agent.run() calls in this process (telemetry run_in_process)
 _ACTIVE = [0]  # runs in progress in this process (telemetry concurrent_runs)
 _SCREENSHOTS = 'the agent takes screenshots when it needs them.'
@@ -338,6 +343,8 @@ class Agent:
 		self._model: Any = None
 		self._model_name = self._model_ref = self._provider = ''
 		self._repl: Repl | None = None
+		self._extra_browsers: dict[int, Browser] = {}  # new_browser(): number -> the extra cloud browser, stopped on shutdown
+		self._extra_seq = itertools.count(1)
 		self._history: list[ModelMessage] | None = None
 		self._compacted: dict[str, Any] = {}  # the last run's checkpoint (Compaction): a follow-up keeps sending it
 		self._continue = False
@@ -549,6 +556,8 @@ class Agent:
 					rotate_proxy_cdp=self.browser.can_rotate_proxy() and browser_module.CDP_ROTATE_SHIPPED,
 					highlight_actions=self.highlight_actions,
 					feedback=self._reports,
+					browser_op=self._browser_op if BROWSER_TOOLS and self.browser.use_cloud and not self.browser.cdp_url else None,
+					browser_tools=BROWSER_TOOLS,
 				)
 			history, self._continue = (self._history if self._continue else None), False
 			compacted = self._compacted if history else {}
@@ -597,6 +606,7 @@ class Agent:
 				if not self.browser.keep_alive:
 					await self._shutdown()
 				else:
+					await self._stop_extra_browsers()  # new_browser()'s extras end with the run; the kept browser stays
 					await asyncio.to_thread(self.browser.remember_tab)  # a daemon that dies before the next run reattaches it
 					# each run's files land in its own workspace; a cancelled run copies what already finished, within
 					# CANCEL_DOWNLOADS_TIMEOUT_S (a file still copying then goes to the next run or browser.stop())
@@ -700,6 +710,36 @@ class Agent:
 		self.browser.note_downloads(self.workspace / '.browser-use' / 'downloads.jsonl')
 		return await self.browser.list_downloads()
 
+	async def _browser_op(self, args: dict) -> dict:
+		"""The worker's rotate_browser() / new_browser() / close_browser(): start and stop cloud browsers here (the key
+		never enters the worker). Returns the daemon name the worker switches to."""
+		op = args.get('op')
+		country = args.get('country') if isinstance(args.get('country'), str) else None
+		if op == 'rotate':
+			env = await self.browser.rotate_browser(country)
+			return {'name': env['BU_NAME']}
+		if op == 'open':
+			if len(self._extra_browsers) >= MAX_EXTRA_BROWSERS:
+				raise RuntimeError(f'{MAX_EXTRA_BROWSERS} extra browsers are open already: close_browser(n) one first')
+			extra = self.browser.sibling(country)
+			env = await extra.start()
+			n = next(self._extra_seq)
+			self._extra_browsers[n] = extra
+			return {'browser': n, 'name': env['BU_NAME']}
+		if op == 'close':
+			extra = self._extra_browsers.pop(int(args.get('browser', -1)), None)
+			if extra is None:
+				raise ValueError('no such browser')
+			await extra.stop()
+			return {'closed': True}
+		raise ValueError(f'unknown browser op {op!r}')
+
+	async def _stop_extra_browsers(self) -> None:
+		extras, self._extra_browsers = list(self._extra_browsers.values()), {}
+		for extra in extras:  # each one bills until it stops
+			with contextlib.suppress(Exception):
+				await extra.stop()
+
 	async def _shutdown(self) -> None:
 		"""Stop the REPL and the browser; a cloud browser's downloads land in workspace/downloads. The browser stops
 		even when the REPL's close fails or is cancelled (a cloud browser bills until then); the cancel still raises."""
@@ -707,6 +747,7 @@ class Agent:
 			if self._repl:
 				repl, self._repl = self._repl, None
 				await repl.close()
+			await self._stop_extra_browsers()
 		finally:
 			self._downloads = await self.browser.stop(downloads_dir=self.workspace / 'downloads') or []
 

@@ -1047,6 +1047,98 @@ def _rotate_proxy(ask, cdp_first: bool, rest: bool):
 	return rotate_proxy
 
 
+def _browser_tools(ask, ns: dict, tools: list) -> dict:
+	"""rotate_browser() ('rotate' in tools) and new_browser()/use_browser()/close_browser() ('multi'): the parent starts and
+	stops the cloud browsers (it holds the key); here the cell switches which daemon browser-harness talks to."""
+	from browser_harness import _ipc as ipc
+	from browser_harness import helpers
+
+	daemons = {0: helpers.NAME}  # browser number -> its daemon (multi); 0 is the one the run started with
+	current = [0]
+
+	def _switch(name: str) -> None:
+		helpers.NAME, helpers.SOCK = name, ipc.sock_addr(name)
+		os.environ['BU_NAME'] = name
+
+	def _url() -> str | None:
+		try:
+			url = ns['page_info']()['url']
+		except Exception:  # - no page
+			return None
+		return url if isinstance(url, str) and url.startswith(('http://', 'https://')) else None
+
+	def _open(url: str | None) -> None:
+		if url:
+			ns['goto_url'](url)
+			with contextlib.suppress(Exception):
+				ns['wait_for_load']()
+
+	out: dict = {}
+	if 'rotate' in tools:
+
+		def rotate_browser(country=None):
+			"""Replace this cloud browser by a fresh one (new fingerprint and new exit IP) and reopen the current page there.
+
+			Use it only when the page itself is still a block after rotate_proxy() (an 'Access denied' / 403 page, or a
+			captcha the solver failed), or when rotate_proxy() is not offered and the block survived one wait and
+			reload. At most once per site. It loses this browser's tabs, cookies and logins (a profile keeps its own),
+			so never in the middle of a login or checkout, and not for slow pages or API rate limits.
+			country: a 2-letter code for the new browser's exit ('ru' for a .ru site); default keeps the country.
+			-> {'browser': 'new', 'url': the page reopened, or None}."""
+			if country is not None and not isinstance(country, str):
+				raise TypeError(f'country must be a str like "de", not {type(country).__name__}')
+			url = _url()
+			r = ask('browser', {'op': 'rotate', 'country': country})
+			_switch(r['name'])
+			daemons[current[0]] = r['name']
+			_open(url)
+			return {'browser': 'new', 'url': url}
+
+		out['rotate_browser'] = rotate_browser
+	if 'multi' in tools:
+
+		def new_browser(url=None, country=None):
+			"""Open one more fresh cloud browser (new fingerprint and exit IP) next to this one, switch to it, and open url.
+
+			Use it only when a site's page is a block for this browser (an 'Access denied' / 403 page, or a captcha the
+			solver failed) that survived one wait and reload (and rotate_proxy(), when offered): try the same site in
+			the new browser. The first browser keeps its tabs, cookies and logins; switch back with use_browser(0). At
+			most one new browser per site, and close_browser(n) the ones you no longer need (each one is billed).
+			-> {'browser': its number, 'url': url}."""
+			if country is not None and not isinstance(country, str):
+				raise TypeError(f'country must be a str like "de", not {type(country).__name__}')
+			url = url or _url()
+			r = ask('browser', {'op': 'open', 'country': country})
+			daemons[r['browser']] = r['name']
+			current[0] = r['browser']
+			_switch(r['name'])
+			_open(url)
+			return {'browser': r['browser'], 'url': url}
+
+		def use_browser(n):
+			"""Act in browser n from now on (0 = the one the run started with; new_browser() returns the others' numbers).
+			-> {'browser': n, 'url': its current page}."""
+			if n not in daemons:
+				raise ValueError(f'no browser {n}: open ones are {sorted(daemons)}')
+			current[0] = n
+			_switch(daemons[n])
+			return {'browser': n, 'url': _url()}
+
+		def close_browser(n):
+			"""Stop browser n (not 0): its tabs and cookies are gone. If it was the current one, browser 0 becomes current."""
+			if n == 0 or n not in daemons:
+				raise ValueError(f'close_browser({n}): only a browser new_browser() opened ({sorted(set(daemons) - {0})})')
+			ask('browser', {'op': 'close', 'browser': n})
+			del daemons[n]
+			if current[0] == n:
+				current[0] = 0
+				_switch(daemons[0])
+			return {'browser': current[0], 'open': sorted(daemons)}
+
+		out.update(new_browser=new_browser, use_browser=use_browser, close_browser=close_browser)
+	return out
+
+
 # A page that is itself a block for this IP: the cell output gets a pointer to rotate_proxy() (its docstring holds the
 # rules), so the system prompt stays the same and runs that are never blocked see nothing new.
 BLOCK_PAGE = re.compile(
@@ -1061,6 +1153,12 @@ ROTATE_HINT = (
 )
 
 
+BROWSER_HINT = {
+	'rotate_browser': ' If it stays blocked after that, rotate_browser() moves to a fresh browser; read help(rotate_browser).',
+	'new_browser': ' If it stays blocked after that, new_browser() tries the site in a second fresh browser; read help(new_browser).',
+}
+
+
 def _rotate_hint(ns: dict, output: str, hinted: set) -> str:
 	"""ROTATE_HINT once per site, after a cell whose output shows a block page; '' otherwise."""
 	if 'rotate_proxy' not in ns or not BLOCK_PAGE.search(output):
@@ -1072,7 +1170,8 @@ def _rotate_hint(ns: dict, output: str, hinted: set) -> str:
 	if host in hinted:
 		return ''
 	hinted.add(host)
-	return ROTATE_HINT
+	extra = ''.join(v for k, v in BROWSER_HINT.items() if k in ns)
+	return ROTATE_HINT[:-1] + extra + ']' if extra else ROTATE_HINT
 
 
 def _report_issue(ask):
@@ -1248,6 +1347,8 @@ def main() -> None:
 	if init.get('rotate_proxy') or init.get('rotate_proxy_cdp'):
 		rotate = _rotate_proxy(ask, bool(init.get('rotate_proxy_cdp')), bool(init.get('rotate_proxy')))
 		ns['rotate_proxy'] = _counted('rotate_proxy', rotate)
+	for name, fn in _browser_tools(ask, ns, init.get('browser_tools') or []).items():
+		ns[name] = _counted(name, fn)
 	ns['report_issue'] = _counted('report_issue', _report_issue(ask))
 	rotate_hinted: set = set()  # sites that got ROTATE_HINT
 	sys.path.append(os.getcwd())  # after the imports (-P kept it off sys.path[0]): modules the agent writes still import
