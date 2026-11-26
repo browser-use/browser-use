@@ -516,6 +516,10 @@ class Agent:
 					(self.workspace / sub).mkdir(exist_ok=True)
 			self.browser._downloads_dir = self.workspace / 'downloads'  # a keep_alive browser's later stop() copies there
 			phase, t = 'browser_start', now()
+			if self.browser.use_cloud and self.browser._proxy_is_default and not self.browser.id:
+				# a one-country site (lamoda.ru, cwjobs.co.uk) gets an exit in that country from the first page
+				if cc := browser_module.site_country(self.task):
+					self.browser.proxy = cc
 			try:
 				env = await self.browser.start()  # also on a follow-up: a daemon that died since is started again
 				if self._repl is None:  # a browser started for this run, not one a keep_alive Agent reuses

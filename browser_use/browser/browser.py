@@ -211,6 +211,32 @@ class _Default(str):
 
 
 US = _Default('us')
+
+# Exit countries the cloud accepts (checked against POST /browsers): the geo default never picks one it would refuse.
+PROXY_COUNTRIES = frozenset(
+	'gb de fr es it nl se no dk fi pl cz at ch be ie pt ru ua tr il in jp kr sg au nz ca mx br ar cl co za ae sa id th vn my ph tw '
+	'hk gr ro hu'.split()
+)
+_CCTLD = {'uk': 'gb'}  # top-level domains that are not their country's ISO code
+# country-code TLDs that are used as generic names (.io, .ai, .co...): never a country signal
+_GENERIC_CCTLD = frozenset('io ai co tv me ly gg fm so sh to ws cc la ac gl im'.split())
+_DOMAIN = re.compile(r'(?<![\w@.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24}))(?=[/:?#\s\'")\],;]|\.(?:\s|$)|$)', re.I)
+
+
+def site_country(task: str) -> str | None:
+	"""The one country a task's sites belong to, from their domains: 'On lamoda.ru ...' -> 'ru', 'cwjobs.co.uk' -> 'gb'.
+	None when the task names no domain, any generic one (.com, .org, .io...) or sites in different countries: a site
+	that serves one country blocks far less from an exit there (measured: +14 points on sites that block cloud browsers)."""
+	countries = set()
+	for host, tld in _DOMAIN.findall(task or ''):
+		tld = tld.lower()
+		if '@' in host or len(tld) != 2 or tld in _GENERIC_CCTLD:
+			return None
+		countries.add(_CCTLD.get(tld, tld))
+	if len(countries) != 1:
+		return None
+	cc = countries.pop()
+	return cc if cc in PROXY_COUNTRIES else None
 # https://<browser id>.cdp.browser-use.com (cdpUrl) or wss://<browser id>.cdp.browser-use.com/devtools/browser/... (its ws)
 _CLOUD_CDP_HOST = re.compile(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.cdp\.browser-use\.com', re.I)
 PROXY_WAIT_S = 10.0  # rotate_proxy(): how long to wait for the new exit IP to show up
@@ -665,6 +691,8 @@ class Browser:
 		self.keep_alive, self.live_view, self.captcha_solver = keep_alive, live_view, captcha_solver
 		proxy = cloud_proxy_country_code.lower() if cloud_proxy_country_code else None  # the API takes 'de', rejects 'DE'
 		self.profile, self.proxy, self.timeout = cloud_profile_id, proxy, cloud_timeout or 60
+		# the user left the exit country at its default: Agent may match it to the task's site (site_country)
+		self._proxy_is_default = isinstance(cloud_proxy_country_code, _Default)
 		self._local: _local.LocalBrowser | None = None  # the Chrome this Browser launched, while it runs
 		self.name: str | None = None  # browser-harness daemon this Browser owns; None = the shared default daemon
 		self.id: str | None = None  # cloud browser id
