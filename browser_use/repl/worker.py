@@ -8,6 +8,8 @@ Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init l
 partial output on disk.
 """
 
+import __future__
+
 import ast
 import asyncio
 import atexit
@@ -21,6 +23,7 @@ import hmac
 import inspect
 import io
 import json
+import operator
 import os
 import pprint
 import re
@@ -58,6 +61,9 @@ from browser_use.repl.session import (
 from browser_use.telemetry.stats import MAX_TYPED, MAX_URLS, error_class, host, page_url, raised_by_cell
 from browser_use.utils import TLSHandler, install_tls_opener, name_download
 
+FUTURE_FLAGS = functools.reduce(
+	operator.or_, (getattr(__future__, name).compiler_flag for name in __future__.all_feature_names), 0
+)
 MAX_IMAGES_PER_CELL = 4
 MAX_IMAGE_SIDE = 2048  # full-page captures exceeded OpenAI's 30k-patch limit (bub2-002)
 DIALOG_PROBE_S = 2.0  # while the daemon saw a JS dialog open: how long a page call may take before it is blamed
@@ -1046,15 +1052,14 @@ def _display(value) -> None:
 	print(value if isinstance(value, str) else pprint.pformat(value, width=120, sort_dicts=False))
 
 
-def _compile(code: str, n: int):
-	flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
-	tree = compile(code, f'<cell {n}>', 'exec', flags=ast.PyCF_ONLY_AST | flags)
+def _compile(code: str, n: int, flags: int):
+	tree = compile(code, f'<cell {n}>', 'exec', flags=ast.PyCF_ONLY_AST | flags, dont_inherit=True)
 	if tree.body and isinstance(tree.body[-1], ast.Expr):  # REPL-style: show the last expression
 		last = tree.body[-1]
 		call = ast.copy_location(ast.Call(ast.Name('__bu_display', ast.Load()), [last.value], []), last.value)
 		tree.body[-1] = ast.copy_location(ast.Expr(call), last)
 		ast.fix_missing_locations(tree)
-	return compile(tree, f'<cell {n}>', 'exec', flags=flags)
+	return compile(tree, f'<cell {n}>', 'exec', flags=flags, dont_inherit=True)
 
 
 def _run(code_obj, ns, loop):
@@ -1152,6 +1157,7 @@ def main() -> None:
 	sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)  # type: ignore[attr-defined]
 	_redact_between_cells(secrets)  # after reconfigure(): it seeks, which a pipe refuses
 	ns: dict = {'__name__': '__main__', '__bu_display': _display}
+	flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
 	bu, captcha = _install(ns, secrets)
 	ask = _ask_parent(rfile, wfile)
 	if init.get('search'):
@@ -1186,9 +1192,12 @@ def main() -> None:
 		try:
 			_back_to_agent_tab()
 			if msg['op'] == 'exec':
-				_run(_compile(msg['code'], msg['n']), ns, loop)
+				obj = _compile(msg['code'], msg['n'], flags)
+				# Remember future imports as soon as the cell compiles, even if execution raises.
+				flags |= obj.co_flags & FUTURE_FLAGS
+				_run(obj, ns, loop)
 			else:  # 'eval': read an existing value for delivery
-				obj = compile(msg['code'], '<finish>', 'eval', flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+				obj = compile(msg['code'], '<finish>', 'eval', flags=flags, dont_inherit=True)
 				value = _run(obj, ns, loop) if obj.co_flags & inspect.CO_COROUTINE else eval(obj, ns)
 				value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=_jsonable)
 		except BaseException as e:  # - the agent sees every failure
