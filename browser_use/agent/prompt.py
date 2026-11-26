@@ -67,10 +67,10 @@ CLOUD_PROMPT = (
 	f'{DOWNLOADS_PROMPT} A finished download is listed about a second later.'
 )
 CAPTCHA_PROMPT = (
-	"It solves captchas automatically, usually in 20-60 s. On a captcha or 'verify you are human' check, call "
-	"solve_captcha(): it waits for the solver (up to 95 s) and returns {'solved', 'detail', 'seconds'}; 'still "
-	"solving' means call it again. While cell output says the solver is working, do not reload, navigate, switch tabs "
-	'or click the challenge. Take over only after the solver failed or found no captcha.'
+	"It solves captchas by itself, usually in 20-60 s. On a captcha or 'verify you are human' check, leave it to the "
+	'browser: wait (time.sleep(15)) and look again, without reloading, navigating, switching tabs or clicking the '
+	'challenge. Cell output reports when the solver finishes. Take over only after it failed or the check is still '
+	'there after about 90 s.'
 )
 NO_CAPTCHA_PROMPT = 'Its automatic captcha solver is off: handle captchas yourself.'  # Browser(captcha_solver=False)
 SEARCH_PROMPT = (  # Agent(web_search=...): Browser Use Pi's SEARCH_PROMPT for the Python search()

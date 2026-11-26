@@ -195,8 +195,8 @@ class Captcha:
 		for a in active:
 			lines.append(
 				f'[captcha solver: solving {a.get("vendor") or "a captcha"} on {str(a.get("url", ""))[:200]} for '
-				f'{time.monotonic() - a["_t"]:.0f}s. Call solve_captcha() to wait for it; do not reload, navigate, switch '
-				'tabs or click the challenge meanwhile]'
+				f'{time.monotonic() - a["_t"]:.0f}s. It finishes by itself: wait and look again; do not reload, navigate, '
+				'switch tabs or click the challenge meanwhile]'
 			)
 		return '\n'.join(lines)
 
