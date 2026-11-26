@@ -989,7 +989,21 @@ def _downloads(ask):
 	return downloads
 
 
-CDP_ROTATE = 'BrowserUse.rotateProxy'  # custom CDP method of Browser Use cloud browsers: authorized by the CDP session
+CDP_ROTATE = 'BrowserUse.setProxy'  # custom CDP method of Browser Use cloud browsers: authorized by the CDP session
+
+
+def _cdp_rotate(cdp, country=None) -> dict:
+	"""New exit IP over CDP (docs.browser-use.com/cloud/browser/proxies). rotate=True is what changes the IP: a country
+	alone keeps the current IP when the browser is already there. A browser without a proxy (direct) takes no rotate; the
+	cloud says so, and then we turn the proxy on, which gives a new IP too."""
+	params = {'rotate': True, **({'country': country.strip().lower()} if country else {})}
+	try:
+		r = cdp(CDP_ROTATE, **params)
+	except Exception as e:
+		if 'direct browser' not in str(e):
+			raise
+		r = cdp(CDP_ROTATE, mode='managed', **({'country': params['country']} if country else {}))
+	return {'mode': r.get('mode', 'managed'), 'country': r.get('country'), 'exitIp': r.get('exitIp')}
 
 
 def _cdp_method_missing(e: Exception) -> bool:
@@ -998,7 +1012,7 @@ def _cdp_method_missing(e: Exception) -> bool:
 
 
 def _rotate_proxy(ask, cdp_first: bool, rest: bool):
-	"""rotate_proxy() for the cell. cdp_first: try the browser's own BrowserUse.rotateProxy over the CDP connection (no
+	"""rotate_proxy() for the cell. cdp_first: try the browser's own BrowserUse.setProxy over the CDP connection (no
 	API key needed). rest: else the parent calls the cloud API (Browser.rotate_proxy), so the key never enters this
 	process. Only defined on a Browser Use cloud browser."""
 
@@ -1013,8 +1027,7 @@ def _rotate_proxy(ask, cdp_first: bool, rest: bool):
 			try:
 				from browser_harness import helpers
 
-				r = helpers.cdp(CDP_ROTATE, country=country) if country else helpers.cdp(CDP_ROTATE)
-				return {'mode': r.get('mode', 'managed'), 'country': r.get('country'), 'exitIp': r.get('exitIp')}
+				return _cdp_rotate(helpers.cdp, country)
 			except Exception as e:  # - the browser lacks the method or refused: the API path may still do it
 				if not rest:
 					if _cdp_method_missing(e):

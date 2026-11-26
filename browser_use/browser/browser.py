@@ -214,9 +214,9 @@ US = _Default('us')
 # https://<browser id>.cdp.browser-use.com (cdpUrl) or wss://<browser id>.cdp.browser-use.com/devtools/browser/... (its ws)
 _CLOUD_CDP_HOST = re.compile(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.cdp\.browser-use\.com', re.I)
 PROXY_WAIT_S = 10.0  # rotate_proxy(): how long to wait for the new exit IP to show up
-# Our cloud browsers serve BrowserUse.rotateProxy over CDP (authorized by the CDP session, no API key). Until that ships,
-# a cdp_url browser without a key gets no rotate_proxy(); with it, the tool is offered there too and tries CDP first.
-CDP_ROTATE_SHIPPED = False
+# Our cloud browsers serve BrowserUse.setProxy over CDP (authorized by the CDP session, no API key), so a cdp_url cloud
+# browser gets rotate_proxy() without a key: CDP first, then the API when a key is set.
+CDP_ROTATE_SHIPPED = True
 
 
 def cloud_browser_id(cdp_url: str | None) -> str | None:
@@ -1270,8 +1270,9 @@ class Browser:
 		return self.id if self.use_cloud else cloud_browser_id(self.cdp_url)
 
 	def can_rotate_proxy(self) -> bool:
-		"""rotate_proxy() works here: a Browser Use cloud browser and an API key to call the cloud with. Browser() (cloud)
-		qualifies before it starts: the Agent builds its prompt before the browser has an id."""
+		"""rotate_proxy() works here: a Browser Use cloud browser (BrowserUse.setProxy over CDP needs no key; without
+		CDP_ROTATE_SHIPPED it needs an API key). Browser() (cloud) qualifies before it starts: the Agent builds its prompt
+		before the browser has an id."""
 		if self.use_cloud:
 			return True
 		if not self.cloud_id:

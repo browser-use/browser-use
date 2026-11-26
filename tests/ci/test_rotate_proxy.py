@@ -5,6 +5,7 @@ import pytest
 from browser_use import Browser
 from browser_use.browser import browser as browser_mod
 from browser_use.browser.browser import cloud_browser_id
+from browser_use.repl import worker
 from browser_use.repl.session import Repl
 
 ID = '27ea6d2b-e818-4bb6-ba44-bd743ee4bc7b'
@@ -17,7 +18,7 @@ def test_cloud_browser_id_from_cdp_url():
 		assert cloud_browser_id(url) is None, url
 
 
-def test_only_a_cloud_browser_with_a_key_offers_it(monkeypatch):
+def test_only_a_cloud_browser_offers_it_with_or_without_a_key(monkeypatch):
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
 	assert Browser(cdp_url=f'https://{ID}.cdp.browser-use.com').can_rotate_proxy()
 	assert Browser().can_rotate_proxy()  # cloud, before it starts: the Agent builds its prompt before the browser has an id
@@ -25,7 +26,9 @@ def test_only_a_cloud_browser_with_a_key_offers_it(monkeypatch):
 	assert not Browser('chromium').can_rotate_proxy()
 	monkeypatch.delenv('BROWSER_USE_API_KEY')
 	monkeypatch.setattr(browser_mod, 'browser_use_api_key', lambda **k: (_ for _ in ()).throw(RuntimeError('no key')))
-	assert not Browser(cdp_url=f'https://{ID}.cdp.browser-use.com').can_rotate_proxy()
+	b = Browser(cdp_url=f'https://{ID}.cdp.browser-use.com')
+	assert b.can_rotate_proxy() and not b.has_rotate_key()  # BrowserUse.setProxy over CDP needs no key
+	assert not Browser(cdp_url='http://127.0.0.1:9222').can_rotate_proxy()
 
 
 @pytest.fixture
@@ -109,7 +112,7 @@ async def test_repl_without_a_cloud_browser_has_no_rotate_proxy(tmp_path):
 
 
 async def test_cdp_first_falls_back_to_the_api_on_a_browser_without_the_method(daemon, tmp_path):
-	"""Chrome has no BrowserUse.rotateProxy (our browsers will): with a key the parent's API call answers instead."""
+	"""Chrome has no BrowserUse.setProxy (our cloud browsers do): with a key the parent's API call answers instead."""
 	asked = []
 
 	async def rotate(country):
@@ -133,10 +136,40 @@ async def test_cdp_only_says_what_is_missing_on_a_browser_without_the_method(dae
 		await repl.close()
 
 
-def test_cdp_rotate_is_offered_without_a_key_only_once_it_ships(monkeypatch):
-	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
-	monkeypatch.setattr(browser_mod, 'browser_use_api_key', lambda **k: (_ for _ in ()).throw(RuntimeError('no key')))
-	b = Browser(cdp_url=f'https://{ID}.cdp.browser-use.com')
-	assert not b.can_rotate_proxy() and not b.has_rotate_key()
-	monkeypatch.setattr(browser_mod, 'CDP_ROTATE_SHIPPED', True)
-	assert b.can_rotate_proxy() and not b.has_rotate_key()
+def _fake_cdp(answers):
+	"""A CDP send for BrowserUse.setProxy: pops one answer per call (an Exception is raised), records the params."""
+	sent = []
+
+	def cdp(method, **params):
+		assert method == 'BrowserUse.setProxy'
+		sent.append(params)
+		a = answers.pop(0)
+		if isinstance(a, Exception):
+			raise a
+		return a
+
+	return cdp, sent
+
+
+def test_cdp_rotate_asks_for_a_new_ip_and_keeps_the_country_unless_given():
+	cdp, sent = _fake_cdp(
+		[{'mode': 'managed', 'country': 'us', 'exitIp': '2.2.2.2'}, {'mode': 'managed', 'country': 'de', 'exitIp': '3.3.3.3'}]
+	)
+	assert worker._cdp_rotate(cdp) == {'mode': 'managed', 'country': 'us', 'exitIp': '2.2.2.2'}
+	assert worker._cdp_rotate(cdp, ' DE ')['exitIp'] == '3.3.3.3'
+	assert sent == [{'rotate': True}, {'rotate': True, 'country': 'de'}]  # a country alone keeps the IP when already there
+
+
+def test_cdp_rotate_turns_the_proxy_on_for_a_direct_browser():
+	direct = RuntimeError(
+		'BrowserUse.setProxy: invalid proxy change: a direct browser takes no country, provider, or rotate; send mode managed to turn the proxy on'
+	)
+	cdp, sent = _fake_cdp([direct, {'mode': 'managed', 'country': 'us', 'exitIp': '4.4.4.4'}])
+	assert worker._cdp_rotate(cdp)['exitIp'] == '4.4.4.4'
+	assert sent == [{'rotate': True}, {'mode': 'managed'}]
+
+
+def test_cdp_rotate_passes_other_refusals_through():
+	cdp, _ = _fake_cdp([RuntimeError('BrowserUse.setProxy: invalid proxy change: unknown country "zz"')])
+	with pytest.raises(RuntimeError, match='unknown country'):
+		worker._cdp_rotate(cdp, 'zz')

@@ -308,7 +308,7 @@ class Repl:
 	search() in the worker, answered here (the API key stays in this process). downloads: defines downloads() in the
 	worker, answered here (Browser.list_downloads). rotate_proxy: defines rotate_proxy() in the worker, answered here
 	(Browser.rotate_proxy; the API key stays in this process). rotate_proxy_cdp: the worker first tries the browser's own
-	BrowserUse.rotateProxy over CDP (no key), then falls back to rotate_proxy. feedback: answers report_issue() with the confirmation the cell
+	BrowserUse.setProxy over CDP (no key), then falls back to rotate_proxy. feedback: answers report_issue() with the confirmation the cell
 	gets (telemetry/feedback.RunReports); without it nothing is sent. highlight_actions: orange corner brackets around
 	what the agent clicks or types into (repl/highlight.py)."""
 
