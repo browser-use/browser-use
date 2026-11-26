@@ -1,7 +1,7 @@
 """page_info() that waits for a new document's <html> element (cli-1).
 
-DELETE this module and its uses (repl/worker.py, mcp/cli_mcp.py, cli.py) once browser-harness pins a page_info() that
-waits for or null-guards document.documentElement.
+DELETE this module and its uses (repl/worker.py, mcp/cli_mcp.py, cli.py) with the browser-harness 0.1.13 pin: from
+0.1.14 its own page_info() waits for <html> (helpers.PAGE_INFO_ROOT_WAIT_S), and install() leaves it alone.
 
 new_tab(url) and goto_url(url) return when Page.navigate does: the new document has committed, but until its first bytes
 are parsed it has no <html> element. browser-harness 0.1.13's page_info() reads document.documentElement.scrollWidth, so
@@ -22,8 +22,8 @@ def install() -> None:
 	from browser_harness import helpers
 
 	original = helpers.page_info
-	if getattr(original, '__bu_waits_for_root__', False):
-		return
+	if hasattr(helpers, 'PAGE_INFO_ROOT_WAIT_S') or getattr(original, '__bu_waits_for_root__', False):
+		return  # browser-harness >= 0.1.14 waits itself
 
 	@functools.wraps(original)
 	def page_info():

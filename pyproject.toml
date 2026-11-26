@@ -16,13 +16,13 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "browser-harness==0.1.13",
+    "browser-harness==0.1.14",
     "pydantic==2.14.3",
     "pydantic-ai-slim[openai,anthropic,google]==2.66.0",
     "google-genai==2.34.0",
     "genai-prices==0.2.1",
     "idna==3.20",
-    "pillow==12.3.0",
+    "pillow==13.0.0",
     "python-dotenv==1.2.4",
     "uuid7==0.1.0",
     "mcp==2.3.0",
@@ -122,6 +122,8 @@ allow-direct-references = true
 # Supply-chain freeze: uv.lock resolves only packages published before this time.
 # Move it forward on purpose (uv lock --upgrade), never implicitly.
 exclude-newer = "2026-11-09T09:48:30Z"
+# browser-harness 0.1.14 was published 2026-11-24 08:17 UTC; only it moves past the freeze.
+exclude-newer-package = { browser-harness = "2026-11-24T09:00:00Z" }
 
 [dependency-groups]
 dev = [

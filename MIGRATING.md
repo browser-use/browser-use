@@ -303,17 +303,22 @@ MCP tool that opens the browser to approve and stores the same key. Over SSH or 
 `browser-use login` signs in with a device code (the browser that approves cannot reach this machine's loopback
 callback); with `--json` its output then has `verification_uri` and `user_code`, not `auth_url` and `callback` (pass
 `--device-code` to always get that form, `--no-open` to keep the link form). The old `browser-use --mcp` server (tools like
-`browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now prints a deprecation notice and serves the
-`--cli-mcp` tools (`browser_exec`, `browser_screenshot`). Calls to the old tool names return the removed error with the
-`browser_exec` alternative; switch those clients to `--cli-mcp`. Locally `--mcp` still runs its own Chromium on a temp
-profile, as 0.x did, while `--cli-mcp` drives your own Chrome (or Brave, Arc, Edge) with your logins. Where that cannot
+`browser_navigate`, `browser_click`) ran the removed engine: `--mcp` now serves the exec tools (`browser_exec`,
+`browser_screenshot`, `browser_login`, `browser_feedback`) and is the same server as `--cli-mcp`, which stays as an alias.
+Calls to the old tool names return the removed error with the `browser_exec` alternative. On a machine with a 0.x setup
+(its `config.json`, or `BROWSER_USE_ALLOWED_DOMAINS` / `BROWSER_USE_PROXY_*`) `--mcp` prints a notice and still runs
+its own Chromium on a temp profile, as 0.x did, with that config's domain limits; without one, and always with
+`--cli-mcp`, it drives your own Chrome (or Brave, Arc, Edge) with your logins. Where that cannot
 work (Linux with no display, or no Chromium-family browser installed) `--cli-mcp` 1.0.1 also runs its own Chromium for
 the rest of that server process. Both install Playwright's Chromium in the first `browser_exec` call when none is there
 and the machine has no display (as root on Linux also its system libraries, with `apt-get install libatomic1`). The first
 `browser_exec` result that attaches a local browser names it in a second text block, after the code's output (a
 cloud browser's `start_remote_daemon()` result names it itself). `http_get()` in the CLI and
 `--cli-mcp` is plain HTTP from this machine, as in the Agent: it no longer goes through the fetch-use proxy when
-`BROWSER_USE_API_KEY` is set (URLs and headers stay local; localhost and intranet URLs work). `--mcp` (and `python -m browser_use.mcp`)
+`BROWSER_USE_API_KEY` is set (URLs and headers stay local; localhost and intranet URLs work). On a cloud browser,
+`solve_captcha()` waits for its captcha solver, and CLI output and `browser_exec` results end with
+`[Captcha solver ...]` lines (in `browser_exec`: their own text block) while a solve runs and once when one finishes;
+this needs browser-harness 0.1.14. `--mcp` on a 0.x setup (and `python -m browser_use.mcp`)
 keeps the `allowed_domains` / `prohibited_domains` of the default `browser_profile` in the 0.x `config.json` and
 `BROWSER_USE_ALLOWED_DOMAINS` (with either set, `start_remote_daemon()` is off: a cloud browser would open any site); a configured proxy (`proxy`, `BROWSER_USE_PROXY_*`) exits 2 instead of being dropped. `browser-use init` templates were removed.
 

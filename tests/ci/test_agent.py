@@ -124,6 +124,26 @@ async def test_a_keep_alive_browser_whose_daemon_died_between_runs_starts_in_the
 		await browser.stop()
 
 
+async def test_with_bh_owner_set_browser_use_and_its_repl_drive_the_same_tabs(chrome, tmp_path, monkeypatch):
+	"""browser-harness 0.1.14 gives each owner only its own tabs. With BH_OWNER set (browser-harness tells sub-agents to
+	set it) the REPL worker was that owner and this process's own daemon requests were 'default': remember_tab() kept a
+	blank tab of its own, and the domain sweep and the judge's screenshot saw the agent's tab with no url."""
+	monkeypatch.setenv('BH_OWNER', 'subagent1')
+	browser = Browser(cdp_url=chrome['http'])
+	repl = Repl(tmp_path, await browser.start())
+	try:
+		r = await repl.call('exec', "tab = new_tab('data:text/html,<title>mine</title>'); wait_for_load(); print(tab)", 30)
+		assert r['error'] is None, r
+		tab = r['output'].split()[-1]
+		browser.remember_tab()
+		urls = {t['targetId']: t['url'] for t in browser._cdp()('Target.getTargets')['targetInfos']}
+		assert browser._agent_tab == tab and urls[tab] == 'data:text/html,<title>mine</title>'
+		assert browser._screenshot(10)
+	finally:
+		await repl.close()
+		await browser.stop()
+
+
 async def test_structured_output(chrome, tmp_path):
 	class Story(BaseModel):
 		title: str
@@ -199,8 +219,7 @@ async def test_your_chrome_reads_titles_unmarked_on_a_daemon_that_marks_them(chr
 	admin.ensure_daemon(name=name, env={'BH_TAB_MARKER': '1'})  # what the CLI / MCP / browser-harness itself start
 	# The tab that daemon already drives and marked (a CLI call left it there): the agent starts on it.
 	tab = _daemon_cdp(name, 'Target.createTarget', url='data:text/html,<title>Before</title><h1>ok</h1>')['targetId']
-	sid = _daemon_cdp(name, 'Target.attachToTarget', targetId=tab, flatten=True)['sessionId']
-	_daemon_request(name, {'meta': 'set_session', 'session_id': sid, 'target_id': tab})
+	assert 'error' not in _daemon_request(name, {'meta': 'switch_tab', 'target_id': tab})
 	deadline = time.time() + 5
 	while not _daemon_cdp(name, 'Runtime.evaluate', expression='document.title')['result']['value'].startswith('\U0001f434'):
 		assert time.time() < deadline, 'the daemon never marked the tab'
@@ -847,7 +866,7 @@ async def test_type_secret_types_tabs_newlines_and_non_ascii_exactly(daemon, tmp
 		code = f"new_tab({page!r}); wait_for_load(); js('document.getElementById(\"ta\").focus()'); type_secret('pw')"
 		r = await repl.call('exec', code, 30)
 		read = f'print(js(\'document.getElementById("ta").value\') == {value!r}, repr(js(\'document.getElementById("next").value\')))'
-		state = await repl.call('exec', read + '; close_tab()', 30)
+		state = await repl.call('exec', read + '; _ = close_tab()', 30)  # 0.1.14 returns its id, and a last value is shown
 	finally:
 		await repl.close()
 	assert r['error'] is None, r
@@ -970,7 +989,7 @@ async def test_domain_scoped_secret_checks_the_frame_that_receives_it(daemon, tm
 	async def attempt(path, name, read, focus='js(\'window.focusFrame ? focusFrame() : document.getElementById("i").focus()\')'):
 		code = f"new_tab('{allowed}{path}'); wait_for_load(); import time; time.sleep(1)\n{focus}; time.sleep(0.3)\ntype_secret({name!r})"
 		error = (await repl.call('exec', code, 30))['error'] or ''
-		value = (await repl.call('exec', f'print(repr({read})); close_tab()', 30))['output'].strip()  # one frame per URL
+		value = (await repl.call('exec', f'print(repr({read})); _ = close_tab()', 30))['output'].strip()  # one frame per URL
 		return 'PermissionError' in error, value
 
 	cross = f"js('document.getElementById(\"f\").value', target_id=iframe_target('localhost:{op}'))"

@@ -117,6 +117,23 @@ def mcp_call(arguments: dict) -> tuple[str, bool]:
 	return SENT, False
 
 
+def mcp_report_issue(message: str, category: str = 'bug') -> str:
+	"""report_issue() in browser_exec code: the browser_feedback tool's path (source mcp, its rules, its cap per server),
+	in place of browser-harness's own (labelled harness-cli)."""
+	return mcp_call({'message': message, 'category': category})[0]
+
+
+def cli_report_issue(message: str, category: str = 'bug') -> str:
+	"""report_issue() in code piped to the browser-use CLI: `browser-use feedback` (source cli, sent with usage stats off),
+	in place of browser-harness's own (labelled harness-cli). Under BU_MODEL_CODE nothing is sent, as there."""
+	from browser_use.telemetry.service import telemetry
+
+	if not isinstance(message, str) or not message.strip():
+		return 'report_issue(message) needs text: nothing was sent.'
+	telemetry().notice = False  # the CLI's stderr stays its own
+	return SENT if capture('cli', message, category, consent=True) is not None else MODEL_CODE
+
+
 class RunReports:
 	"""report_issue() for one Agent: its REPL calls it (Repl(feedback=...)) and the Agent points it at each run (start).
 	Holds no REPL or session, so an Agent dropped without close() still frees its worker."""

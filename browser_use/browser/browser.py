@@ -366,13 +366,21 @@ def _unreachable(cdp_url: str, cause: object) -> RuntimeError:
 	)
 
 
+def _owner() -> str:
+	"""The browser-harness owner (the tabs a caller drives) of this process's daemon requests and of the REPL worker:
+	BH_OWNER, else 'default'. The worker gets it as BH_OWNER (Browser._start_locked), since the host agent's session id
+	browser-harness would fall back to is not passed to it: two owners, and the parent's sweep, screenshots and
+	remember_tab() saw another tab than the agent's."""
+	return os.environ.get('BH_OWNER') or 'default'
+
+
 def _daemon_request(name: str, request: dict, timeout: float = 30) -> dict:
 	from browser_harness import _ipc as ipc
 
 	c, token = ipc.connect(name, timeout=5.0)
 	try:
 		c.settimeout(timeout)
-		return ipc.request(c, token, request)
+		return ipc.request(c, token, {'owner': _owner(), **request})
 	finally:
 		c.close()
 
@@ -433,7 +441,10 @@ def _name_daemon_files() -> None:
 
 	if os.environ.get('BH_RUNTIME_DIR') or os.environ.get('BH_TMP_DIR'):
 		os.environ['BH_RUNTIME_DIR_SHARED'] = os.environ['BH_TMP_DIR_SHARED'] = '1'
-		ipc.BH_RUNTIME_DIR_SHARED = ipc.BH_TMP_DIR_SHARED = True
+		# browser-harness 0.1.14 always uses per-name files and has no such flags; 0.1.13 reads them at import
+		for flag in ('BH_RUNTIME_DIR_SHARED', 'BH_TMP_DIR_SHARED'):
+			if hasattr(ipc, flag):
+				setattr(ipc, flag, True)
 
 
 def require_harness_dirs() -> None:
@@ -738,6 +749,7 @@ class Browser:
 						fd, self._tabs_file = tempfile.mkstemp(prefix='browser-use-tabs-')
 						os.close(fd)
 					env['BU_TABS_FILE'] = self._tabs_file
+			env['BH_OWNER'] = _owner()
 			self._env = env
 		elif self._local is not None and self._local.proc is not None and self._local.proc.poll() is not None:
 			await self._stop()  # the Chrome this Browser launched died (crash, OOM, kill): launch a new one
@@ -878,8 +890,9 @@ class Browser:
 			own = _daemon_request(self.name, {'meta': 'current_tab'}, timeout=5)
 			if own.get('targetId') in (None, self._agent_tab):
 				return
-			sid = _daemon_cdp(self.name, 'Target.attachToTarget', targetId=self._agent_tab, flatten=True)['sessionId']
-			_daemon_request(self.name, {'meta': 'set_session', 'session_id': sid, 'target_id': self._agent_tab})
+			r = _daemon_request(self.name, {'meta': 'switch_tab', 'target_id': self._agent_tab}, timeout=10)
+			if 'error' in r:  # tab-closed, tab-taken: the run starts in the daemon's own tab
+				raise RuntimeError(r['error'])
 			if own.get('url') == 'about:blank':
 				_daemon_cdp(self.name, 'Target.closeTarget', targetId=own['targetId'])
 				# Chrome closes it after it answers: the run's first list_tabs() still showed it (busy machine)

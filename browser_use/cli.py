@@ -48,46 +48,25 @@ def _scrub_harness_telemetry() -> None:
 
 	from browser_use.config import CONFIG
 
-	enabled = telemetry.is_enabled
-	if not getattr(enabled, '__bu_scrubbed__', False):
+	def install_id(create: bool = True) -> str | None:
+		"""The id `browser-use telemetry status` shows: the one cli_event is sent under."""
+		from browser_use.telemetry.service import get_or_create_device_id
 
-		def is_enabled() -> bool:
-			return bool(CONFIG.ANONYMIZED_TELEMETRY) and enabled()
+		return get_or_create_device_id() if create and CONFIG.ANONYMIZED_TELEMETRY else None
 
-		is_enabled.__bu_scrubbed__ = True  # type: ignore[attr-defined]
-		telemetry.is_enabled = is_enabled
-	if not getattr(telemetry._install_id, '__bu_scrubbed__', False):
+	def status(out: dict) -> dict:
+		"""`browser-use telemetry status|enable|disable`: whether browser-use sends, ANONYMIZED_TELEMETRY read as the
+		library reads it (browser-harness alone took n or disable for on)."""
+		from browser_use.telemetry import service
 
-		def install_id(config: dict | None = None, *, create: bool = True) -> str | None:
-			"""The id `browser-use telemetry status` shows: the one cli_event is sent under."""
-			from browser_use.telemetry.service import get_or_create_device_id
+		service._harness_config_disabled = bool(out.get('disabled_by_config'))  # enable/disable just changed it
+		out['disabled_by_env'] = bool(out.get('disabled_by_env')) or not CONFIG.ANONYMIZED_TELEMETRY
+		out['enabled'] = service.telemetry().enabled
+		if not out['enabled']:
+			out['install_id'] = None
+		return out
 
-			return get_or_create_device_id() if create and CONFIG.ANONYMIZED_TELEMETRY else None
-
-		install_id.__bu_scrubbed__ = True  # type: ignore[attr-defined]
-		telemetry._install_id = install_id
-	if not getattr(telemetry.status, '__bu_scrubbed__', False):
-		harness_status = telemetry.status
-
-		def status() -> dict:
-			"""`browser-use telemetry status|enable|disable`: whether browser-use sends, ANONYMIZED_TELEMETRY read as the
-			library reads it (browser-harness alone took n or disable for on)."""
-			from browser_use.telemetry import service
-
-			out = harness_status()
-			service._harness_config_disabled = bool(out.get('disabled_by_config'))  # enable/disable just changed it
-			out['disabled_by_env'] = bool(out.get('disabled_by_env')) or not CONFIG.ANONYMIZED_TELEMETRY
-			out['enabled'] = service.telemetry().enabled
-			if not out['enabled']:
-				out['install_id'] = None
-			return out
-
-		status.__bu_scrubbed__ = True  # type: ignore[attr-defined]
-		telemetry.status = status
-	if getattr(telemetry._send_detached, '__bu_scrubbed__', False):
-		return
-
-	def scrubbed(payload: dict) -> None:
+	def send(payload: dict) -> None:
 		from browser_use.telemetry.service import Job
 		from browser_use.telemetry.service import telemetry as product_telemetry
 		from browser_use.telemetry.stats import scrub_cli_event
@@ -100,8 +79,37 @@ def _scrub_harness_telemetry() -> None:
 		product_telemetry().notice = False  # no log line on the CLI's stderr each call (it never had one)
 		product_telemetry().capture_run(Job(str(event.get('event') or 'cli_event'), lambda steps, keys: props))
 
-	scrubbed.__bu_scrubbed__ = True  # type: ignore[attr-defined]
-	telemetry._send_detached = scrubbed
+	set_sink = getattr(telemetry, 'set_sink', None)
+	if set_sink is not None:  # browser-harness >= 0.1.14: its public hook, no private functions replaced
+		set_sink(send, enabled=lambda: bool(CONFIG.ANONYMIZED_TELEMETRY), install_id=install_id, status=status)
+		return
+	# browser-harness 0.1.13: replace the four functions set_sink() hooks. Delete with the 0.1.13 pin.
+	enabled = telemetry.is_enabled
+	if not getattr(enabled, '__bu_scrubbed__', False):
+
+		def is_enabled() -> bool:
+			return bool(CONFIG.ANONYMIZED_TELEMETRY) and enabled()
+
+		is_enabled.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry.is_enabled = is_enabled
+	if not getattr(telemetry._install_id, '__bu_scrubbed__', False):
+
+		def harness_install_id(config: dict | None = None, *, create: bool = True) -> str | None:
+			return install_id(create)
+
+		harness_install_id.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry._install_id = harness_install_id
+	if not getattr(telemetry.status, '__bu_scrubbed__', False):
+		harness_status = telemetry.status
+
+		def status_() -> dict:
+			return status(harness_status())
+
+		status_.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry.status = status_
+	if not getattr(telemetry._send_detached, '__bu_scrubbed__', False):
+		send.__bu_scrubbed__ = True  # type: ignore[attr-defined]
+		telemetry._send_detached = send
 
 
 def _capture_via_harness(
@@ -146,22 +154,44 @@ def _run_mcp_stdio_server(module_name: str, **kwargs: Any) -> None:
 	asyncio.run(main(**kwargs))
 
 
+_0X_MCP_ENV = (
+	'BROWSER_USE_ALLOWED_DOMAINS',
+	'BROWSER_USE_PROXY_URL',
+	'BROWSER_USE_NO_PROXY',
+	'BROWSER_USE_PROXY_USERNAME',
+	'BROWSER_USE_PROXY_PASSWORD',
+)
+
+
+def _0x_config_path() -> Path:
+	"""Where 0.x kept config.json (0.x config.py): BROWSER_USE_CONFIG_PATH, BROWSER_USE_CONFIG_DIR, else the XDG dir."""
+	import os
+
+	if os.environ.get('BROWSER_USE_CONFIG_PATH'):
+		return Path(os.environ['BROWSER_USE_CONFIG_PATH']).expanduser()
+	if os.environ.get('BROWSER_USE_CONFIG_DIR'):
+		return Path(os.environ['BROWSER_USE_CONFIG_DIR']).expanduser() / 'config.json'
+	return Path(os.environ.get('XDG_CONFIG_HOME') or '~/.config').expanduser() / 'browseruse' / 'config.json'
+
+
+def _0x_mcp_setup() -> bool:
+	"""A 0.x install (its config.json, written on first run, or its domain / proxy variables): --mcp then stays the 0.x
+	server's own Chromium with its limits. Elsewhere --mcp is --cli-mcp."""
+	import os
+
+	return any(os.environ.get(k) for k in _0X_MCP_ENV) or _0x_config_path().is_file()
+
+
 def _mcp_browser_options() -> dict[str, Any]:
 	"""The 0.x --mcp server's browser restrictions (0.x config.py, mcp/server.py): allowed_domains and prohibited_domains
 	of config.json's default browser_profile, BROWSER_USE_ALLOWED_DOMAINS over them. Ignoring them gave an MCP client
 	restricted to one site a browser that goes anywhere. A proxy, which 1.0 cannot run locally, raises."""
 	import json
 	import os
-	from pathlib import Path
 
 	from browser_use.exceptions import removed
 
-	if os.environ.get('BROWSER_USE_CONFIG_PATH'):
-		path = Path(os.environ['BROWSER_USE_CONFIG_PATH']).expanduser()
-	elif os.environ.get('BROWSER_USE_CONFIG_DIR'):
-		path = Path(os.environ['BROWSER_USE_CONFIG_DIR']).expanduser() / 'config.json'
-	else:
-		path = Path(os.environ.get('XDG_CONFIG_HOME') or '~/.config').expanduser() / 'browseruse' / 'config.json'
+	path = _0x_config_path()
 	try:
 		profiles = list((json.loads(path.read_text(encoding='utf-8')).get('browser_profile') or {}).values())
 	except (OSError, ValueError, AttributeError):  # no config, or one 0.x itself replaced with a fresh default
@@ -188,7 +218,11 @@ def _run_mcp_server(command: str = 'browser-use --mcp') -> int:
 	# 0.x server's own Chromium and its domain restrictions: an old config must not start driving the user's logged-in
 	# Chrome, or go to sites it was kept off.
 	print(
-		f'{command} is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
+		f'{command} found a 0.x browser-use setup (config.json or BROWSER_USE_* variables), so it serves the MCP tools '
+		"(browser_exec, browser_screenshot, browser_login, browser_feedback) on its own Chromium with that config's "
+		'domain limits; browser-use --cli-mcp drives your own Chrome instead.'
+		if command == 'browser-use --mcp'
+		else f'{command} is deprecated and now serves the --cli-mcp tools (browser_exec, browser_screenshot, '
 		'browser_login, browser_feedback) on its own Chromium; browser-use --cli-mcp drives your own Chrome instead.',
 		file=sys.stderr,
 	)
@@ -899,9 +933,9 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	from browser_harness import helpers, run
 
 	from browser_use.browser.browser import _name_daemon_files
-	from browser_use.repl import worker
 	from browser_use.repl.capture import install as install_capture
 	from browser_use.repl.page_info import install as install_page_info
+	from browser_use.telemetry import feedback
 
 	global _delegated_to_harness
 
@@ -917,9 +951,18 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	run.page_info = helpers.page_info
 	install_capture()  # win-cli-5: a hidden tab's screenshot gets the Agent's activate fallback
 	run.cdp = helpers.cdp
-	# The Agent's http_get, plain HTTP from this machine: browser-harness's sends the URL and headers to the fetch-use
-	# proxy whenever BROWSER_USE_API_KEY is set (localhost and intranet URLs then fail, Authorization leaves the machine)
-	run.http_get = worker.http_get
+	# browser-harness 0.1.14's report_issue()/report_run() send as harness-cli to its own events: report_issue is
+	# `browser-use feedback` here, and the run is not reported from piped code
+	run.report_issue = feedback.cli_report_issue
+	if hasattr(run, 'report_run'):
+		del run.report_run
+	if not hasattr(helpers, '_proxy_can_reach'):  # browser-harness 0.1.13; delete with that pin
+		# The Agent's http_get, plain HTTP from this machine: 0.1.13's decoded every body (UnicodeDecodeError on binary)
+		# and sent every URL and its headers to the fetch-use proxy whenever BROWSER_USE_API_KEY was set (localhost and
+		# intranet URLs then failed, Authorization left the machine). 0.1.14's returns bytes and keeps those local.
+		from browser_use.repl import worker
+
+		run.http_get = worker.http_get
 	args = sys.argv[1:]
 	if args == ['--reload']:  # restarting a name on purpose is how it may drive a local Chrome again after a cloud one
 		from browser_use import harness_cloud
@@ -940,10 +983,21 @@ def _run_browser_harness(code: str | None = None) -> int | None:
 	if subcommand:  # `video --help`, `video init`'s "next: ... run browser-harness video review"
 		sys.stdout = _HarnessStderr(stdout, subcommand)
 	try:
-		run.main()
+		_harness_main(run)
 	finally:
 		sys.stdout, sys.stderr = stdout, stderr
 	return None
+
+
+def _harness_main(run: Any) -> None:
+	"""browser-harness's CLI under this name: run.main(prog='browser-use') where it has the name hook (0.1.14) for its
+	help, usage and hints. _HarnessStderr's rebrand stays for 0.1.13 and the lines the hook leaves (Allow prompt)."""
+	import inspect
+
+	if 'prog' in inspect.signature(run.main).parameters:
+		run.main(prog='browser-use')
+	else:
+		run.main()
 
 
 _AGENT_HINT = (
@@ -1119,7 +1173,8 @@ Commands:
                                       print or install the agent skill
   browser-use feedback "what happened" [--category bug|docs|missing|other]
                                       send the Browser Use team your integration report, bug or feature request
-  browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback)
+  browser-use --mcp                   run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback);
+                                      --cli-mcp is the same
   browser-use --version               print the versions
 Update: uv tool install browser-use@latest (or pip install -U browser-use). A call that cannot reach a browser asks
 PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=1 turns that off.
@@ -1211,6 +1266,9 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		_run_cli_mcp_server()
 		return 0, 'cli-mcp'
 	if '--mcp' in args:
+		if not _0x_mcp_setup():  # the canonical name of the --cli-mcp server (browser_exec on the user's Chrome)
+			_run_cli_mcp_server()
+			return 0, 'mcp'
 		return _run_mcp_server(), 'mcp'
 	if args in (['--doctor'], ['doctor']):  # browser-harness's doctor: its name, its version, FAIL for a stopped daemon
 		return _run_doctor(), 'doctor'

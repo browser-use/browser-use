@@ -6,6 +6,7 @@ layer: the REPL helpers refuse (worker.py), the browser blocks (Guard), the cell
 Agent run on Browser('chromium') wires all of them."""
 
 import asyncio
+import contextlib
 import http.server
 import json
 import threading
@@ -413,6 +414,46 @@ async def test_attach_mode_sweeps_a_tab_the_agent_used_and_left_in_one_cell(daem
 			cdp('Target.closeTarget', targetId=tab)
 	assert urls[a] == 'about:blank' and len(notes) == 1 and a[:8] in notes[0]
 	assert urls[c] == f'{site["evil"]}/c' and urls[b] == f'{site["allowed"]}/b'
+
+
+async def test_attach_mode_sweeps_a_tab_the_agent_opened_with_new_tab_and_left(daemon, site, tmp_path, monkeypatch):
+	"""browser-harness 0.1.14 opens and switches tabs in the daemon (meta new_tab / switch_tab), with no
+	Target.createTarget or attachToTarget through the worker's cdp(), so the tabs file missed them: a tab the agent
+	opened with new_tab(), sent to a disallowed page and left in one cell was never swept."""
+	from functools import partial
+
+	from browser_use.browser.browser import _daemon_cdp
+
+	cdp = partial(_daemon_cdp, daemon['BU_NAME'])
+	b = cdp('Target.createTarget', url=f'{site["allowed"]}/b')['targetId']
+	tabs = tmp_path / 'tabs'
+	repl = Repl(tmp_path, {**daemon, 'BU_DOMAINS': RULES.to_json(), 'BU_TABS_FILE': str(tabs)})
+	opened = None
+	try:
+		code = (
+			f'opened = new_tab({site["allowed"] + "/a"!r}); wait_for_load(); js("location.href = {site["evil"] + "/escaped"!r}"); '
+			f'wait(1); switch_tab({b!r}); print(opened)'
+		)
+		r = await repl.call('exec', code, 30)
+		assert r['error'] is None, r
+		opened = r['output'].split()[-1]
+		monkeypatch.setenv('BU_NAME', daemon['BU_NAME'])
+		browser = Browser('chrome', allowed_domains=['allowed.localhost'])
+		browser._tabs_file, browser._user_tabs = str(tabs), {}
+		notes = await asyncio.to_thread(browser._sweep)
+		for _ in range(50):  # the reset commits shortly after Page.navigate returns
+			urls = {t['targetId']: t['url'] for t in cdp('Target.getTargets')['targetInfos']}
+			if urls.get(opened) == 'about:blank':
+				break
+			await asyncio.sleep(0.1)
+	finally:
+		await repl.close()
+		for tab in (b, opened):  # the browser is shared with later tests
+			if tab:
+				with contextlib.suppress(RuntimeError):
+					cdp('Target.closeTarget', targetId=tab)
+	assert opened in tabs.read_text().split() and b in tabs.read_text().split()
+	assert urls[opened] == 'about:blank' and len(notes) == 1 and opened[:8] in notes[0], (urls, notes)
 
 
 async def test_the_kept_tabs_are_taken_once_per_browser(monkeypatch):
