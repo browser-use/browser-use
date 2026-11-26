@@ -199,9 +199,9 @@ async def test_the_hint_reaches_the_cell_output_once(tmp_path):
 	repl = Repl(tmp_path, rotate_proxy=rotate)
 	try:
 		r = await repl.call('exec', "print('Access Denied')", 30)
-		assert 'rotate_proxy() gives this browser a new exit IP' in r['output'] and 'help(rotate_proxy)' in r['output']
+		assert r['output'].count('[this page looks blocked for this IP') == 1 and 'help(rotate_proxy)' in r['output']
 		r = await repl.call('exec', "print('Access Denied')", 30)
-		assert 'rotate_proxy()' not in r['output']
+		assert 'looks blocked for this IP' not in r['output'] and 'rotate_proxy(' not in r['output']  # once per site
 		r = await repl.call('exec', 'help(rotate_proxy)', 30)
 		assert 'never in the middle of a login or checkout' in r['output']
 	finally:
