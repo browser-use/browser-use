@@ -45,6 +45,8 @@ def chat_server():
 				'object': 'chat.completion',
 				'created': 0,
 				'model': body['model'],
+				# OpenRouter's ChatCompletion requires it; the OpenAI SDK ignores the extra field.
+				'provider': 'openrouter',
 				'choices': [
 					{'index': 0, 'finish_reason': 'tool_calls' if message.get('tool_calls') else 'stop', 'message': message}
 				],
@@ -1203,6 +1205,64 @@ def test_openai_reasoning_models_on_chat_completions_get_reasoning_off(monkeypat
 	):
 		other = ChatOpenAI(name, base_url=url, api_key='k').pydantic_model()
 		assert build_agent(other).model_settings == {}, name
+
+
+def test_claude_on_openrouter_and_bedrock_gets_prompt_caching(monkeypatch):
+	"""#6543: build_agent() only asked for prompt caching on direct Anthropic, so Claude on OpenRouter/Bedrock
+	re-billed the system prompt, tools, history and screenshots at full price every step. Non-Claude models on
+	those routes get nothing, and a caller who set cache themselves keeps their setting."""
+	from openai import AsyncOpenAI
+	from pydantic_ai.models.openrouter import OpenRouterModel
+	from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+	monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
+	for llm in ('openrouter:anthropic/claude-sonnet-4-5', 'bedrock:us.anthropic.claude-sonnet-4-5-20250929-v1:0'):
+		assert build_agent(llm).model_settings.get('cache') is True, llm
+	assert build_agent('anthropic:claude-sonnet-4-5').model_settings.get('cache') is True
+	for llm in ('openrouter:openai/gpt-5.6-luna', 'bedrock:meta.llama3-70b-instruct-v1:0'):
+		assert 'cache' not in build_agent(llm).model_settings, llm
+	# OpenRouterModel is an OpenAIChatModel subclass, so it takes the chat branch, not 'other'
+	provider = OpenRouterProvider(openai_client=AsyncOpenAI(api_key='k', base_url='http://127.0.0.1:1/v1'))
+	claude = OpenRouterModel('anthropic/claude-sonnet-4-5', provider=provider)
+	assert build_agent(claude).model_settings.get('cache') is True
+	assert 'cache' not in build_agent(OpenRouterModel('openai/gpt-5.6-luna', provider=provider)).model_settings
+	# the caller's own cache setting wins, on the model and in model_settings
+	assert build_agent(claude, model_settings={'cache': False}).model_settings['cache'] is False
+	own = OpenRouterModel('anthropic/claude-sonnet-4-5', provider=provider, settings={'cache': False})
+	assert 'cache' not in build_agent(own).model_settings
+	# ChatOpenAI pointed at OpenRouter stays uncached on purpose: pydantic-ai 2.66.0 drops the unified `cache`
+	# setting for OpenAIChatModel (its profile reports supports_cache=False), so asking for it here would send
+	# nothing. Those users get caching via llm='openrouter:anthropic/claude-...' instead.
+	model, settings = resolve_model(
+		ChatOpenAI('anthropic/claude-sonnet-4-5', api_key='k', base_url='https://openrouter.ai/api/v1')
+	)
+	assert build_agent(model, model_settings=settings).model_settings == {}
+
+
+async def test_openrouter_claude_request_carries_cache_control(chat_server, tmp_path):
+	"""#6543: the setting must reach the wire — OpenRouter only caches when the request carries cache_control
+	breakpoints. A local stub server stands in for OpenRouter; no provider call."""
+	from openai import AsyncOpenAI
+	from pydantic_ai.models.openrouter import OpenRouterModel
+	from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+	url, requests, _ = chat_server
+	model = OpenRouterModel(
+		'anthropic/claude-sonnet-4-5',
+		provider=OpenRouterProvider(openai_client=AsyncOpenAI(api_key='k', base_url=url)),
+	)
+	result = await run(build_agent(model), 'task', Session(repl=Repl(tmp_path)), 'openrouter:anthropic/claude-sonnet-4-5')
+	assert result.status == 'completed', result.error
+	assert _has_cache_control(requests[0][1])
+
+
+def _has_cache_control(body: Any) -> bool:
+	"""True when a request body carries a cache_control breakpoint anywhere (system prompt, tools, messages)."""
+	if isinstance(body, dict):
+		return any(k == 'cache_control' or _has_cache_control(v) for k, v in body.items())
+	if isinstance(body, list):
+		return any(_has_cache_control(v) for v in body)
+	return False
 
 
 async def test_gpt_6_luna_behind_a_proxy_is_sent_reasoning_none(chat_server, tmp_path):

@@ -1119,6 +1119,19 @@ def _openai_reasoning_on_chat(model: Any) -> bool:
 	return bool(profile.get('openai_supports_reasoning')) and bool(profile.get('openai_supports_reasoning_effort_none'))
 
 
+def _claude_on_cacheable_route(model: Any) -> bool:
+	"""Whether this model is Claude on a route whose client honours Pydantic AI's unified `cache` setting: direct
+	Anthropic ('anthropic:...' / AnthropicModel), OpenRouter ('openrouter:anthropic/claude-...' / OpenRouterModel)
+	and Bedrock ('bedrock:...claude...' / BedrockConverseModel). A plain OpenAIChatModel pointed at OpenRouter
+	(ChatOpenAI + base_url) is not one: its profile reports supports_cache=False in pydantic-ai 2.66.0, so `cache`
+	is dropped before any request — those users should pass llm='openrouter:anthropic/claude-...' instead."""
+	system = model.split(':', 1)[0] if isinstance(model, str) else str(getattr(model, 'system', ''))
+	if system == 'anthropic':
+		return True
+	name = model if isinstance(model, str) else str(getattr(model, 'model_name', '') or '')
+	return system in ('openrouter', 'bedrock') and 'claude' in name.lower()
+
+
 def build_agent(
 	model: Any = 'openai-responses:gpt-6-luna',
 	*,
@@ -1168,6 +1181,12 @@ def build_agent(
 		# OpenAI's own reasoning models turn reasoning on by default on chat completions and then reject function tools
 		# (400 "use /v1/responses or set reasoning_effort to 'none'")
 		settings = {'openai_reasoning_effort': 'none'} if _openai_reasoning_on_chat(model) else {}
+		if _claude_on_cacheable_route(model):
+			# OpenRouterModel is an OpenAIChatModel subclass, so it lands here, not in 'other': a Claude served
+			# through it gets the same cache request (its profile honours the unified setting).
+			own = {**(getattr(model, 'settings', None) or {}), **(model_settings or {})}
+			if 'cache' not in own:
+				settings['cache'] = True
 		capabilities = [BrowserLoop(), Compaction(compact_at_tokens, max_context_chars), Recording()]
 	else:  # other providers: unified thinking (dropped where the profile has none), the provider's own max_tokens
 		settings = {'thinking': reasoning_effort or 'medium'} if reasoning else {}
@@ -1177,13 +1196,15 @@ def build_agent(
 			# google-genai retries nothing unless asked; the OpenAI and Anthropic SDKs retry each request twice. Gemini's
 			# second 503 'overloaded' of a run ended it (BrowserLoop's one retry per run was spent).
 			settings['max_retries'] = 2
-		if system == 'anthropic':
-			# Anthropic caches nothing unless asked: every request re-billed the whole prompt (cache_read was always 0).
-			# Pydantic AI's unified cache setting caches the system prompt, the tools and the conversation so far, in the
-			# mode the client supports; any anthropic_cache* setting the caller gave takes precedence over it there, and
-			# a cache setting of the caller's own (on the model or in model_settings) is left alone.
+		if _claude_on_cacheable_route(model):
+			# Claude caches nothing unless asked, on any route that serves it: every request re-billed the whole
+			# prompt (cache_read was always 0 on direct Anthropic). Pydantic AI's unified cache setting caches the
+			# system prompt, the tools and the conversation so far, in the mode the client supports; any
+			# anthropic_cache* setting the caller gave takes precedence over it there, and a cache setting of the
+			# caller's own (on the model or in model_settings) is left alone.
 			if 'cache' not in own:
 				settings['cache'] = True
+		if system == 'anthropic':
 			# Claude models with adaptive thinking return no thinking text unless asked (display 'omitted'); bu-pi's pi-ai
 			# asks for 'summarized'. Without it every thinking block came back empty (124 of 124 on Haiku bub2-001), the
 			# history lacked the reasoning bu-pi's context size counts, and Haiku never compacted (matrix v2: 0, bu-pi 17).
