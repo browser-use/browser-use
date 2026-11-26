@@ -1249,6 +1249,39 @@ def test_anthropic_models_use_prompt_caching():
 	assert 'cache' not in build_agent(ChatGoogle('gemini-2.5-pro', api_key='k').pydantic_model()).model_settings
 
 
+async def test_claude_is_cached_on_openrouter_bedrock_and_chatopenai_openrouter(chat_server, tmp_path):
+	"""#6543: only system == 'anthropic' got the cache setting, so Claude via 'openrouter:', 'bedrock:' or
+	ChatOpenAI(base_url=OpenRouter) sent no cache_control / cachePoint and every step re-billed the whole prompt.
+	A non-Claude model on those routes gets nothing, and a caller's own cache setting is left alone."""
+	from openai import AsyncOpenAI
+	from pydantic_ai.models.openrouter import OpenRouterModel
+	from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+	from browser_use.agent.loop import build_agent
+
+	assert build_agent('openrouter:anthropic/claude-sonnet-4.6').model_settings.get('cache') is True
+	assert build_agent('bedrock:us.anthropic.claude-sonnet-4-5-20250929-v1:0').model_settings.get('cache') is True
+	assert 'cache' not in build_agent('openrouter:deepseek/deepseek-v3.2').model_settings
+	assert 'cache' not in build_agent('bedrock:amazon.nova-pro-v1:0').model_settings
+	assert build_agent('openrouter:anthropic/claude-sonnet-4.6', model_settings={'cache': False}).model_settings['cache'] is False
+
+	# ChatOpenAI pointed at OpenRouter becomes Pydantic AI's OpenRouter model, which can send cache_control
+	model, settings = resolve_model(
+		ChatOpenAI('anthropic/claude-sonnet-4.6', api_key='x', base_url='https://openrouter.ai/api/v1')
+	)
+	assert isinstance(model, OpenRouterModel)
+	assert build_agent(model, model_settings=settings).model_settings.get('cache') is True
+	assert isinstance(resolve_model(ChatOpenAI('m', api_key='x', base_url='http://localhost:1/v1'))[0], OpenAIChatModel)
+
+	# and the request really carries the breakpoints (OpenRouter's client pointed at the local chat server)
+	url, requests, _ = chat_server
+	router = OpenRouterModel(
+		'anthropic/claude-sonnet-4.6', provider=OpenRouterProvider(openai_client=AsyncOpenAI(base_url=url, api_key='x'))
+	)
+	await run(build_agent(router), 'task', Session(repl=Repl(tmp_path)), 'claude')  # the reply is not OpenRouter-shaped
+	assert requests and 'cache_control' in json.dumps(requests[0][1])
+
+
 def test_base_url_accepts_url_objects():
 	"""Roast r2-13: ChatOpenAI(base_url=httpx.URL(...)) crashed with AttributeError; 0.x accepted it."""
 	import httpx

@@ -17,7 +17,7 @@ import os
 import re
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 from pydantic import SecretStr
@@ -328,6 +328,21 @@ class ChatOpenAI(_Chat):
 			env = os.environ.get('OPENAI_API_KEY', '')
 			key = self.api_key or (env if env.startswith('bu_') else None)
 			return ChatBrowserUse(self.model, api_key=key, base_url=self.url).pydantic_model()
+		if urlparse(self.url or '').hostname == 'openrouter.ai':
+			# Pydantic AI's OpenRouter model: same chat completions API, but it can send the cache_control breakpoints Claude
+			# needs (a plain OpenAIChatModel never does, so every step re-billed the whole prompt, #6543). The provider's
+			# per-model profile keeps the cache support; the two OpenAI-only features stay off as for other servers.
+			from pydantic_ai.models.openrouter import OpenRouterModel
+			from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+			router = OpenRouterProvider(
+				api_key=self.api_key or os.environ.get('OPENROUTER_API_KEY') or _env_key('OPENAI_API_KEY')
+			)
+			return OpenRouterModel(
+				self.model,
+				provider=router,
+				profile=cast(Any, {**(router.model_profile(self.model) or {}), **compatible_profile()}),
+			)
 		provider = OpenAIProvider(api_key=self.api_key or _env_key('OPENAI_API_KEY'), base_url=self.base_url)
 		if self.is_official:  # Responses API + server-side compaction: what we evaluate
 			return OpenAIResponsesModel(self.model, provider=provider)
