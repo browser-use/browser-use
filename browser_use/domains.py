@@ -32,10 +32,13 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import unquote, urlsplit
 
 import idna
+
+if TYPE_CHECKING:
+	from browser_use.web_bot_auth import WebBotAuth
 
 logger = logging.getLogger(__name__)
 
@@ -287,10 +290,13 @@ class Guard:
 	tab's URL changes to a disallowed one: the guard navigates that tab to about:blank right away, as it does with the
 	error page its own block leaves. Its own connection: the agent's cdp('Fetch.disable') through the daemon does not
 	turn it off. Iframes and subresources pass. When the connection drops, Chrome stops intercepting until it
-	reconnects (sweep() still runs after each cell)."""
+	reconnects (sweep() still runs after each cell).
+	signer (Browser(web_bot_auth=...)): requests it lets through are sent on with Web Bot Auth headers
+	(web_bot_auth.py); with signer.subresources it pauses every request, and still blocks only main-frame documents.
+	One connection does both, so each request is paused once."""
 
-	def __init__(self, ws_url: str, rules: DomainRules):
-		self.ws_url, self.rules = ws_url, rules
+	def __init__(self, ws_url: str, rules: DomainRules, signer: WebBotAuth | None = None):
+		self.ws_url, self.rules, self.signer = ws_url, rules, signer
 		self.pages: dict[str, str] = {}  # page target id (= its main frame id) -> the URL it last showed
 		self.blocks = 0
 		self._notices: list[str] = []
@@ -310,7 +316,8 @@ class Guard:
 		if not self._ready.wait(GUARD_START_S) or self._error:
 			self.close()
 			why = self._error or f'no answer within {GUARD_START_S:g}s'
-			raise RuntimeError(f'Domain restrictions could not start on this browser ({why}); nothing was left running.')
+			what = ' and '.join(n for n, on in (('Domain restrictions', self.rules), ('Web Bot Auth signing', self.signer)) if on)
+			raise RuntimeError(f'{what} could not start on this browser ({why}); nothing was left running.')
 
 	def close(self) -> None:
 		self._closed.set()
@@ -353,7 +360,7 @@ class Guard:
 		self._discovered = False  # until setDiscoverTargets answered: the targets it reports were already open
 		pending = {
 			self._send('Target.setDiscoverTargets', discover=True),
-			self._send('Fetch.enable', patterns=[{'urlPattern': '*', 'resourceType': 'Document', 'requestStage': 'Request'}]),
+			self._send('Fetch.enable', patterns=[self._pattern()]),
 		}
 		deadline = time.monotonic() + GUARD_START_S
 		while pending:
@@ -365,6 +372,11 @@ class Guard:
 			else:
 				self._handle(msg)
 		self._discovered = True
+
+	def _pattern(self) -> dict[str, str]:
+		if self.signer is not None and self.signer.subresources:
+			return {'urlPattern': '*', 'requestStage': 'Request'}
+		return {'urlPattern': '*', 'resourceType': 'Document', 'requestStage': 'Request'}
 
 	def _run(self) -> None:
 		backoff = 0.5
@@ -410,9 +422,11 @@ class Guard:
 		elif method == 'Target.targetDestroyed':
 			self.pages.pop(str(params.get('targetId')), None)
 		elif method == 'Fetch.requestPaused':
-			url = str((params.get('request') or {}).get('url', ''))
+			request = params.get('request') or {}
+			url = str(request.get('url', ''))
 			frame = str(params.get('frameId'))
-			why = self.rules.blocked(url) if frame in self.pages else None  # iframes pass
+			document = params.get('resourceType') == 'Document'  # subresources are paused only to be signed
+			why = self.rules.blocked(url) if document and frame in self.pages else None  # iframes pass
 			if why:
 				with self._lock:
 					self.blocks += 1
@@ -422,7 +436,16 @@ class Guard:
 						del self._failed[next(iter(self._failed))]
 				self._send('Fetch.failRequest', requestId=params['requestId'], errorReason='BlockedByClient')
 			else:
-				self._send('Fetch.continueRequest', requestId=params['requestId'])
+				headers = None
+				if self.signer is not None:
+					try:
+						headers = self.signer.headers(request)
+					except Exception as e:  # - fail-open: the request goes out unsigned, never stuck
+						logger.debug('web bot auth: could not sign %s (%s)', url[:120], type(e).__name__)
+				if headers is None:
+					self._send('Fetch.continueRequest', requestId=params['requestId'])
+				else:
+					self._send('Fetch.continueRequest', requestId=params['requestId'], headers=headers)
 
 	def _reset(self, target: str, url: str, why: str, silent: bool = False) -> None:
 		"""Navigate a tab that shows a disallowed URL to about:blank, from the guard's own connection."""
