@@ -211,7 +211,7 @@ def test_report_shows_a_running_solve_and_each_end_once():
 	assert c.report() == ''
 	c.observe(dict(zip(('method', 'params'), started('hcaptcha'))))
 	notice = c.report()
-	assert 'solving hcaptcha on https://example.com/' in notice and 'solve_captcha()' in notice and 'reload' in notice
+	assert 'solving hcaptcha on https://example.com/' in notice and 'finishes by itself' in notice and 'reload' in notice
 	c.observe(dict(zip(('method', 'params'), finished(success=True, ms=12_400))))
 	assert c.report() == '[captcha solver: solved recaptcha in 12s]'
 	assert c.report() == ''
@@ -368,7 +368,7 @@ async def test_captcha_solver_false_turns_the_cloud_solver_off_at_start(monkeypa
 			browser = Browser(captcha_solver=solver)
 			env = await browser.start()
 			await browser.stop()
-			assert fake.calls == ([] if solver else [('BrowserUse.setCaptchaSolverEnabled', {'enabled': False})])
+			assert fake.calls == [('BrowserUse.setCaptchaSolverEnabled', {'enabled': solver})]  # explicit both ways
 			assert ('BU_CAPTCHA_SOLVER' in env) is not solver  # the worker's solve_captcha() keeps it off (H11)
 		assert fake.enabled is False
 	finally:

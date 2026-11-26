@@ -977,8 +977,9 @@ class Browser:
 			if self.domains:
 				self._guard = Guard(ws, self.domains)
 				await asyncio.to_thread(self._guard.start)
-			if self.use_cloud and not self.captcha_solver:
-				await asyncio.to_thread(_daemon_cdp, self.name, 'BrowserUse.setCaptchaSolverEnabled', enabled=False)
+			if self.use_cloud:  # on unless the user turned it off: the browser's solver clears captchas by itself
+				with contextlib.suppress(Exception):
+					await asyncio.to_thread(_daemon_cdp, self.name, 'BrowserUse.setCaptchaSolverEnabled', enabled=bool(self.captcha_solver))
 		except BaseException:
 			await self._stop()
 			raise
