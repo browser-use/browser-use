@@ -17,7 +17,7 @@ def test_printable_escapes_lone_surrogates_without_altering_valid_text() -> None
 
 def test_printable_formatter_streams_lone_surrogate_to_utf8_handler() -> None:
 	buf = io.BytesIO()
-	stream = io.TextIOWrapper(buf, encoding='utf-8', errors='strict')
+	stream = io.TextIOWrapper(buf, encoding='utf-8', errors='strict', newline='\n')
 	handler = logging.StreamHandler(stream)
 	handler.setFormatter(_PrintableFormatter('%(levelname)s %(message)s'))
 
