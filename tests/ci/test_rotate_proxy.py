@@ -206,3 +206,10 @@ async def test_the_hint_reaches_the_cell_output_once(tmp_path):
 		assert 'never in the middle of a login or checkout' in r['output']
 	finally:
 		await repl.close()
+
+
+def test_the_block_hint_and_docstring_point_one_country_sites_at_that_country():
+	# measured on 11 blocked sites: an exit in the site's own country turned Akamai blocks into passes (39% vs 8%)
+	assert "rotate_proxy(country='xx')" in worker.ROTATE_HINT and 'serves one country' in worker.ROTATE_HINT
+	doc = worker._rotate_proxy(lambda *a, **k: {}, cdp_first=False, rest=False).__doc__
+	assert "rotate_proxy(country='ru')" in doc and 'serves' in doc
