@@ -40,7 +40,7 @@ from browser_use.browser import local as _local
 from browser_use.config import load_env
 from browser_use.domains import DomainRules, Guard, disallowed_tabs, sweep
 from browser_use.exceptions import BrowserConfigError, removed
-from browser_use.utils import file_names, name_download, tls_context, urlopen_keyed
+from browser_use.utils import download_staging, file_names, publish_download, tls_context, urlopen_keyed
 
 logger = logging.getLogger(__name__)
 BLANK_OR_INTERNAL = ('about:', 'chrome:', 'chrome-', 'devtools:', 'edge:', 'brave:')  # not a page the caller prepared
@@ -670,6 +670,8 @@ class Browser:
 		# ('cookies (1).json') across the whole session, not per workspace
 		self._download_records: list[dict] = []
 		self._download_lines: dict[Path, int] = {}  # downloads.jsonl -> lines already read
+		self._download_publish_lock = threading.RLock()  # listing and stopping are the only publishers, never the worker
+		self._published_downloads: set[str] = set()
 		self._fetched: set[str] = set()  # remote paths of this cloud session already copied to a workspace
 		self._lock = asyncio.Lock()  # one start or stop at a time: they never interleave
 		self._creating: concurrent.futures.Future | None = None  # the cloud POST, which outlives a cancelled start
@@ -756,10 +758,12 @@ class Browser:
 
 	def _send_downloads(self, downloads: Path) -> None:
 		"""Downloads of a Chrome this Browser launched land in downloads (workspace/downloads), not the real ~/Downloads.
-		Saved as <guid> and renamed once finished (utils.name_download): with 'allow' a repeated name overwrote the
-		earlier file. The REPL worker renames what finishes during a run, _finish_downloads what finishes after it."""
+		Chrome stages GUID files privately: with 'allow' a repeated name overwrote the earlier file. The parent publishes
+		completed files on listing, at the end of a keep_alive run, or while stopping; workers only record events."""
 		downloads.mkdir(parents=True, exist_ok=True)
-		cdp, params = self._cdp(), {'behavior': 'allowAndName', 'downloadPath': str(downloads), 'eventsEnabled': True}
+		staging = download_staging(downloads)
+		staging.mkdir(parents=True, exist_ok=True)
+		cdp, params = self._cdp(), {'behavior': 'allowAndName', 'downloadPath': str(staging), 'eventsEnabled': True}
 		try:
 			# On a browser session: the daemon sends other calls on its tab's session, and Chrome then reports
 			# Browser.download* only for that tab, so a download in the agent's second new_tab() stayed 'inProgress'
@@ -1094,9 +1098,16 @@ class Browser:
 			name, self.name, self._agent_tab = self.name, None, None
 			if name and _shutdown_daemon(name) and self.id and self._daemon_env.get('BU_BROWSER_ID') == self.id:
 				self.stopped = True  # the daemon stopped it before it acknowledged
-			launched, self._local = self._local, None
+			launched = self._local
 			if launched is not None:  # after the daemon: it never reconnects to a Chrome that is going away
-				launched.stop()
+				try:
+					launched.stop()
+				finally:
+					# Canceled/dead-browser stops skip waiting. Preserve files already finalized by Chrome, even if the
+					# worker never recorded completion; publication is local filesystem work, never a network wait.
+					with contextlib.suppress(Exception):
+						self._publish_local_downloads(stopping=True)
+					self._local = None
 			creating = self._creating
 			if creating is not None:  # a cancelled or timed-out start's POST may still be in flight
 				concurrent.futures.wait([creating], timeout=max(0.0, self._create_deadline - time.monotonic()))
@@ -1186,7 +1197,6 @@ class Browser:
 		read on every poll. Returns how many downloads of the session completed."""
 		state: dict[str, str | None] = {}
 		names: dict[str, str | None] = {}
-		logged: set[str] = set()  # downloads a worker announced: it knows their names and renames them itself
 		read, deadline, waiting = 0, time.monotonic() + DOWNLOADS_TIMEOUT_S, False
 		try:
 			while True:
@@ -1196,16 +1206,12 @@ class Browser:
 				# after it: an event the worker took before that read is in its log by now)
 				for log in list(self._download_lines):
 					self.note_downloads(log)
-				finished = []  # downloads a worker saw complete
 				for rec in self._download_records[read:]:
 					if rec.get('guid'):
-						logged.add(rec['guid'])
 						names.setdefault(rec['guid'], rec.get('name'))
 						state.setdefault(rec['guid'], 'inProgress')
 					if rec.get('done'):
 						state[rec['done']] = rec.get('state')
-						if rec.get('state') == 'completed':
-							finished.append(rec['done'])
 				read = len(self._download_records)
 				for e in r.get('events', []):
 					method, p = e.get('method'), e.get('params') or {}
@@ -1218,14 +1224,9 @@ class Browser:
 					progress = method in ('Browser.downloadProgress', 'Page.downloadProgress')
 					if progress and state.get(p['guid']) in (None, 'inProgress'):
 						state[p['guid']] = p.get('state')
-					# finished after the worker closed: only this read saw the event, so no one else renames it
-					if progress and p.get('state') == 'completed':
-						path = Path(p['filePath']) if p.get('filePath') else (self._downloads_dir or Path()) / p['guid']
-						if self._local is not None and path.name == p['guid']:  # a cloud browser's files are remote
-							name_download(path, names.get(p['guid']))
-				for guid in finished:  # a worker that never saw its downloadWillBegin (this read took it) cannot name it
-					if guid not in logged and self._local is not None:
-						name_download((self._downloads_dir or Path()) / guid, names.get(guid))
+				published = self._publish_local_downloads(names, canceled={g for g, s in state.items() if s == 'canceled'})
+				for guid in published:
+					state[guid] = 'completed'  # the worker may have drained completion just before it was closed
 				if not (running := sum(s == 'inProgress' for s in state.values())):
 					break
 				if time.monotonic() > deadline:
@@ -1251,11 +1252,58 @@ class Browser:
 		self._download_records += download_records(lines[seen:])
 		self.json_page_copies |= json_page_copies(self._download_records)
 
+	def _publish_local_downloads(
+		self, names: dict[str, str | None] | None = None, *, stopping: bool = False, canceled: set[str] | None = None
+	) -> set[str]:
+		"""Only the parent publishes. Chrome's finalized GUID files (not .crdownload) survive worker interruption.
+		Registered workspaces retain their own downloads, including a late keep_alive download from an earlier Agent."""
+		if self._local is None or self._downloads_dir is None:
+			return set()
+		with self._download_publish_lock:
+			self.note_downloads(self._downloads_dir.parent / '.browser-use' / 'downloads.jsonl')
+			for log in list(self._download_lines):
+				self.note_downloads(log)
+			known = {r['guid']: r.get('name') for r in self._download_records if r.get('guid')}
+			known.update(names or {})
+			canceled = (canceled or set()) | {
+				r['done'] for r in self._download_records if r.get('done') and r.get('state') == 'canceled'
+			}
+			directories = {self._downloads_dir} | {
+				log.parent.parent / 'downloads' for log in self._download_lines if log.parent.name == '.browser-use'
+			}
+			for downloads in directories:
+				staging = download_staging(downloads)
+				try:
+					paths = list(staging.iterdir()) if staging.is_dir() else []
+				except OSError as e:
+					logger.debug('Could not enumerate local downloads in %s: %s', staging, e)
+					continue  # an unreadable old workspace must not block other workspaces
+				for path in paths:
+					guid = path.name
+					if (
+						not path.is_file()
+						or path.suffix == '.crdownload'
+						or guid in canceled
+						or guid in self._published_downloads
+					):
+						continue
+					if guid not in known and not stopping:
+						continue  # the begin event's suggested name has not been recorded yet
+					try:
+						downloads.mkdir(parents=True, exist_ok=True)
+						if publish_download(path, known.get(guid), downloads) is not None:
+							self._published_downloads.add(guid)
+					except OSError as e:
+						# A previous workspace may be read-only; keep its staged bytes for a later retry.
+						logger.debug('Could not publish local download %s: %s', guid, e)
+			return set(self._published_downloads)
+
 	async def list_downloads(self) -> list[dict]:
 		"""The files the browser finished downloading so far, [{'name', 'size'}]: the REPL's downloads(). A cloud browser:
 		as the API lists them, about a second after each completes (names in json_page_copies left out). A Chrome this
 		Browser launched: its downloads dir (workspace/downloads), without Chrome's unfinished .crdownload files."""
 		if not self.use_cloud:
+			self._publish_local_downloads()
 			d = self._downloads_dir
 			files = sorted(p for p in d.iterdir() if p.is_file() and p.suffix != '.crdownload') if d and d.is_dir() else []
 			return [{'name': p.name, 'size': p.stat().st_size} for p in files]

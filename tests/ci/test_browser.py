@@ -969,7 +969,9 @@ async def test_a_download_the_keep_alive_worker_saw_finish_never_holds_the_stop(
 	monkeypatch.setattr(worker, 'STATE', tmp_path / '.browser-use')
 	(tmp_path / '.browser-use').mkdir()
 	(tmp_path / 'downloads').mkdir()
-	(tmp_path / 'downloads' / 'a').write_text('x')  # Chrome saves it as its guid
+	(tmp_path / '.browser-use' / 'downloads').mkdir()
+	partial = tmp_path / '.browser-use' / 'downloads' / 'a.crdownload'
+	partial.write_text('x')  # Chrome finalizes it only when the worker drains completion below
 	if worker_saw_begin:
 		worker.CellStats().observe([begin])
 	stats, drains = worker.CellStats(), []
@@ -977,6 +979,7 @@ async def test_a_download_the_keep_alive_worker_saw_finish_never_holds_the_stop(
 	def drain(name, req):  # the worker takes the 'completed' event, and logs it
 		drains.append(req)
 		if len(drains) == 2:
+			partial.rename(partial.with_suffix(''))
 			stats.observe([{'method': 'Browser.downloadProgress', 'params': {'guid': 'a', 'state': 'completed'}}])
 		return {'events': [begin] if len(drains) == 1 and not worker_saw_begin else []}
 
@@ -989,6 +992,7 @@ async def test_a_download_the_keep_alive_worker_saw_finish_never_holds_the_stop(
 	started = time.monotonic()
 	assert await browser._finish_downloads() == 1
 	assert time.monotonic() - started < 5
+	assert len(drains) == 2
 	assert [p.name for p in (tmp_path / 'downloads').iterdir()] == ['a.bin']
 
 

@@ -846,7 +846,7 @@ async def test_a_keep_alive_download_that_finishes_after_the_run_never_holds_the
 	threading.Thread(target=server.serve_forever, daemon=True).start()
 	code = (
 		f"new_tab('http://127.0.0.1:{server.server_address[1]}/'); wait_for_load(); js('document.getElementById(\"a\").click()'); "
-		"import glob, time; [time.sleep(0.1) for _ in range(50) if not glob.glob('downloads/*')]"  # begun, as by a next step
+		"import glob, time; [time.sleep(0.1) for _ in range(50) if not glob.glob('.browser-use/downloads/*')]"  # begun
 	)
 	model, _ = script(('python', {'code': code}), ('finish', {'success': True, 'result': 'ok'}))
 	browser = Browser('chromium', headless=True, executable_path=chrome_binary, keep_alive=True)
@@ -948,8 +948,9 @@ async def test_downloads_land_in_the_workspace_after_a_reattach(chrome_binary, t
 			browser.name, 'Runtime.evaluate', expression='document.getElementById("a").click()', session_id=session
 		)
 		await asyncio.sleep(2)
-		# in the workspace; saved as its guid until an events reader names it (no Agent here: the stop below)
-		assert [p.read_text() for p in (tmp_path / 'downloads').iterdir()] == ['hello']
+		# Private until an events reader names it (no Agent here: the stop below).
+		assert list((tmp_path / 'downloads').iterdir()) == []
+		assert [p.read_text() for p in (tmp_path / '.browser-use' / 'downloads').iterdir()] == ['hello']
 	finally:
 		await browser.stop()
 	assert [p.name for p in (tmp_path / 'downloads').iterdir()] == ['after.txt']

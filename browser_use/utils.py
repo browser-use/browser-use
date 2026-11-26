@@ -181,17 +181,35 @@ def file_names(dest: Path, name: str) -> Iterator[Path]:
 		yield dest / (stem.encode()[:room].decode(errors='ignore') + tail)
 
 
-def name_download(path: Path, name: str | None) -> Path | None:
+def _remove_download_source(path: Path) -> None:
+	"""The public hard link already committed; a cleanup failure must not publish another alias."""
+	try:
+		path.unlink(missing_ok=True)
+	except OSError as e:
+		logger.debug('Could not remove published download staging entry %s: %s', path.name, e)
+
+
+def name_download(path: Path, name: str | None, directory: Path | None = None) -> Path | None:
 	"""Give a download Chrome saved as <dir>/<guid> (Browser.setDownloadBehavior allowAndName) its suggested name, never
-	over another file: a repeated name is 'invoice (1).txt', as cloud copies are named. With behavior 'allow' Chrome
+	over another file, optionally into directory: a repeated name is 'invoice (1).txt', as cloud copies are named. With behavior 'allow' Chrome
 	wrote a second invoice.txt over the first. Returns the new path; None when path is gone (already named)."""
+	directory = directory if directory is not None else path.parent
 	base = Path(str(name or '')).name.strip()
-	if base in ('', '.', '..', path.name):  # no name to give: it keeps its guid
+	if base in ('', '.', '..'):
+		base = path.name
+	if base == path.name and directory == path.parent:  # no name to give: it keeps its guid
 		return path if path.exists() else None
-	for dest in file_names(path.parent, base):
+	for dest in file_names(directory, base):
 		try:
 			os.link(path, dest)  # - fails if dest exists: never overwrites, even when two names are taken at once
 		except FileExistsError:
+			try:
+				if not dest.is_symlink() and dest.is_file() and path.samefile(dest):
+					if path.resolve() != dest.resolve():
+						_remove_download_source(path)
+					return dest  # recover a committed link retained after a staging cleanup failure
+			except OSError:  # unable to establish identity: keep the occupied name untouched
+				pass
 			continue
 		except FileNotFoundError:
 			return None
@@ -208,9 +226,25 @@ def name_download(path: Path, name: str | None) -> Path | None:
 					return None
 				raise
 			return dest
-		path.unlink(missing_ok=True)
+		_remove_download_source(path)
 		return dest
 	return None
+
+
+def download_staging(downloads: Path) -> Path:
+	"""Chrome's unfinished/unnamed files stay outside the public workspace/downloads listing."""
+	return downloads.parent / '.browser-use' / 'downloads'
+
+
+def publish_download(path: Path, name: str | None, downloads: Path) -> Path | None:
+	"""Atomically expose a completed file under its final name; an unusable suggestion keeps its GUID."""
+	try:
+		published = name_download(path, name, downloads)
+		if published is not None or not path.exists():
+			return published
+	except OSError:
+		pass
+	return name_download(path, None, downloads)
 
 
 if not TYPE_CHECKING:  # pyright would accept any name imported from here
