@@ -78,6 +78,24 @@ def test_fresh_browser_gets_its_own_temp_profile_and_stop_removes_everything(fak
 
 
 @posix_only
+@pytest.mark.parametrize('source', ['explicit', 'BH_CHROME_PATH', 'CHROME_PATH'])
+def test_relative_browser_binary_starts(fake_chrome, tmp_path, monkeypatch, source):
+	path = Path(fake_chrome('ok'))
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv('PATH', str(tmp_path / 'no-binaries'))
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	kwargs = {'executable_path': f'./{path.name}'} if source == 'explicit' else {}
+	if source != 'explicit':
+		monkeypatch.setenv(source, f'./{path.name}')
+	lb = _local.LocalBrowser()
+	try:
+		assert lb.start(headless=True, **kwargs).endswith('/fake')
+	finally:
+		lb.stop()
+
+
+@posix_only
 def test_kept_user_data_dir_survives_stop_and_a_stale_port_file_is_ignored(fake_chrome, tmp_path):
 	udd = tmp_path / 'kept'
 	udd.mkdir()
@@ -426,6 +444,34 @@ def test_playwright_chromium_from_browser_use_install_is_found_last(tmp_path, mo
 	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', str(tmp_path / 'none'))
 	with pytest.raises(RuntimeError, match=r'No Chrome, Chromium or Edge found .*run `browser-use install`'):
 		_local.find_binary()  # rc5 local-2: the library error names the documented fix, not only `browser-use doctor`
+
+
+def test_relative_playwright_cache_keeps_cli_fallback(tmp_path, monkeypatch):
+	"""Playwright's browser must not look like an attachable system Chrome."""
+	from browser_harness import admin, daemon
+
+	from browser_use.mcp.cli_mcp import _no_chrome_here
+
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setattr(sys, 'platform', 'linux')
+	monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+	monkeypatch.delenv('BH_CHROME_PATH', raising=False)
+	monkeypatch.delenv('CHROME_PATH', raising=False)
+	monkeypatch.setenv('PLAYWRIGHT_BROWSERS_PATH', './pw')
+	binary = tmp_path / 'pw/chromium-1248/chrome-linux64/chrome'
+	binary.parent.mkdir(parents=True)
+	binary.write_text('')
+	monkeypatch.setattr(admin, '_is_local_chrome_mode', lambda: True)
+	monkeypatch.setattr(_local, 'live_debug_dirs', lambda: [])
+	monkeypatch.setattr(_local, 'has_display', lambda: True)
+	monkeypatch.setattr(daemon, 'PROFILES', [])
+
+	def no_daemon():
+		raise RuntimeError('no daemon')
+
+	monkeypatch.setattr(admin, 'require_existing_daemon', no_daemon)
+	assert _no_chrome_here() == 'no Chrome, Chromium or Edge is installed'
+	assert _local.find_binary() in _local.playwright_chromium()
 
 
 def test_a_file_named_like_a_browser_in_the_working_directory_is_never_launched(tmp_path, monkeypatch):
