@@ -22,12 +22,14 @@ import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Any
 
 CONTROLS = set(
 	'button link textbox searchbox combobox listbox option checkbox radio switch slider spinbutton tab menuitem '
 	'menuitemcheckbox menuitemradio treeitem'.split(' ')
 )
+OVERLAY_ROLES = {'dialog', 'alertdialog', 'menu', 'listbox', 'option'}
 # Text inside these is one line; text across them is not joined.
 BLOCKS = {'paragraph', 'listitem', 'row', 'LabelText'}
 NATIVE_INPUTS = {'Date', 'DateTime', 'InputTime'}
@@ -38,6 +40,77 @@ CONTEXT_LOSS = re.compile(
 CDP_TIMEOUT_MS = 15_000  # Pi page.evaluate bounds execution in Chrome by operationTimeoutMs (default 15 s)
 EVENT_BUFFER = 500  # browser-harness daemon's own event buffer size
 SURROGATE = re.compile('[\ud800-\udfff]')  # lone halves of a cut emoji: Python's utf-8 stdout refuses them
+
+
+@dataclass(frozen=True)
+class _StateLine:
+	"""One rendered AX line and the metadata used only when the state needs truncating."""
+
+	text: str
+	overlay: bool = False
+	control: bool = False
+
+
+def _truncate_state(lines: list[_StateLine], max_chars: int) -> list[str]:
+	"""Keep overlay controls and context within max_chars, while preserving the page order."""
+
+	def fit(indexes: list[int], budget: float) -> list[int]:
+		kept: list[int] = []
+		size = 0
+		for i in indexes:
+			line_size = len(lines[i].text) + 1
+			if size + line_size > budget:
+				break
+			kept.append(i)
+			size += line_size
+		return kept
+
+	all_indexes = list(range(len(lines)))
+	if len(fit(all_indexes, max_chars)) == len(lines):
+		return [line.text for line in lines]
+	overlay = [i for i, line in enumerate(lines) if line.overlay]
+	if not overlay:  # Preserve Pi's 80/20 truncation byte-for-byte when there is no overlay.
+		head = fit(all_indexes, max_chars * 0.8)
+		tail = fit(all_indexes[::-1], max_chars * 0.2)
+		return [
+			*(lines[i].text for i in head),
+			f'... {len(lines) - len(head) - len(tail)} lines cut here (bu.state(max=30000) or js(...))',
+			*(lines[i].text for i in reversed(tail)),
+		]
+
+	selected: set[int] = set()
+	used = 0
+
+	def add(indexes: list[int], budget: float) -> None:
+		nonlocal used
+		spent = 0
+		for i in indexes:
+			if i in selected:
+				continue
+			size = len(lines[i].text) + 1
+			if size > budget - spent or size > max_chars - used:
+				continue
+			selected.add(i)
+			spent += size
+			used += size
+
+	# Interactive lines are the part that unblocks the task; surrounding overlay text follows when it fits.
+	add([i for i in overlay if lines[i].control], max_chars)
+	add([i for i in overlay if not lines[i].control], max_chars - used)
+	remaining = max(max_chars - used, 0)
+	add(all_indexes, remaining * 0.8)
+	add(all_indexes[::-1], max_chars - used)
+
+	result: list[str] = []
+	previous = -1
+	for i in sorted(selected):
+		if i > previous + 1:
+			result.append(f'... {i - previous - 1} lines cut here (bu.state(max=30000) or js(...))')
+		result.append(lines[i].text)
+		previous = i
+	if previous < len(lines) - 1:
+		result.append(f'... {len(lines) - previous - 1} lines cut here (bu.state(max=30000) or js(...))')
+	return result
 
 
 def norm(s: Any) -> str:
@@ -511,39 +584,47 @@ class AxHelpers:
 			files = []
 		previous = self.last
 		self.last = {}
-		lines: list[str] = []
+		lines: list[_StateLine] = []
 		text: list[str] = []
+		text_overlay = False
 
 		def flush() -> None:
+			nonlocal text_overlay
 			if text:
-				lines.append(' '.join(text))
+				lines.append(_StateLine(' '.join(text), overlay=text_overlay))
 				text.clear()
+				text_overlay = False
 
 		for frame in frames:
 			by_id = {n['nodeId']: n for n in frame['nodes']}
 			start = len(lines)
 
-			def walk(n: dict | None, inside: str) -> None:
+			def walk(n: dict | None, inside: str, overlay: bool = False) -> None:
+				nonlocal text_overlay
 				if not n:
 					return
 				role = val(n.get('role'))
 				role = '' if role is None else str(role)
+				overlay = overlay or role in OVERLAY_ROLES or prop(n, 'modal') in (True, 'true')
 				name = norm(val(n.get('name')))
 				kids = n.get('childIds') or []
 				if n.get('ignored'):
 					for c in kids:
-						walk(by_id.get(c), inside)
+						walk(by_id.get(c), inside, overlay)
 					return
 				if role == 'StaticText':
 					t = fold(name)
 					if t and t not in inside and (visible is None or t in visible):
+						if text and text_overlay != overlay:
+							flush()
 						text.append(name)
+						text_overlay = overlay
 					return
 				if role == 'heading' and name:
 					flush()
-					lines.append(f'## {name}')
+					lines.append(_StateLine(f'## {name}', overlay=overlay))
 					for c in kids:
-						walk(by_id.get(c), fold(name))
+						walk(by_id.get(c), fold(name), overlay)
 					return
 				id = n.get('backendDOMNodeId')
 				# Focusable wrappers (tabindex=-1 dialogs, <main>) are only controls if they carry a name, value or editing.
@@ -553,14 +634,14 @@ class AxHelpers:
 				if not id or not (role in CONTROLS or focusable):
 					if role not in BLOCKS:
 						for c in kids:
-							walk(by_id.get(c), inside)
+							walk(by_id.get(c), inside, overlay)
 						return
 					flush()
 					for c in kids:
-						walk(by_id.get(c), inside)
+						walk(by_id.get(c), inside, overlay)
 					return flush()
 				flush()
-				if lines and lines[-1].lower() == name.lower():
+				if lines and lines[-1].text.lower() == name.lower():
 					lines.pop()  # its label, printed as its name
 				value = norm(val(n.get('value')))
 				checked, expanded = prop(n, 'checked'), prop(n, 'expanded')
@@ -602,27 +683,31 @@ class AxHelpers:
 				self.last[id] = (shown, name)
 				more = f' | … {len(options) - 5} more' if len(options) > 5 else ''
 				lines.append(
-					('*' if previous and id not in previous else '')
-					+ f'[{id}] {shown}'
-					+ (f' "{clip(name, 150)}"' if name else '')
-					+ (f' = {quote(clip(value, 100))}' if value else '')
-					+ (' ' + ' '.join(states) if states else '')
-					+ ('  options: ' + ' | '.join(options[:5]) + more if options else '')
+					_StateLine(
+						('*' if previous and id not in previous else '')
+						+ f'[{id}] {shown}'
+						+ (f' "{clip(name, 150)}"' if name else '')
+						+ (f' = {quote(clip(value, 100))}' if value else '')
+						+ (' ' + ' '.join(states) if states else '')
+						+ ('  options: ' + ' | '.join(options[:5]) + more if options else ''),
+						overlay=overlay,
+						control=overlay,
+					)
 				)
 				if popup or role in NATIVE_INPUTS:
 					return  # their children are the browser's own widget parts
 				# Only what the line showed counts as said: a card link's text past the clipped name still prints.
 				inside = fold(f'{inside} {clip(name, 150)} {value}')
 				for c in kids:
-					walk(by_id.get(c), inside)
+					walk(by_id.get(c), inside, overlay)
 				flush()
 
 			walk(frame['nodes'][0] if frame['nodes'] else None, '')
 			flush()
 			if frame['url'] and len(lines) > start:
-				lines.insert(start, f'--- frame {frame["url"]} ---')
+				lines.insert(start, _StateLine(f'--- frame {frame["url"]} ---'))
 		# Styled uploaders hide their file input, which drops it from the AX tree; its id still works for uploads.
-		hidden = []
+		hidden: list[_StateLine] = []
 		for f in files:
 			if f['backendNodeId'] in self.last:
 				continue
@@ -633,36 +718,23 @@ class AxHelpers:
 
 			name = next((v for v in (at('aria-label'), at('name'), at('id')) if v is not None), '')
 			self.last[f['backendNodeId']] = ('file', name)
-			hidden.append(f'[{f["backendNodeId"]}] file "{name}" (hidden)')
+			hidden.append(_StateLine(f'[{f["backendNodeId"]}] file "{name}" (hidden)'))
 		lines[:0] = hidden
 		pending = settled['pending']
 		header = (
 			f'[state] {info["title"]} | {info["url"]}' + (f' | loading: {pending}' if pending else '') + self._flush_dialogs()
 		)
 
-		def fit(src: list[str], budget: float) -> int:
-			size = 0
-			for i, line in enumerate(src):
-				size += len(line) + 1
-				if size > budget:
-					return i
-			return len(src)
-
 		failed = self._nav_error(info['url'])
-		body = lines or [
-			f'(the page did not load: {failed})'
-			if failed
-			else '(nothing in the accessibility tree: the page is blank, or a popup, often in a cross-origin iframe, hides it; screenshot() to see it)'
-		]
-		# Over max, keep the top and the last fifth: a dialog's Done/Submit is usually its last line.
-		if fit(lines, max) < len(lines):
-			head = fit(lines, max * 0.8)
-			tail = fit(lines[::-1], max * 0.2)
-			body = [
-				*lines[:head],
-				f'... {len(lines) - head - tail} lines cut here (bu.state(max=30000) or js(...))',
-				*lines[len(lines) - tail :],
+		body = (
+			_truncate_state(lines, max)
+			if lines
+			else [
+				f'(the page did not load: {failed})'
+				if failed
+				else '(nothing in the accessibility tree: the page is blank, or a popup, often in a cross-origin iframe, hides it; screenshot() to see it)'
 			]
+		)
 		out = well_formed(f'{header}\n' + '\n'.join(body) + '\n[/state]')
 		self.log(out)
 		return Printed(out)

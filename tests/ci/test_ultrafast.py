@@ -13,7 +13,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from browser_use import Agent, Browser, ChatBrowserUse, ChatOpenAI
 from browser_use.agent.loop import build_agent
 from browser_use.agent.prompt import SYSTEM_PROMPT
-from browser_use.ax import AX_PROMPT
+from browser_use.ax import AX_PROMPT, _StateLine, _truncate_state
 from browser_use.llm import GATEWAY_URL
 from browser_use.repl import Repl
 
@@ -69,6 +69,13 @@ PAGES = {
 	# the-internet.herokuapp.com/basic_auth: a 401 Basic Auth challenge fails the navigation to a blank error page.
 	'/dead': '<title>Dead</title><a href="/auth">Staging site</a>',
 	'/long': '<title>Long</title>' + ''.join(f'<button>Item number {i}</button>' for i in range(60)),
+	'/long-overlay': (
+		'<title>Long overlay</title>'
+		+ ''.join(f'<button>Background item {i}</button>' for i in range(30))
+		+ '<div role=dialog aria-modal=true aria-label="Confirm order"><p>Review changes</p>'
+		'<button>Cancel order</button><button>Confirm order</button></div>'
+		+ ''.join(f'<button>Background item {i}</button>' for i in range(30, 60))
+	),
 }
 
 
@@ -220,6 +227,47 @@ async def test_state_marks_new_ids_and_truncates(repl, site):
 	assert cut and re.fullmatch(r'\.\.\. \d+ lines cut here \(bu\.state\(max=30000\) or js\(\.\.\.\)\)', cut[0])
 	assert lines[-2].endswith('button "Item number 59"')  # the last fifth is kept
 	assert 260 <= len('\n'.join(lines[1:-1])) <= 400
+
+
+async def test_state_keeps_midpage_overlay_controls_when_truncated(repl, site):
+	out, err = await cell(repl, f"goto_url('{site}/long-overlay'); bu.state(max=320)")
+	assert err is None, err
+	body = out.strip().splitlines()[1:-1]
+	assert next(i for i, line in enumerate(body) if 'Background item 0' in line) < body.index('Review changes')
+	assert body.index('Review changes') < next(i for i, line in enumerate(body) if 'button "Cancel order"' in line)
+	assert next(i for i, line in enumerate(body) if 'button "Confirm order"' in line) < next(
+		i for i, line in enumerate(body) if 'Background item 59' in line
+	)
+	cuts = [int(m.group(1)) for line in body if (m := re.fullmatch(r'\.\.\. (\d+) lines cut here .*', line))]
+	kept = [line for line in body if 'lines cut here' not in line]
+	assert len(cuts) == 2 and sum(cuts) + len(kept) == 63, out
+	assert len('\n'.join(body)) <= 520  # max plus two explicit omission markers
+
+
+def test_state_truncation_keeps_multiple_overlays_in_page_order():
+	lines = [
+		*[_StateLine(f'head {i}') for i in range(8)],
+		_StateLine('First dialog', overlay=True),
+		_StateLine('First action', overlay=True, control=True),
+		*[_StateLine(f'middle {i}') for i in range(8)],
+		_StateLine('Second menu', overlay=True),
+		_StateLine('Second action', overlay=True, control=True),
+		*[_StateLine(f'tail {i}') for i in range(8)],
+	]
+	out = _truncate_state(lines, 120)
+	assert out.index('First dialog') < out.index('First action') < out.index('Second menu') < out.index('Second action')
+	assert sum('lines cut here' in line for line in out) >= 2
+
+
+def test_state_truncation_prefers_a_control_to_oversized_overlay_context():
+	lines = [
+		_StateLine('before'),
+		_StateLine('x' * 200, overlay=True),
+		_StateLine('Confirm', overlay=True, control=True),
+		_StateLine('after'),
+	]
+	out = _truncate_state(lines, 40)
+	assert 'Confirm' in out and 'x' * 200 not in out
 
 
 async def test_state_shadow_dom_iframe_and_hidden_file_input(repl, site):
