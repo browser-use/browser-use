@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from browser_use import search as web
+from browser_use.domains import DEFAULT_PORT, _glob, _split_port, canonical_host, parse_url
 
 MODES = ('default', 'ultrafast')
 STREAM_LIMIT = 256 * 1024 * 1024
@@ -116,25 +117,25 @@ def scoped_secrets(sensitive_data: Secrets | None) -> list[tuple[str, str, str |
 def domain_matches(url: str, pattern: str) -> bool:
 	"""0.x match_url_with_domain_pattern: 'site.com' = https only, 'http*://site.com' = both schemes, '*.site.com'
 	= site.com and its subdomains. A port in the pattern must match; without one any port does."""
-	try:
-		u = urllib.parse.urlparse(url)
-		scheme, host = (u.scheme or '').lower(), (u.hostname or '').lower()
-		if not scheme or not host:  # about:blank, chrome://newtab, data:...
-			return False
-		pattern = pattern.lower()
-		p_scheme, p_host = pattern.split('://', 1) if '://' in pattern else ('https', pattern)
-		p_host, _, p_port = p_host.partition('/')[0].partition(':')
-		if not fnmatch.fnmatchcase(scheme, p_scheme) or (p_port and str(u.port or '') != p_port):
-			return False
-		if p_host in ('*', host):
-			return True
-		if '*' not in p_host or p_host.count('*.') > 1 or p_host.endswith('.*') or '*' in p_host.replace('*.', ''):
-			return False  # only '*.domain' and '*domain' globs, as in 0.x
-		if p_host.startswith('*.') and host == p_host[2:]:
-			return True
-		return fnmatch.fnmatchcase(host, p_host)
-	except ValueError:  # a malformed URL or port
+	u = parse_url(url)
+	if u is None or not u.scheme:  # about:blank, chrome://newtab, data:..., malformed URL
 		return False
+	p = pattern.strip()
+	p_scheme, p_host = p.split('://', 1) if '://' in p else ('https', p)
+	p_host, p_port = _split_port(p_host.partition('/')[0])
+	port = u.port or DEFAULT_PORT.get(u.scheme, '')
+	if not fnmatch.fnmatchcase(u.scheme, p_scheme.lower()) or (p_port and port != p_port):
+		return False
+	if p_host == '*':
+		return True
+	if '*' not in p_host:
+		return u.host == canonical_host(p_host)
+	p_host = p_host.removesuffix('.')
+	if p_host.count('*.') > 1 or p_host.endswith('.*') or '*' in p_host.replace('*.', ''):
+		return False  # only '*.domain' globs, as in 0.x
+	if p_host.startswith('*.') and u.host == canonical_host(p_host[2:]):
+		return True
+	return fnmatch.fnmatchcase(u.host, _glob(p_host))
 
 
 def _html_escaped(value: str) -> tuple[str, ...]:
