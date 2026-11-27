@@ -52,6 +52,7 @@ ENV_ALLOW = {
 ENV_ALLOW_PREFIXES = ('LC_', 'BU_', 'BH_')  # browser-harness reads BU_NAME, BH_RUNTIME_DIR, BH_TMP_DIR, ...
 ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE', 'BU_HIGHLIGHT_ACTIONS'}  # CDP URLs can carry credentials; Repl sets the rest
 RESTARTED = '{why}. The REPL restarted: Python variables are lost; files, checkpoints and browser state survive.'
+DEFAULT_PORT = {'http': '80', 'https': '443'}  # the port a URL that names none is on: https://site.com is :443
 SHORT_SECRET = 4  # shorter values are redacted only where they stand alone (not inside a longer word or number)
 SECRET_ENV = re.compile(r'KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH', re.I)
 SECRET_PLACEHOLDER = re.compile(r'<secret>([^<]+)</secret>|<secret:([^>]+)>')  # 0.x's form, and 1.0 redaction's
@@ -115,7 +116,8 @@ def scoped_secrets(sensitive_data: Secrets | None) -> list[tuple[str, str, str |
 
 def domain_matches(url: str, pattern: str) -> bool:
 	"""0.x match_url_with_domain_pattern: 'site.com' = https only, 'http*://site.com' = both schemes, '*.site.com'
-	= site.com and its subdomains. A port in the pattern must match; without one any port does."""
+	= site.com and its subdomains. A port in the pattern must match the URL's port, the scheme's default when the URL
+	names none (https://site.com is :443, as in 0.x, which dropped the pattern's port); without one any port does."""
 	try:
 		u = urllib.parse.urlparse(url)
 		scheme, host = (u.scheme or '').lower(), (u.hostname or '').lower()
@@ -124,8 +126,11 @@ def domain_matches(url: str, pattern: str) -> bool:
 		pattern = pattern.lower()
 		p_scheme, p_host = pattern.split('://', 1) if '://' in pattern else ('https', pattern)
 		p_host, _, p_port = p_host.partition('/')[0].partition(':')
-		if not fnmatch.fnmatchcase(scheme, p_scheme) or (p_port and str(u.port or '') != p_port):
+		if not fnmatch.fnmatchcase(scheme, p_scheme):
 			return False
+		if p_port:  # u.port is None for https://site.com, whose port is 443: 'site.com:443' is that page
+			if (str(u.port) if u.port is not None else DEFAULT_PORT.get(scheme, '')) != p_port:
+				return False
 		if p_host in ('*', host):
 			return True
 		if '*' not in p_host or p_host.count('*.') > 1 or p_host.endswith('.*') or '*' in p_host.replace('*.', ''):
