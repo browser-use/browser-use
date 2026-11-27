@@ -2513,6 +2513,70 @@ def test_an_exit_sender_that_cannot_start_leaves_no_feedback_file(posthog, monke
 	assert set(Path(tempfile.gettempdir()).glob('browser-use-*')) == before
 
 
+def test_exit_sender_windows_process_flags_and_pythonw(posthog, monkeypatch, tmp_path):
+	"""Issue #6474: On Windows, exit-time telemetry sender must not specify DETACHED_PROCESS (0x8),
+	which causes Windows to ignore CREATE_NO_WINDOW (0x08000000) and open a visible console window.
+	It should prefer pythonw.exe if available next to sys.executable, use CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
+	and set SW_HIDE startupinfo."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	fake_python = tmp_path / 'python.exe'
+	fake_python.write_text('')
+	fake_pythonw = tmp_path / 'pythonw.exe'
+	fake_pythonw.write_text('')
+
+	spawned = []
+	monkeypatch.setattr(service.sys, 'platform', 'win32')
+	monkeypatch.setattr(service.sys, 'executable', str(fake_python))
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append((a[0], k)))
+
+	t = posthog.telemetry
+	job = Job('agent_event', lambda s, k: {'model': 'test'})
+	t._pending[job.run_id] = job
+	t._at_exit()
+
+	assert len(spawned) == 1
+	cmd, kw = spawned[0]
+	assert cmd[0] == str(fake_pythonw)
+
+	flags = kw.get('creationflags', 0)
+	assert not (flags & 0x00000008), 'DETACHED_PROCESS must not be set'
+	assert flags & 0x08000000, 'CREATE_NO_WINDOW must be set'
+	assert flags & 0x00000200, 'CREATE_NEW_PROCESS_GROUP must be set'
+
+	startupinfo = kw.get('startupinfo')
+	assert startupinfo is not None
+	assert startupinfo.dwFlags & service.subprocess.STARTF_USESHOWWINDOW
+	assert startupinfo.wShowWindow == 0
+
+
+def test_exit_sender_falls_back_to_python_exe(posthog, monkeypatch, tmp_path):
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	fake_python = tmp_path / 'python.exe'
+	fake_python.write_text('')
+
+	spawned = []
+	monkeypatch.setattr(service.sys, 'platform', 'win32')
+	monkeypatch.setattr(service.sys, 'executable', str(fake_python))
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append((a[0], k)))
+
+	t = posthog.telemetry
+	job = Job('agent_event', lambda s, k: {'model': 'test'})
+	t._pending[job.run_id] = job
+	t._at_exit()
+
+	assert len(spawned) == 1
+	cmd, kw = spawned[0]
+	assert cmd[0] == str(fake_python)
+	flags = kw.get('creationflags', 0)
+	assert not (flags & 0x00000008)
+	assert flags & 0x08000000
+	assert flags & 0x00000200
+
+
 def test_a_home_outside_users_and_home_is_sent_as_tilde(monkeypatch):
 	"""Daytona: HOME=/tmp/h1 went out verbatim in a feedback message; /var/lib/jenkins or /data/users/jane would too."""
 	monkeypatch.setenv('HOME', '/data/users/jane')
