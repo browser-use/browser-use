@@ -652,3 +652,72 @@ def test_a_cloud_browser_is_stopped_with_the_key_it_was_created_with(store, monk
 	assert browser._llm_key is None
 	assert browser._stop_now() and browser.stopped
 	assert sent == [('POST', FAKE_KEY), ('PATCH', FAKE_KEY)]
+
+
+def test_login_finish_handles_empty_exception(monkeypatch):
+	from browser_use.mcp import cli_mcp
+
+	class FakeAuth:
+		@staticmethod
+		def complete_browser_auth(_start):
+			raise RuntimeError()
+
+	monkeypatch.setattr('browser_harness.auth', FakeAuth)
+	monkeypatch.setattr(cli_mcp, 'record_auth_event', lambda *args, **kwargs: None)
+	monkeypatch.setattr(cli_mcp, 'login_outcome', lambda _e: 'error')
+
+	login = cli_mcp._Login.__new__(cli_mcp._Login)
+	login.start = None
+	login.error = None
+	login._finish()
+	assert login.error == 'RuntimeError'
+
+
+@pytest.mark.asyncio
+async def test_mcp_browser_login_tool_reports_is_error_accurately(monkeypatch):
+	import mcp.types as types
+
+	from browser_use.mcp import cli_mcp
+
+	server = cli_mcp.CLIMCPServer()
+	handler = server.server.get_request_handler('tools/call').handler
+
+	# Success cases: is_error must be False
+	monkeypatch.setattr(server, '_sign_in', lambda force: ('Signed in to Browser Use Cloud.', 'signed_in'))
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={}))
+	assert not res.is_error
+	assert 'Signed in to Browser Use Cloud' in res.content[0].text
+
+	monkeypatch.setattr(server, '_sign_in', lambda force: ('Waiting for the user to approve Browser Use...', 'waiting'))
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={}))
+	assert not res.is_error
+	assert 'Waiting for the user' in res.content[0].text
+
+	monkeypatch.setattr(server, '_sign_in', lambda force: ('Signed in (key from env)', 'env'))
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={'force': False}))
+	assert not res.is_error
+
+	# Failure cases: is_error must be True
+	monkeypatch.setattr(
+		server,
+		'_sign_in',
+		lambda force: ('Browser Use Cloud login failed: invalid_grant.', 'failed'),
+	)
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={}))
+	assert res.is_error
+
+	monkeypatch.setattr(
+		server,
+		'_sign_in',
+		lambda force: ('Could not start Browser Use Cloud login: network timeout', 'start_failed'),
+	)
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={}))
+	assert res.is_error
+
+	monkeypatch.setattr(
+		server,
+		'_sign_in',
+		lambda force: ('BROWSER_USE_API_KEY is set and wins over stored key', 'env'),
+	)
+	res = await handler(None, types.CallToolRequestParams(name='browser_login', arguments={'force': True}))
+	assert res.is_error

@@ -421,7 +421,7 @@ class _Login:
 		try:
 			auth.complete_browser_auth(self.start)
 		except Exception as e:  # AuthError: denied, timed out, exchange failed
-			self.error = str(e)
+			self.error = str(e) or type(e).__name__
 			record_auth_event('login_failed', method='browser', entry='mcp', outcome=login_outcome(e))
 		else:
 			record_auth_event('login_succeeded', method='browser', entry='mcp')
@@ -619,8 +619,9 @@ class CLIMCPServer:
 				content: list[types.ContentBlock] = [types.ImageContent(type='image', data=png, mime_type='image/png')]
 				return types.CallToolResult(content=content)
 			if name == 'browser_login':
-				text, call['login_state'] = await asyncio.to_thread(self._sign_in, bool(arguments.get('force', False)))
-				failed = call['login_state'] in ('failed', 'start_failed')  # ok=True always made a failed login invisible
+				force = bool(arguments.get('force', False))
+				text, call['login_state'] = await asyncio.to_thread(self._sign_in, force)
+				failed = call['login_state'] in ('failed', 'start_failed') or (force and call['login_state'] == 'env')
 				return types.CallToolResult(content=[types.TextContent(type='text', text=text)], is_error=failed)
 			if name == 'browser_feedback':
 				text, failed = feedback.mcp_call(arguments)
