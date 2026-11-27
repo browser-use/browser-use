@@ -1234,3 +1234,22 @@ async def test_a_none_delivered_for_a_nullable_schema_is_the_result(tmp_path):
 	result = await run(build_agent(model, output_type=_Authors | None), 'task', session, 'function:x')
 	assert (len(seen), result.status, result.output, result.text, result.success) == (3, 'completed', None, 'null', False)
 	assert result.partial == {'authors': ['partial']}  # still there to read, never the result
+
+
+def test_prune_images_preserves_newest_in_multipart_request(monkeypatch):
+	"""Verify _prune_images iterates parts in reverse so the newest tool returns keep their screenshots."""
+	from pydantic_ai import BinaryContent
+	from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
+	import browser_use.agent.loop as loop
+	from browser_use.agent.loop import _prune_images
+
+	monkeypatch.setattr(loop, 'PRUNE_IMAGES_AT', 2)
+	png = BinaryContent(data=b'\x89PNG', media_type='image/png')
+	req = ModelRequest(parts=[ToolReturnPart('python', [f'shot{i}', png], tool_call_id=f'c{i}') for i in (1, 2, 3)])
+	pruned = _prune_images([req])
+	assert pruned is not None
+	parts = pruned[0].parts
+	assert '[older screenshot removed]' in parts[0].content
+	assert any(getattr(c, 'is_image', False) for c in parts[1].content)
+	assert any(getattr(c, 'is_image', False) for c in parts[2].content)

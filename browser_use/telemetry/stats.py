@@ -408,7 +408,7 @@ def known_module(name: str) -> bool:
 	"""In the standard library, browser-use or an installed distribution (found in site-packages; a module the model or
 	the developer wrote elsewhere is not). Checked per name, cached: ~50 us, where listing every installed distribution
 	took ~70 ms and, in the telemetry thread, slowed the first run by holding the GIL."""
-	if name in sys.stdlib_module_names or name == 'browser_use':
+	if name in sys.stdlib_module_names or name in getattr(sys, 'builtin_module_names', ()) or name in ('__main__', 'browser_use'):
 		return True
 	if not name.isidentifier():
 		return False
