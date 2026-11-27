@@ -94,8 +94,17 @@ async def test_the_judge_request_is_bounded(fake_browser, tmp_path):
 	assert len(str(seen[1][-1].parts[-1].content)) < MAX_TRACE_CHARS + 2 * MAX_TASK_CHARS + 2 * MAX_PART_CHARS + 1000
 
 
-async def test_a_responses_model_is_judged_streamed_at_low_effort(monkeypatch):
-	"""A gateway bu-* alias has no effort in the loop's settings (its own applies): the judge asks for low."""
+@pytest.mark.parametrize(
+	('model_settings', 'expected_effort'),
+	[
+		({}, 'low'),
+		({'openai_reasoning_effort': None}, 'low'),
+		({'openai_reasoning_effort': 'none'}, 'none'),
+		({'openai_reasoning_effort': 'high'}, 'low'),
+	],
+	ids=['unset', 'null', 'disabled', 'high'],
+)
+async def test_the_separate_responses_judge_streams_with_normalized_effort(monkeypatch, model_settings, expected_effort):
 	from types import SimpleNamespace
 
 	from pydantic_ai.models.openai import OpenAIResponsesModel
@@ -115,13 +124,72 @@ async def test_a_responses_model_is_judged_streamed_at_low_effort(monkeypatch):
 			raise RuntimeError('no provider in tests')
 
 	monkeypatch.setattr(judge, 'Agent', Recorded)
-	model = OpenAIResponsesModel('gpt-6-luna', provider=OpenAIProvider(api_key='k'))
+	model = OpenAIResponsesModel('gpt-6-luna', provider=OpenAIProvider(api_key='k'), settings=model_settings)
 	loop_agent = SimpleNamespace(model=model, model_settings={'openai_store': False, 'tool_choice': 'required'})
 	result = AgentHistoryList('completed', 'done', 'done', 1, 1.0, {}, None, None, None, [], True)
 	assert await judge_run(loop_agent, 't', result, None, {}) == (None, [])
 	assert isinstance(built['model'], StreamedRequest)
-	assert built['model_settings'] == {'openai_store': False, 'openai_reasoning_effort': 'low'}
+	assert built['model_settings'] == {'openai_store': False, 'openai_reasoning_effort': expected_effort}
 	assert built['retries'] == {'output': 0}
+
+
+async def test_only_the_separate_judge_lowers_model_owned_thinking(tmp_path):
+	import httpx2
+	from anthropic import AsyncAnthropic
+	from pydantic_ai.messages import ModelRequest, UserPromptPart
+	from pydantic_ai.models import ModelRequestParameters
+	from pydantic_ai.models.anthropic import AnthropicModel
+	from pydantic_ai.providers.anthropic import AnthropicProvider
+
+	requests = []
+
+	def reply(request):
+		requests.append(json.loads(request.content))
+		text = 'No verdict.' if len(requests) == 1 else json.dumps(VERDICT)
+		events = [
+			{
+				'type': 'message_start',
+				'message': {
+					'id': 'msg_test',
+					'type': 'message',
+					'role': 'assistant',
+					'model': 'claude-sonnet-4-6',
+					'content': [],
+					'stop_reason': None,
+					'stop_sequence': None,
+					'usage': {'input_tokens': 10, 'output_tokens': 0},
+				},
+			},
+			{'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'text', 'text': ''}},
+			{'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': text}},
+			{'type': 'content_block_stop', 'index': 0},
+			{
+				'type': 'message_delta',
+				'delta': {'stop_reason': 'end_turn', 'stop_sequence': None},
+				'usage': {'output_tokens': 10},
+			},
+			{'type': 'message_stop'},
+		]
+		return httpx2.Response(
+			200,
+			content=''.join(f'event: {e["type"]}\ndata: {json.dumps(e)}\n\n' for e in events),
+			headers={'content-type': 'text/event-stream'},
+		)
+
+	async with httpx2.AsyncClient(transport=httpx2.MockTransport(reply)) as http:
+		sdk = AsyncAnthropic(api_key='test-key', http_client=http, max_retries=0)
+		model = AnthropicModel(
+			'claude-sonnet-4-6', provider=AnthropicProvider(anthropic_client=sdk), settings={'thinking': 'high'}
+		)
+		a = agent(model, tmp_path)
+		a._build()
+		a._judge_prefix = ([ModelRequest(parts=[UserPromptPart('find the price')])], ModelRequestParameters())
+		result = AgentHistoryList('completed', 'done', 'done', 1, 1.0, {}, None, None, None, [], True)
+		await a._judge(result)
+	assert result.judgement == Judgement(**VERDICT)
+	assert result.usage['requests'] == 2
+	assert [request['output_config']['effort'] for request in requests] == ['high', 'low']
+	assert model.settings == {'thinking': 'high'}  # judging must not change the run's own configuration
 
 
 def test_the_schema_rejects_an_incomplete_judgement():
