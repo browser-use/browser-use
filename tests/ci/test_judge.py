@@ -296,6 +296,8 @@ async def test_the_final_page_is_taken_through_the_daemon_and_never_fails_the_ru
 	asked = []
 
 	def daemon(name, request, timeout=30):
+		if request.get('meta') == 'session':
+			return {'session_id': 'page-session'}
 		asked.append(request['method'])
 		if request['method'] == 'Runtime.evaluate':
 			return {'result': {'result': {'value': 'visible'}}}
@@ -358,9 +360,64 @@ def test_a_hidden_tab_is_not_captured(monkeypatch):
 	asked = []
 
 	def daemon(name, request, timeout=30):
+		if request.get('meta') == 'session':
+			return {'session_id': 'page-session'}
 		asked.append(request['method'])
 		return {'result': {'result': {'value': 'hidden'}}}
 
 	monkeypatch.setattr(browser_module, '_daemon_request', daemon)
 	assert Browser(local=True)._screenshot(10) is None
 	assert asked == ['Runtime.evaluate']  # never activated, never captured
+
+
+async def test_the_final_screenshot_stays_on_the_session_checked_visible(daemon, fake_browser, tmp_path, monkeypatch):
+	"""Another shared-daemon client switches tabs between the visibility check and capture: the judge must still see
+	the checked page, not that client's page."""
+	import io
+
+	from PIL import Image
+
+	import browser_use.browser.browser as browser_module
+
+	name = daemon['BU_NAME']
+	request = browser_module._daemon_request
+	original = request(name, {'meta': 'connection_status'})
+
+	def cdp(method, session_id=None, **params):
+		return browser_module._daemon_cdp(name, method, session_id=session_id, **params)
+
+	pages = []
+	try:
+		for color in ('red', 'blue'):
+			target = cdp('Target.createTarget', url='about:blank', newWindow=True)['targetId']
+			session = cdp('Target.attachToTarget', targetId=target, flatten=True)['sessionId']
+			pages.append((target, session))
+			cdp('Runtime.evaluate', session_id=session, expression=f'document.body.style.background = {color!r}')
+		(first, first_session), (other, other_session) = pages
+		for _, session in pages:
+			assert (
+				cdp('Runtime.evaluate', session_id=session, expression='document.visibilityState')['result']['value'] == 'visible'
+			)
+		request(name, {'meta': 'set_session', 'session_id': first_session, 'target_id': first})
+		switched = []
+
+		def switch_after_visibility(daemon_name, payload, timeout=30):
+			response = request(daemon_name, payload, timeout=timeout)
+			if payload.get('method') == 'Runtime.evaluate' and payload['params'].get('expression') == 'document.visibilityState':
+				request(name, {'meta': 'set_session', 'session_id': other_session, 'target_id': other})
+				switched.append(True)
+			return response
+
+		monkeypatch.setattr(browser_module, '_daemon_request', switch_after_visibility)
+		model, seen = script(FINISH, ('final_result', VERDICT))
+		a = agent(model, tmp_path)
+		a.browser.name = name
+		result = await a.run()
+		assert result.judgement is not None and switched == [True]
+		shot = seen[1][0].parts[0].content[-1]
+		red, _, blue = Image.open(io.BytesIO(shot.data)).convert('RGB').getpixel((20, 20))
+		assert red > 200 and blue < 30, (red, blue)
+	finally:
+		request(name, {'meta': 'set_session', 'session_id': original['session_id'], 'target_id': original['target_id']})
+		for target, _ in pages:
+			cdp('Target.closeTarget', targetId=target)
