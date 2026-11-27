@@ -90,6 +90,12 @@ def parse_url(url: str) -> Url | None:
 		return None
 	if not u.hostname:
 		return None
+	decoded_host = unquote(u.hostname)
+	if not decoded_host.isascii():
+		with contextlib.suppress(idna.IDNAError, UnicodeError):
+			decoded_host = idna.uts46_remap(decoded_host, std3_rules=False, transitional=False)
+	if any(ord(c) < 0x21 or ord(c) == 0x7F for c in decoded_host):
+		return None
 	return Url(
 		u.scheme.lower(), canonical_host(u.hostname), port, _dot_segments(u.path or '/') + (f'?{u.query}' if u.query else '')
 	)
