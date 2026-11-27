@@ -4,7 +4,7 @@ import re
 import sys
 from typing import TYPE_CHECKING
 
-_CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]')  # C0 but tab and newline, DEL, C1
+_CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f\ud800-\udfff]')  # C0 but tab and newline, DEL, C1, lone surrogates
 
 
 def printable(text: str) -> str:
