@@ -239,6 +239,60 @@ def test_dot_segments_cannot_escape_a_path_prefix():
 	assert not ok('https://example.com/a/../evil', prohibited=['https://example.com/evil'])
 
 
+def test_path_prefix_patterns_respect_segment_boundaries():
+	allowed = ['https://example.com/docs']
+	for path in ('/docs', '/docs/', '/docs/guide', '/docs?v=1'):
+		assert ok(f'https://example.com{path}', allowed), path
+	for path in ('/docs-admin', '/docs_private/secret', '/docs.html', '/'):
+		assert not ok(f'https://example.com{path}', allowed), path
+
+	allowed = ['https://example.com/docs/']
+	assert ok('https://example.com/docs/', allowed)
+	assert ok('https://example.com/docs/guide', allowed)
+	assert not ok('https://example.com/docs', allowed)
+	assert not ok('https://example.com/docs-admin', allowed)
+
+	allowed = ['https://example.com/docs?tab=api']
+	assert ok('https://example.com/docs?tab=api', allowed)
+	assert ok('https://example.com/docs?tab=api&page=2', allowed)
+	assert not ok('https://example.com/docs?tab=api2', allowed)
+
+	allowed = ['https://example.com/docs?next=/']
+	assert ok('https://example.com/docs?next=/', allowed)
+	assert ok('https://example.com/docs?next=/&x=1', allowed)
+	assert not ok('https://example.com/docs?next=/admin', allowed)
+
+	allowed = ['https://example.com/docs?q=foo?']
+	assert ok('https://example.com/docs?q=foo?', allowed)
+	assert ok('https://example.com/docs?q=foo?&x=1', allowed)
+	assert not ok('https://example.com/docs?q=foo?bar', allowed)
+
+	allowed = ['https://example.com/docs?']
+	assert ok('https://example.com/docs?', allowed)
+	assert ok('https://example.com/docs?a=1', allowed)
+	assert not ok('https://example.com/docs', allowed)
+	assert not ok('https://example.com/docs-admin', allowed)
+
+	allowed = ['https://example.com/']
+	assert ok('https://example.com/', allowed)
+	assert ok('https://example.com/anything', allowed)
+
+	prohibited = ['https://example.com/admin']
+	for path in (
+		'/admin',
+		'/admin/',
+		'/admin/users',
+		'/admin?x=1',
+		'/admin%2Fusers',
+		'/admin%5Cusers',
+		'/admin;x=1',
+		'/admin.json',
+		'/admin-help',
+	):
+		assert not ok(f'https://example.com{path}', prohibited=prohibited), path
+	assert ok('https://example.com/other', prohibited=prohibited)
+
+
 def test_lookalikes_case_trailing_dot_backslash_and_idn():
 	a = ['example.com']
 	for url in ('https://example.com.evil.com/', 'https://evil-example.com/', 'https://example.co/', 'https://xexample.com/',
