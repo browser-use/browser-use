@@ -334,9 +334,9 @@ class ProductTelemetry:
 					job = None  # this frame would keep the last run's job (its recorder and stats) until the next event
 			except Exception as e:  # - never let one event stop the thread
 				logger.debug('telemetry: %s', e)
-				self._pending.pop(run_id, None)
 				if kind == 'event':  # the run ended; its event could not be built or sent: not a crash
 					self._unmark(run_id)
+				self._pending.pop(run_id, None)
 
 	def _warm(self) -> None:
 		"""Cheap per-process facts, once. (Listing every installed distribution and CDP method here cost ~120 ms of CPU
@@ -431,8 +431,8 @@ class ProductTelemetry:
 			# not after the exit sender took it (sent twice); not with usage stats off (its caller says it was not sent)
 			if job.run_id not in self._handed and self.enabled:
 				self._to_outbox(data, job.run_id)
-		self._pending.pop(job.run_id, None)
 		self._unmark(job.run_id)
+		self._pending.pop(job.run_id, None)
 
 	# --- outbox, crash markers (all disk IO is in the thread or at exit; failures are ignored) ---
 
