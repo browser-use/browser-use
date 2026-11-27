@@ -678,6 +678,7 @@ def test_cli_event_goes_to_the_library_project_under_the_device_id(posthog, monk
 	assert json.loads(posthog.bodies[0])['api_key'] == service.POSTHOG_PROJECT_API_KEY
 	assert (event['event'], event['distinct_id']) == ('cli_event', 'bu-test-device')
 	props = event['properties']
+	assert props['$process_person_profile'] is False
 	assert (props['command'], props['helper_counts'], props['is_internal'], props['$lib']) == (
 		'cli-mcp',
 		{'js': 1},

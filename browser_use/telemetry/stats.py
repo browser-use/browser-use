@@ -644,6 +644,7 @@ def scrub_cli_event(payload: dict, error: BaseException | None = None) -> dict:
 		return payload
 	steps = [s for s in props.get('steps') or [] if isinstance(s, dict)]
 	clean = {k: v for k, v in props.items() if k not in CLI_CONTENT}
+	clean['$process_person_profile'] = False  # PostHog's capture API otherwise processes person profiles.
 	if clean.get('error_message') is not None and isinstance(error, BaseExceptionGroup):
 		clean['error_message'] = group_class(error)  # 'ExceptionGroup' (11-11, 3% of --cli-mcp devices) named no cause
 	elif clean.get('error_message') is not None and error is not None and raised_by_cell(error):
