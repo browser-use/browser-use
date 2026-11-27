@@ -2553,3 +2553,75 @@ def test_masked_key_scrub_stays_linear_on_runs_of_key_prefixes():
 	for text in ('sk-' * 12000, 'AIza-' * 7000, 'sk-.' * 9000):
 		scrub(text, [], 500)
 	assert time.perf_counter() - start < 5
+
+
+def test_runtime_disable_drops_queued_non_consent_events_at_exit(posthog, monkeypatch):
+	"""Issue #6542: disabling ANONYMIZED_TELEMETRY mid-process must drop queued non-consent jobs in _at_exit(),
+	while still allowing explicit consent jobs (e.g. feedback)."""
+	import tempfile
+
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	spawned: list[list[str]] = []
+	monkeypatch.setattr(service.subprocess, 'Popen', lambda *a, **k: spawned.append(a[0]))
+	t = posthog.telemetry
+	monkeypatch.setattr(t, '_loop', lambda: None)  # keep jobs queued in _pending
+
+	# Queue a normal (consent=False) job with an inflight marker, then disable telemetry mid-process.
+	run_id = uuid.uuid4().hex
+	t.run_started(run_id, lambda: {'source': 'test'}, lambda: {'steps': 1})
+	t._mark(run_id)
+	assert t._marker(run_id).exists()
+	t.capture_run(Job('agent_event', lambda steps, keys: {'enabled_at_build': t.enabled}, run_id=run_id))
+	assert run_id in t._pending
+
+	before_tmp = set(Path(tempfile.gettempdir()).glob('browser-use-*'))
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	assert t.enabled is False
+
+	t._at_exit()
+
+	assert spawned == []
+	assert not t._pending
+	assert not t._marker(run_id).exists()
+	assert set(Path(tempfile.gettempdir()).glob('browser-use-*')) == before_tmp
+
+
+def test_runtime_disable_drops_queued_non_consent_events_in_send(posthog, monkeypatch):
+	"""Issue #6542: _send() must re-check self.enabled or job.consent before posting and before retrying."""
+	import browser_use.telemetry.service as service
+	from browser_use.telemetry.service import Job
+
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	t = posthog.telemetry
+	posts: list[bytes] = []
+
+	def fake_post(data: bytes, timeout: float = service.SEND_TIMEOUT_S) -> bool:
+		posts.append(data)
+		# Disable telemetry during the first failed POST so the retry must be skipped.
+		monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+		return False
+
+	monkeypatch.setattr(t, '_post', fake_post)
+	monkeypatch.setattr(service.time, 'sleep', lambda _s: None)
+
+	# Case 1: disabled before _send() starts -> 0 posts, no outbox file, _pending cleared.
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	job1 = Job('agent_event', lambda steps, keys: {'case': 1})
+	t._pending[job1.run_id] = job1
+	t._send(job1)
+	assert posts == []
+	assert job1.run_id not in t._pending
+	assert t.send_failures == 0
+	assert not [p for p in posthog.config.rglob('*.gz')]
+
+	# Case 2: enabled on first attempt, fails, then disabled before retry -> only 1 post, no retry, no outbox file.
+	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'true')
+	job2 = Job('agent_event', lambda steps, keys: {'case': 2})
+	t._pending[job2.run_id] = job2
+	t._send(job2)
+	assert len(posts) == 1
+	assert job2.run_id not in t._pending
+	assert not [p for p in posthog.config.rglob('*.gz')]
