@@ -85,3 +85,4 @@ product_extraction.py
 plot.py
 
 .claude/
+!/tests/ci/fixtures/**/*.json

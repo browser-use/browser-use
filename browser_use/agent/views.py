@@ -13,6 +13,7 @@ from browser_use.tools import ActionResult  # 0.x imported it from here
 
 if TYPE_CHECKING:
 	from browser_use.agent.judge import Judgement
+	from browser_use.repl.antibot import Block
 
 __all__ = ['ActionResult', 'AgentHistoryList']
 
@@ -102,6 +103,8 @@ class AgentHistoryList:
 	downloads: list[Path] = field(default_factory=list)  # files this run downloaded, in agent.workspace/downloads
 	# the judge's verdict, labels and gotchas (Agent(judge=True), the default); None when off, not run or failed
 	judgement: Judgement | None = None
+	# pages an anti-bot left walled (blocked, stuck on a challenge, rate-limited), by vendor and host, most first
+	blocks: list[Block] = field(default_factory=list)
 
 	def __post_init__(self) -> None:
 		if self.status != 'completed':
@@ -122,7 +125,8 @@ class AgentHistoryList:
 		return (
 			f'AgentHistoryList(status={self.status!r}, success={self.success!r}, text={text!r}, steps={self.steps}, '
 			f'duration_s={self.duration_s:.1f}, cost_usd={self.cost_usd!r}, usage={dict(self.usage)!r}, '
-			f'error={self.error!r}, messages=<{len(self.messages)} messages>)'
+			f'error={self.error!r}, messages=<{len(self.messages)} messages>'
+			+ (f', blocks=[{", ".join(map(str, self.blocks))}])' if self.blocks else ')')
 		)
 
 	def final_result(self) -> str | None:
