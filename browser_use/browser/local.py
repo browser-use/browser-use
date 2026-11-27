@@ -163,7 +163,9 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			raise FileNotFoundError(f'executable_path={executable_path!r} is not a file')
 		if is_snap(str(Path(executable_path).expanduser())):
 			raise RuntimeError(_snap_error(executable_path))
-		return str(Path(executable_path).expanduser())
+		# Keep it absolute: a relative path such as `./chrome` is only valid in the working directory it was
+		# checked in, and the launch resolves it against whatever the working directory is at that point.
+		return os.path.abspath(os.path.expanduser(executable_path))
 	tried = [p for k in ('BH_CHROME_PATH', 'CHROME_PATH') if (p := (os.environ.get(k) or '').strip())]
 	for path in tried:  # it silently fell back to another browser
 		if not Path(path).expanduser().is_file():
@@ -193,7 +195,7 @@ def find_binary(executable_path: str | None = None, *, chrome_only: bool = False
 			if is_snap(str(Path(path).expanduser())):
 				snaps.append(path)
 				continue
-			return str(Path(path).expanduser())
+			return os.path.abspath(os.path.expanduser(path))
 	if snaps:
 		raise RuntimeError(_snap_error(snaps[0]))
 	tried += [f'{n} on PATH' for n in on_path]
@@ -218,8 +220,11 @@ def playwright_chromium() -> list[str]:
 			root = str(Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData/Local') / 'ms-playwright')
 		else:
 			root = str(Path.home() / '.cache/ms-playwright')
+	# Keep it absolute: callers compare these paths against find_binary(), which is absolute, and a relative
+	# PLAYWRIGHT_BROWSERS_PATH would otherwise make the two disagree.
+	root = os.path.abspath(os.path.expanduser(root))
 	builds = sorted(
-		Path(root).expanduser().glob('chromium-*'),
+		Path(root).glob('chromium-*'),
 		key=lambda p: int(p.name.split('-')[-1]) if p.name.split('-')[-1].isdigit() else -1,
 		reverse=True,
 	)
