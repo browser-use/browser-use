@@ -386,6 +386,28 @@ def test_one_download_announced_by_both_events_counts_once():
 	assert s.take()['events'] == {'download_started': 1}
 
 
+def test_a_json_page_opened_with_a_fragment_keeps_its_copy_out_of_the_downloads():
+	"""A cloud browser saves a JSON page it displays as a download too (worker.py observe): the worker recognises that
+	copy by the page it recorded, so a page opened as .../data#top must be recorded without its fragment, as
+	.../data#top's copy has none. The model was told it downloaded a page it only opened."""
+	from browser_use.repl.worker import CellStats
+
+	for page in ('http://127.0.0.1/data', 'http://127.0.0.1/data#top'):
+		s = CellStats()
+		s.observe(
+			[{'method': 'Page.frameNavigated', 'params': {'frame': {'url': page, 'mimeType': 'application/json'}}}]
+		)
+		s.observe(
+			[
+				{
+					'method': 'Browser.downloadWillBegin',
+					'params': {'guid': 'g', 'url': 'http://127.0.0.1/data.json', 'suggestedFilename': 'data.json'},
+				}
+			]
+		)
+		assert s.started == [], page  # the copy of the page the tab shows, not a download the model made
+
+
 @pytest.mark.parametrize('seed', range(5))
 def test_names_the_models_code_chooses_are_kept_only_when_python_or_a_package_defines_them(seed):
 	"""Telemetry rerun #9: a module, exception class or cdp() method named by the model's code went out verbatim, a
