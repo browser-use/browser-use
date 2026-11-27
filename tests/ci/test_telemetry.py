@@ -2492,7 +2492,7 @@ def test_feedback_still_queued_at_exit_reaches_posthog_when_the_outbox_cannot_be
 	assert (event['event'], event['properties']['source']) == ('library_feedback', 'mcp') and not Path(arg[1:]).exists()
 
 
-def test_an_exit_sender_that_cannot_start_leaves_no_feedback_file(posthog, monkeypatch):
+def test_an_exit_sender_that_cannot_start_leaves_no_feedback_file(posthog, monkeypatch, tmp_path):
 	"""Review: with usage stats off and no subprocess allowed, the temp file holding the user's feedback stayed in TMPDIR
 	forever; nothing would ever send or delete it."""
 	import tempfile
@@ -2500,6 +2500,7 @@ def test_an_exit_sender_that_cannot_start_leaves_no_feedback_file(posthog, monke
 	import browser_use.telemetry.service as service
 
 	monkeypatch.setenv('ANONYMIZED_TELEMETRY', 'false')
+	monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path))  # parallel tests write their own browser-use-* files to TMPDIR
 	before = set(Path(tempfile.gettempdir()).glob('browser-use-*'))
 
 	def no_subprocess(*args, **kwargs):
