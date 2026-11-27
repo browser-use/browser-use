@@ -39,6 +39,18 @@ import browser_use.telemetry.service as _telemetry_service  # noqa: E402
 
 _telemetry_service.POSTHOG_HOST = 'http://127.0.0.1:9'  # nothing listens on port 9
 
+# http.server.HTTPServer runs socket.getfqdn(host) on every bind just to fill server_name, which no test reads. On
+# GitHub's macOS runners that reverse lookup of 127.0.0.1 takes 35 s, once per process: 35 s per test server. Subprocesses
+# that bind one (`browser-use login`'s callback server) run this first too (test_login.py).
+SERVER_BIND_WITHOUT_FQDN = """
+import http.server, socketserver
+def _server_bind_without_fqdn(self):
+	socketserver.TCPServer.server_bind(self)
+	self.server_name, self.server_port = self.server_address[:2]
+http.server.HTTPServer.server_bind = _server_bind_without_fqdn
+"""
+exec(SERVER_BIND_WITHOUT_FQDN)
+
 
 @pytest.fixture(autouse=True)
 def no_judge(request, monkeypatch):
@@ -104,13 +116,15 @@ def daemon(chrome):
 	"""A named browser-harness daemon on the isolated Chrome; the REPL env that drives it."""
 	from browser_harness import admin
 
+	from browser_use.browser.browser import _shutdown_daemon
+
 	name = f'butest{os.getpid()}{chrome["http"].rsplit(":", 1)[1]}'
 	admin.ensure_daemon(name=name, env={'BU_CDP_WS': chrome['ws']})
 	yield {'BU_NAME': name}
-	try:
-		admin.restart_daemon(name)
-	except Exception as e:  # a daemon left running shows in the test output
-		warnings.warn(f'browser-harness daemon {name} did not stop: {e!r}', stacklevel=1)
+	# what Browser.stop() does: an acknowledged daemon exits by itself; admin.restart_daemon waits 15 s for that exit,
+	# 15 s per module. Not acknowledged: _shutdown_daemon already fell back to admin.restart_daemon.
+	if not _shutdown_daemon(name):  # a daemon left running shows in the test output
+		warnings.warn(f'browser-harness daemon {name} did not acknowledge shutdown', stacklevel=1)
 
 
 @pytest.fixture

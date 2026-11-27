@@ -356,7 +356,8 @@ async def test_captcha_solver_false_turns_the_cloud_solver_off_at_start(monkeypa
 	fake = FakeCloudBrowser()
 
 	async def start_cloud(self):
-		self.id = 'b1'
+		# no self.id: with one the daemon gets BU_BROWSER_ID and PATCHes the real api.browser-use.com to stop it at
+		# shutdown, which fails with the fake key and cost ~20 s per stop (retries, then the forced restart)
 		return fake.ws
 
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'fake-test-key')
