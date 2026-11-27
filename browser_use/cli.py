@@ -1107,6 +1107,7 @@ Helpers are pre-imported; the daemon starts and attaches to your running Chrome 
 where it cannot (no display, remote debugging off).
 
 Commands:
+  browser-use view [--cdp-url URL]     watch all local tabs in a read-only live gallery
   browser-use login [--device-code | --api-key-stdin]   sign in to Browser Use Cloud (cloud browsers, default model)
   browser-use logout                  remove the stored key
   browser-use auth status             show the sign-in state
@@ -1164,6 +1165,10 @@ def _stdin_is_terminal() -> bool:
 
 
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
+	if args and args[0] == 'view':
+		from browser_use.gallery import main as gallery_main
+
+		return gallery_main(args[1:]), 'view'
 	if args in (['--help'], ['-h'], ['help']):  # browser-harness's own help named its commands and flags, not ours
 		print(HELP)
 		return 0, 'help'
