@@ -22,7 +22,7 @@ dependencies = [
     "google-genai==2.34.0",
     "genai-prices==0.2.1",
     "idna==3.20",
-    "pillow==12.3.0",
+    "pillow==13.0.0",
     "python-dotenv==1.2.4",
     "uuid7==0.1.0",
     "mcp==2.3.0",
@@ -122,6 +122,12 @@ allow-direct-references = true
 # Supply-chain freeze: uv.lock resolves only packages published before this time.
 # Move it forward on purpose (uv lock --upgrade), never implicitly.
 exclude-newer = "2026-11-09T09:48:30Z"
+# browser-harness 0.1.13 pins pillow==12.3.0 in its published metadata, which
+# contradicts this project's pillow==13.0.0 (CVE fix) and makes `uv lock`
+# unresolvable. Override it until a Browser Harness release that allows
+# Pillow 13 lands on PyPI (browser-use/browser-harness#1050); drop the
+# override then and re-lock.
+override-dependencies = ["pillow==13.0.0"]
 
 [dependency-groups]
 dev = [
