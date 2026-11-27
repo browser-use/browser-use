@@ -677,7 +677,7 @@ class Browser:
 		self.live_url: str | None = None  # interactive; anyone with the link can drive the browser
 		self.cloud_cdp_url: str | None = None
 		self._llm_key: str | None = None  # the key of the gateway model an Agent runs here (Agent._build): used without another
-		# (the model's key,) the cloud browser was created with, else (): its stop uses that key, whatever Agent runs here
+		# (the model's key,) the cloud browser was created with, else (): downloads and stop use it, whatever Agent runs here
 		# later (a keep_alive Browser's next Agent on ChatOpenAI sets _llm_key None; a stop without a key never ends billing)
 		self._cloud_key: tuple[str, ...] = ()
 		self.stopped = False  # the cloud browser is stopped (reset on every start)
@@ -1136,7 +1136,7 @@ class Browser:
 				else:
 					logger.warning('Could not stop cloud browser %s (it stays registered for retry): %s', self.id, error)
 					return False
-			self._creating, self._cloud_key = None, ()
+			self._creating = None  # keep the session's key for the post-stop download pass
 			self.live_url = self.cloud_cdp_url = None  # dead now, and either one drove the browser
 			_LIVE.discard(self)
 			return True
@@ -1144,8 +1144,8 @@ class Browser:
 	def _stop_late(self, creating: concurrent.futures.Future) -> None:
 		"""A create that outlived stop() landed (or failed): stop that browser, unless a later stop already did."""
 		with self._stop_mutex:
-			if self._creating is creating:
-				self._stop_now()
+			if self._creating is creating and self._stop_now():
+				self._cloud_key = ()
 
 	async def stop(self, downloads_dir: str | Path | None = None) -> list[Path]:
 		"""Stop the daemon this Browser started, and the cloud browser or local Chrome it started. Never touches the
@@ -1196,6 +1196,7 @@ class Browser:
 			await self._fetch_downloads(downloads_dir, fetched, files, browser_id, cancel_deadline)
 		if stopped and self.id == browser_id:
 			self.id = None
+			self._cloud_key = ()
 			self._download_records, self.json_page_copies, self._fetched = [], set(), set()  # the next session starts anew
 		return files
 
@@ -1351,7 +1352,7 @@ class Browser:
 		out, cursor = [], None
 		while self.id:
 			q = f'/browsers/{self.id}/downloads?limit=100' + (f'&cursor={cursor}' if cursor else '')
-			page = await asyncio.to_thread(_cloud, q)
+			page = await asyncio.to_thread(_cloud, q, 'GET', None, *self._cloud_key)
 			for f in page.get('files', []):
 				if (name := Path(f['path']).name) not in self.json_page_copies:
 					out.append({'name': name, 'size': f.get('size')})
@@ -1392,7 +1393,7 @@ class Browser:
 		out = [] if out is None else out
 		while True:
 			q = f'/browsers/{browser_id}/downloads?includeUrls=true&limit=100' + (f'&cursor={cursor}' if cursor else '')
-			page = await asyncio.to_thread(_cloud, q)
+			page = await asyncio.to_thread(_cloud, q, 'GET', None, *self._cloud_key)
 			for f in page.get('files', []):
 				if f['path'] in skip or Path(f['path']).name in self.json_page_copies:
 					skip.add(f['path'])  # listed, so stop() stops waiting for it
