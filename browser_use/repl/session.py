@@ -50,7 +50,8 @@ ENV_ALLOW = {
 	'CURL_CA_BUNDLE',
 }  # fmt: skip
 ENV_ALLOW_PREFIXES = ('LC_', 'BU_', 'BH_')  # browser-harness reads BU_NAME, BH_RUNTIME_DIR, BH_TMP_DIR, ...
-ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE', 'BU_HIGHLIGHT_ACTIONS'}  # CDP URLs can carry credentials; Repl sets the rest
+# CDP URLs can carry credentials; Browser sets BU_LOCAL_BROWSER_FILES, Repl sets the other mode flags. Never inherit them.
+ENV_DENY = {'BU_CDP_WS', 'BU_CDP_URL', 'BU_MODE', 'BU_HIGHLIGHT_ACTIONS', 'BU_LOCAL_BROWSER_FILES'}
 RESTARTED = '{why}. The REPL restarted: Python variables are lost; files, checkpoints and browser state survive.'
 SHORT_SECRET = 4  # shorter values are redacted only where they stand alone (not inside a longer word or number)
 SECRET_ENV = re.compile(r'KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH', re.I)
