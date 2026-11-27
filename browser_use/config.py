@@ -16,13 +16,23 @@ def load_env() -> None:
 
 @cache
 def is_running_in_docker() -> bool:
-	try:
-		return (
-			Path('/.dockerenv').exists()
-			or 'docker' in Path('/proc/1/cgroup').read_text(encoding='utf-8', errors='replace').lower()
-		)
-	except Exception:
-		return False
+	"""Detect whether the process is running inside a Docker container.
+
+	On non-POSIX platforms (e.g. Windows), ``/proc/1/cgroup`` does not exist,
+	so the file read is skipped early instead of being caught by the broad
+	``except Exception`` fallback. This avoids unnecessary exception handling
+	on every call (the function is cached, but the first call on Windows
+	previously raised and caught a ``FileNotFoundError``).
+	"""
+	if not Path('/.dockerenv').exists():
+		cgroup = Path('/proc/1/cgroup')
+		if not cgroup.exists():
+			return False
+		try:
+			return 'docker' in cgroup.read_text(encoding='utf-8', errors='replace').lower()
+		except Exception:
+			return False
+	return True
 
 
 def is_in_container() -> bool:
