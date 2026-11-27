@@ -1312,6 +1312,29 @@ def test_bad_cloud_options_raise_before_any_request(kwargs, match):
 	assert Browser(cloud_proxy_country_code='DE', cloud_timeout=240).proxy == 'de'
 
 
+@pytest.mark.parametrize(
+	'kwargs',
+	[
+		{'keep_alive': 'false'},
+		{'keep_alive': 1},
+		{'block_ip_addresses': 'false'},
+		{'block_ip_addresses': 0},
+		{'live_view': 'no'},
+		{'headless': 'false'},
+		{'headless': 0},
+	],
+)
+def test_a_flag_that_is_not_a_bool_raises_before_anything_starts(kwargs):
+	"""A string such as 'false' is truthy: keep_alive='false' left a billed cloud browser running after the run,
+	block_ip_addresses='false' blocked IP URLs, headless='false' launched headless."""
+	kind = 'chromium' if 'headless' in kwargs else None
+	with pytest.raises(TypeError, match='must be True or False'):
+		Browser(kind, **kwargs)
+	b = Browser('chromium', headless=False, keep_alive=True, block_ip_addresses=True)
+	assert (b.headless, b.keep_alive, bool(b.domains)) == (False, True, True)
+	assert Browser(live_view=None).live_view is None and Browser(live_view=False).live_view is False
+
+
 def test_proxy_country_code_is_sent_lowercase():
 	"""browser-features #26: 'DE' got the API's raw 422 enum dump; the API takes only lowercase codes."""
 	assert Browser(cloud_proxy_country_code='DE').proxy == 'de'
