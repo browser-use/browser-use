@@ -9,7 +9,7 @@ python runs code in a persistent Python REPL. Variables, imports and functions s
 Browser primitives (browser-harness, pre-imported; one attached tab at a time):
 - new_tab(url) opens and attaches a tab; goto_url(url); wait_for_load(); page_info() -> {url,title,w,h,sx,sy,pw,ph} or {dialog}.
 - list_tabs(), current_tab(), switch_tab(target_id), close_tab(target_id), ensure_real_tab().
-- js(expression) runs in the page and returns JSON; `return` works. js(expr, target_id=iframe_target('url part')) runs inside a cross-origin iframe.
+- js(expression) runs in the page and returns JSON; `return` works. Use frame_eval() below for child frames; iframe_target() may return None.
 - cdp('Domain.method', **params) sends a raw CDP command to the attached tab; cdp(method, session_id=sid, ...) targets another session. drain_events() returns buffered CDP events.
 - click_at_xy(x, y) sends real mouse events in viewport coordinates. type_text(text) inserts text into the focused element. press_key('Enter'), scroll(x, y, dy=600).
 - screenshot() captures the viewport and shows it to you as a native image. Never print image bytes. Raw cdp('Page.captureScreenshot') is shown too.
@@ -23,12 +23,12 @@ Coordinates hit whatever is visible. Inspect overlays and disabled controls firs
 
 To type, focus an observed input with cdp('DOM.focus', backendNodeId=n), select existing text with cdp('Input.dispatchKeyEvent', type='rawKeyDown', key='a', code='KeyA', commands=['selectAll']), then type_text(text). Release with cdp('Input.dispatchKeyEvent', type='keyUp', key='a', code='KeyA'). Empty replacement requires Backspace. Build your own helper if repeating them.
 
-Use js(...) for DOM extraction. Use screenshots for visual questions, canvas and geometry. In-process frames: Page.getFrameTree, Page.createIsolatedWorld(frameId=..., worldName='agent'), then Runtime.evaluate with its executionContextId as contextId. Cross-origin iframe targets: cdp('Target.getTargets'), attach with flatten=True, and send commands with that session_id. Discover targets instead of guessing IDs.
+Use js(...) for extraction; screenshots for visual/canvas work. frame_list() returns observed refs for this tab's nested frames. frame_eval(f, expression) runs once in that document's main world (IIFE for statements), without changing input focus. Refresh stale refs after navigation/tab switches. Prefer native typing into observed editable fields. dispatch_paste(selector, text, frame=f, html=None, timeout_s=10) sends one synthetic paste (up to 1 MiB); see help(dispatch_paste). Test a small real section/row and read it back. A paste receipt, editor buffer or Saved label does not prove persistence; reopen the final requested deliverable and read saved content.
 
 Uploads: upload_file(selector, path) with the path of an existing file (the task's file, e.g. in the workspace); never create or overwrite it, and if it is missing, report that. Verify the input holds it. Downloads: never call Browser.setDownloadBehavior; remote browser files live on the remote host. Native <select>: never click it (its option popup is drawn outside the page, so clicks, keys and screenshots miss it); set it in page code: s.value = option.value, then dispatch bubbling 'input' and 'change' events. If the value or the page then stays unchanged, the page rejected the choice: report that as observed. For other controls use explicit CDP or ordinary page code, and verify changes.
 
 Workspace helpers:
-- checkpoint(filename, value, partial=True) atomically saves JSON and publishes your latest partial result to the caller. Update it after useful progress, especially QA findings and extracted records. Partial values need not satisfy the final schema. They survive timeout or worker loss. Omit partial for ordinary scratch checkpoints. Save small successful batches, not only the final output.
+- checkpoint(filename, value, partial=False) atomically saves JSON. Pass partial=True explicitly to register one cumulative answer for timeout or worker loss. Keep this answer current after useful batches, including verified results and unresolved requirements. Partial values need not satisfy the final schema. Ordinary source and scratch checkpoints use partial=False.
 - show_image(path) sends an image file (png, jpeg, webp, gif) to you as a native image. Do not open file:// URLs.
 - report_issue(message) tells the Browser Use team when browser-use gets in your way: a helper or the browser misbehaves, an error or these instructions mislead you, or a helper you need is missing. Not for a website's own problems.
 Large output is truncated with a path to the captured text. Read files instead of repeating completed actions. Shell commands work through subprocess.
