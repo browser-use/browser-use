@@ -546,6 +546,32 @@ def test_registering_an_action_name_again_replaces_it_as_in_0x():
 	build_agent('test', tools=tools.functions)  # no name conflict
 
 
+def test_rejected_action_replacement_preserves_registered_tools():
+	tools = Tools()
+
+	@tools.action('Keep this action available')
+	def lookup(value: str) -> str:
+		return f'original: {value}'
+
+	@tools.action('Keep unrelated actions available')
+	def other() -> str:
+		return 'other'
+
+	before = list(tools.functions)
+
+	def invalid_lookup(value: str) -> str:
+		return str(value)
+
+	invalid_lookup.__name__ = 'lookup'
+	invalid_lookup.__annotations__['value'] = 'MissingActionInput'
+	with pytest.raises(NameError, match='MissingActionInput'):
+		tools.action('Invalid replacement')(invalid_lookup)
+
+	assert tools.functions == before
+	assert tools.functions[0].function('still callable') == 'original: still callable'
+	assert tools.functions[1].function() == 'other'
+
+
 @pytest.mark.parametrize('param', ['browser_session', 'page_extraction_llm', 'file_system'])
 def test_tools_injected_params_raise(param):
 	tools = Tools()
