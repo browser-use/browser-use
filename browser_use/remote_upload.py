@@ -41,11 +41,12 @@ PUT = """function (key, i, n, b64) {
 	const w = this.ownerDocument.defaultView;
 	((w[key] ||= [])[i] ||= [])[n] = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 }"""
-SET = """function (key, meta) {
-	const w = this.ownerDocument.defaultView, parts = w[key] || [];
+SET = """function (key, meta, start, final) {
+	const w = this.ownerDocument.defaultView, parts = w[key] ||= [];
+	const dt = parts.transfer ||= new DataTransfer();
+	meta.forEach(([name, type], i) => dt.items.add(new File(parts[start + i] || [], name, {type})));
+	if (!final) return;
 	delete w[key];
-	const dt = new DataTransfer();
-	meta.forEach(([name, type], i) => dt.items.add(new File(parts[i] || [], name, {type})));
 	this.files = dt.files;
 	this.dispatchEvent(new Event('input', {bubbles: true}));
 	this.dispatchEvent(new Event('change', {bubbles: true}));
@@ -75,7 +76,8 @@ def set_files(cdp, object_id: str, path, remote: bool) -> int:
 			raise RuntimeError(f'upload_file: {r["exceptionDetails"].get("text", "the page refused the files")}')
 		return r.get('result', {}).get('value')
 
-	if not remote:
+	# The local path list uses the same bounded transport as the remote metadata.
+	if not remote and len(json.dumps(paths)) <= UPLOAD_PART:
 		with contextlib.suppress(RuntimeError):  # rejected: a remote browser behind cdp_url
 			cdp('DOM.setFileInputFiles', objectId=object_id, files=paths)
 			if call(SIZES) == [os.path.getsize(p) for p in paths]:
@@ -91,7 +93,15 @@ def set_files(cdp, object_id: str, path, remote: bool) -> int:
 	try:
 		with concurrent.futures.ThreadPoolExecutor(8) as pool:  # each part is one round trip to the browser
 			list(pool.map(put, parts))
-		return call(SET, key, [[Path(p).name, mimetypes.guess_type(p)[0] or 'application/octet-stream'] for p in paths])
+		metadata = [[Path(p).name, mimetypes.guess_type(p)[0] or 'application/octet-stream'] for p in paths]
+		start, size = 0, 0
+		for i, entry in enumerate(metadata):
+			entry_size = len(json.dumps(entry)) + 2
+			if size + entry_size > UPLOAD_PART and i > start:
+				call(SET, key, metadata[start:i], start, False)
+				start, size = i, 0
+			size += entry_size
+		return call(SET, key, metadata[start:], start, True)
 	finally:  # SET deletes the parts; a failed part must not leave them in the page either
 		with contextlib.suppress(Exception):
 			call('function (key) { delete this.ownerDocument.defaultView[key] }', key)
