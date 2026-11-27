@@ -982,7 +982,9 @@ async def test_a_response_it_cannot_mask_is_failed_never_passed_through(chrome, 
 	finally:
 		await repl.close()
 		swapper.close()
-	assert r['error'] is None and r['output'].strip().startswith('failed: TypeError'), r['output']
+	# the fetch's result is the cell's last line (newer browser-harness prints a "new_tab: ..." line first)
+	assert r['error'] is None and r['output'].strip().splitlines()[-1].startswith('failed: TypeError'), r['output']
+	assert leaks(r['output']) == [], r['output']
 
 
 async def test_agent_types_dummies_and_never_sees_a_real_value(chrome, site, tmp_path):
