@@ -1234,3 +1234,24 @@ async def test_a_none_delivered_for_a_nullable_schema_is_the_result(tmp_path):
 	result = await run(build_agent(model, output_type=_Authors | None), 'task', session, 'function:x')
 	assert (len(seen), result.status, result.output, result.text, result.success) == (3, 'completed', None, 'null', False)
 	assert result.partial == {'authors': ['partial']}  # still there to read, never the result
+
+
+async def test_caller_timeout_restores_the_previous_recorder(tmp_path):
+	"""The caller can catch its own timeout and continue in the same task, without retaining the cancelled run."""
+	import asyncio
+
+	from browser_use.telemetry.recorder import CURRENT, RunRecorder
+
+	async def blocked(messages, info):
+		deadline.reschedule(asyncio.get_running_loop().time())
+		await asyncio.Future()
+
+	previous = RunRecorder()
+	token = CURRENT.set(previous)
+	try:
+		with pytest.raises(TimeoutError):
+			async with asyncio.timeout(None) as deadline:
+				await run(build_agent(FunctionModel(blocked)), 'task', Session(repl=FakeRepl(tmp_path)), 'function:x')
+		assert CURRENT.get() is previous
+	finally:
+		CURRENT.reset(token)
