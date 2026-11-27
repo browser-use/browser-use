@@ -83,6 +83,18 @@ def test_readme_feedback_requires_authorization_for_agents():
 	assert 'show the user the proposed message and destination and wait for explicit approval of both' in feedback
 
 
+@pytest.mark.parametrize(
+	'path', ['README.md', 'skills/open-source/SKILL.md', 'skills/remote-browser/SKILL.md', 'skills/qa/SKILL.md']
+)
+def test_standalone_cli_feedback_discloses_destination_and_payload(path):
+	text = (ROOT / path).read_text(encoding='utf-8')
+	guides = [p for p in text.split('\n\n') if 'proposed message' in p]
+	assert guides
+	for guide in guides:
+		for field in ('PostHog', 'category', 'OS', 'Python', 'device ID'):
+			assert field in guide, (path, field)
+
+
 def test_cloud_v4_reference_scopes_workspace_file_listing():
 	api_v4 = (ROOT / 'skills' / 'cloud' / 'references' / 'api-v4.md').read_text(encoding='utf-8')
 

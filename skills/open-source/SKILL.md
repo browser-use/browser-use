@@ -123,8 +123,11 @@ MIGRATING.md "Trust model" lists exactly what is covered.
 
 ## Feedback
 
-Send feedback to the Browser Use team only when the user has explicitly authorized the report and its destination.
-To obtain that authorization, show the user the proposed message and destination and wait for their approval.
+Show the user the proposed message. For CLI or Python feedback, explain that Browser Use sends the message (up to
+2,000 characters) to its PostHog project with the category, Browser Use version, and runtime details such as OS,
+architecture, Python version, and CI status. The report includes a device ID that can persist when usage stats are
+enabled. With usage stats off, it uses a process-specific random ID unless `BROWSER_USE_DEVICE_ID` is set. Wait for
+explicit approval of the report and destination before sending.
 
 Start with `kind: integration_report | feature_request | bug`. Include what you built, how you tested it, what worked,
 problems you hit, docs that were wrong or missing, and any feature you looked for and could not find. Omit keys,
