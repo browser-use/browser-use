@@ -1,5 +1,6 @@
 """The agent loop end-to-end against a real isolated headless Chrome, scripted model (no provider calls)."""
 
+import errno
 import json
 from pathlib import Path
 
@@ -801,6 +802,40 @@ async def test_existing_file_link_and_short_answer_pass(daemon, tmp_path):
 	for answer in ['7', 'See [out.csv](out.csv), `out.csv` and [site](https://example.com)']:
 		result, seen = await go(daemon, tmp_path, [('finish', {'success': True, 'result': answer})])
 		assert (len(seen), result.output) == (1, answer)
+
+
+@pytest.mark.parametrize('target', ['a' * 300, 'www.example.com/search?q=' + 'a' * 1200], ids=['long name', 'long path'])
+async def test_a_link_target_too_long_for_the_filesystem_does_not_end_the_run(daemon, tmp_path, target):
+	"""A scheme-less link with a long query (or a 300-character name) made Path.exists() raise ENAMETOOLONG out of
+	check_delivery: the run ended with status error and the answer was lost. No such file can exist: the usual repair."""
+	# The parent must exist, or Path.exists() stops at ENOENT before it reaches the over-long name and the case proves nothing
+	parent, _, _ = target.rpartition('/')
+	if parent:
+		(tmp_path / parent).mkdir(parents=True)
+	answer = f'See [docs]({target})'
+	result, seen = await go(
+		daemon,
+		tmp_path,
+		[('finish', {'success': True, 'result': answer}), ('finish', {'success': True, 'result': answer})],
+	)
+	assert (len(seen), result.status, result.output) == (2, 'completed', answer), result.error
+
+
+@pytest.mark.parametrize('code, missing', [(errno.ENAMETOOLONG, False), (errno.EACCES, None), (errno.EIO, None)])
+def test_exists_hides_only_a_name_too_long_for_the_filesystem(monkeypatch, code, missing):
+	"""ENAMETOOLONG means no such file can exist. A permission or I/O error says nothing about the file, so it must not read
+	as "missing": the one-shot repair would then accept the same answer without having checked the link."""
+
+	def refuse(self):
+		raise OSError(code, 'refused')
+
+	monkeypatch.setattr(Path, 'exists', refuse)
+	if missing is None:
+		with pytest.raises(OSError) as raised:
+			loop._exists(Path('leads.csv'))
+		assert raised.value.errno == code
+	else:
+		assert loop._exists(Path('leads.csv')) is missing
 
 
 async def test_partial_result_is_accepted_without_a_continue_turn(daemon, tmp_path):

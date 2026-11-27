@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import base64
+import errno
 import json
 import logging
 import re
@@ -18,6 +19,7 @@ import uuid
 from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Annotated, Any, cast
 
 import httpx2
@@ -250,6 +252,18 @@ def check_split_delivery(ctx: RunContext[Session]) -> None:
 	)
 
 
+def _exists(path: Path) -> bool:
+	"""Path.exists() raises for a name the filesystem refuses (ENAMETOOLONG: a link target past NAME_MAX or PATH_MAX, like
+	a scheme-less URL with a long query); nothing can be saved under such a name, so it is not a file. Any other OSError
+	(permissions, I/O) says nothing about the file, so it still propagates rather than reading as "missing"."""
+	try:
+		return path.exists()
+	except OSError as e:
+		if e.errno == errno.ENAMETOOLONG:
+			return False
+		raise
+
+
 def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	"""One-shot repair: a placeholder or links to unwritten files. Not on the run's last request (the repair after the
 	delivery-only turn): nothing can follow it, and the refused result was lost (status max_steps, ''). There the
@@ -270,7 +284,7 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 				for t in LINK.findall(text) + FILE.findall(text)
 				if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
 				# downloads land in workspace/downloads; an answer names them by file name
-				and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
+				and not any(_exists(d / t.split('#')[0]) for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
 			}
 		)
 		if missing:
