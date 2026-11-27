@@ -1,7 +1,9 @@
 import http.client
 import logging
 import os
+import re
 import ssl
+import sys
 import threading
 import urllib.request
 from collections.abc import Iterator
@@ -13,6 +15,10 @@ from typing import TYPE_CHECKING, Any
 logger = logging.getLogger(__name__)
 MAX_NAME_BYTES = 255  # a file name, on every common filesystem
 FD_LIMIT = 10240  # ~3 fds per live Agent (model connection, REPL socket, worker pipe): thousands of concurrent Agents
+WINDOWS_ILLEGAL = re.compile(r'[<>:"|?*\x00-\x1f]')  # in a name, Windows rejects these and stops at a trailing dot
+WINDOWS_DEVICES = frozenset(  # 'CON', 'nul.txt': the console and the null device, not files
+	{'CON', 'PRN', 'AUX', 'NUL', *(f'COM{i}' for i in range(1, 10)), *(f'LPT{i}' for i in range(1, 10))}
+)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -169,9 +175,24 @@ def get_install_source() -> str:
 		return 'unknown'
 
 
+def legal_name(name: str) -> str:
+	"""name as a file this platform can create. Windows rejects < > : " | ? * and control characters in a name: a
+	download named after its URL ('report.pdf?sig=abc') failed the whole copy, and 'Q3: summary.csv' went to an
+	alternate data stream, invisible to the workspace. It also drops a trailing dot or space and reserves the device
+	names. POSIX accepts all of these, so only Windows changes anything."""
+	if sys.platform != 'win32':
+		return name
+	clean = WINDOWS_ILLEGAL.sub('_', name).rstrip('. ')  # 'trailing. ' is created as 'trailing' anyway
+	if clean.partition('.')[0].strip().upper() in WINDOWS_DEVICES:
+		clean = f'_{clean}'
+	return clean or '_'
+
+
 def file_names(dest: Path, name: str) -> Iterator[Path]:
 	"""Paths in dest for a file called name: 'report.csv', then 'report (1).csv', 'report (2).csv', ... A long name is
-	shortened, never dropped."""
+	shortened, never dropped. A name this filesystem cannot create is made legal first (legal_name): the copy of a
+	download named after its URL failed with an OSError, which left the file on the remote host."""
+	name = legal_name(name)
 	stem, suffix = Path(name).stem, Path(name).suffix
 	if len(suffix.encode()) > 32:  # not an extension: part of a long name
 		stem, suffix = name, ''
