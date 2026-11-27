@@ -84,15 +84,23 @@ def test_readme_feedback_requires_authorization_for_agents():
 
 
 @pytest.mark.parametrize(
-	'path', ['README.md', 'skills/open-source/SKILL.md', 'skills/remote-browser/SKILL.md', 'skills/qa/SKILL.md']
+	('path', 'section'),
+	[
+		('README.md', '> Send integration feedback'),
+		('README.md', 'You can send your own feedback'),
+		('skills/open-source/SKILL.md', '## Feedback'),
+		('skills/remote-browser/SKILL.md', '## Feedback'),
+		('skills/qa/SKILL.md', '**Optional feedback about Browser Use.**'),
+	],
 )
-def test_standalone_cli_feedback_discloses_destination_and_payload(path):
+def test_standalone_cli_feedback_discloses_destination_and_payload(path, section):
 	text = (ROOT / path).read_text(encoding='utf-8')
-	guides = [p for p in text.split('\n\n') if 'proposed message' in p]
-	assert guides
-	for guide in guides:
-		for field in ('PostHog', 'category', 'OS', 'Python', 'device ID'):
-			assert field in guide, (path, field)
+	_, marker, rest = text.partition(section)
+	assert marker, (path, section)
+	guide = ' '.join(rest.lstrip().split('\n\n', 1)[0].split())
+	assert 'show the user the proposed message and destination' in guide.lower()
+	for field in ('PostHog', 'category', 'OS', 'Python', 'device ID'):
+		assert field in guide, (path, field)
 
 
 def test_cloud_v4_reference_scopes_workspace_file_listing():

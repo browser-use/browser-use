@@ -92,8 +92,8 @@ Do not leave an unused remote browser running.
 
 ## Feedback
 
-Show the user the proposed message. For CLI or Python feedback, explain that Browser Use sends the message (up to
-2,000 characters) to its PostHog project with the category, Browser Use version, and runtime details such as OS,
+Show the user the proposed message and destination. For CLI or Python feedback, explain that Browser Use sends the message
+(up to 2,000 characters) to its PostHog project with the category, Browser Use version, and runtime details such as OS,
 architecture, Python version, and CI status. The report includes a device ID that can persist when usage stats are
 enabled. With usage stats off, it uses a process-specific random ID unless `BROWSER_USE_DEVICE_ID` is set. Wait for
 explicit approval of the report and destination before sending.
