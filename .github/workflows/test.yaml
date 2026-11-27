@@ -46,7 +46,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked --dev --all-extras --python ${{ matrix.python }}
-      - run: uv run --no-sync pytest tests -m "not chrome"
+      - run: uv run --no-sync pytest tests -m "not chrome" -n auto
 
   chrome:
     # End to end against a real headless Chrome with a scripted model (no provider calls, no cloud browsers).
@@ -59,7 +59,9 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked --dev --all-extras --python 3.11
+      # --dist loadfile keeps each module, which shares one Chrome, on one worker in file order. Spread per test,
+      # test_parallel_browsers_with_bh_runtime_dir_never_share_a_daemon sees both Browsers on one tab (passes alone).
       # Without google-chrome every chrome test would skip and the job would pass: fail instead, and list skips (-rs)
       - run: |
           CHROME="$(command -v google-chrome)" || { echo "google-chrome not found on PATH" >&2; exit 1; }
-          CHROME="$CHROME" uv run --no-sync pytest tests -m chrome -rs
+          CHROME="$CHROME" uv run --no-sync pytest tests -m chrome -rs -n auto --dist loadfile
