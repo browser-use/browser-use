@@ -810,8 +810,16 @@ def test_cli_mcp_screenshot_activates_a_hidden_tab_whose_capture_hangs(monkeypat
 	path = ns['capture_screenshot'](str(tmp_path / 'shot.png'))
 	assert Path(path).read_bytes() == b'\x00\x00\x00'  # base64 'AAAA'
 	assert state['visibility'] == 'visible'
+	# non-cloud kinds get one Browser.getVersion probe (headless browsers skip the first try; this stub's UA is not)
+	probe = ['Browser.getVersion'] if kind != 'cloud' else []
 	first_try = ['Page.captureScreenshot'] if kind != 'cloud' else []
-	assert [m for m, _ in calls] == ['Runtime.evaluate', *first_try, 'Target.activateTarget', 'Page.captureScreenshot']
+	assert [m for m, _ in calls] == [
+		'Runtime.evaluate',
+		*probe,
+		*first_try,
+		'Target.activateTarget',
+		'Page.captureScreenshot',
+	]
 
 
 PARENT = """
@@ -951,3 +959,104 @@ async def test_images_providers_take_are_sent_as_is_and_conversions_fit_the_limi
 	logo = Image.open(io.BytesIO(sent[3]))
 	assert logo.size == (2048, 68) and logo.getpixel((1000, 50)) == (255, 255, 255)
 	assert logo.convert('L').crop((0, 0, 60, 30)).getextrema()[0] < 100  # the black text stays
+
+
+# ---------------------------------------------------------------------------
+# headless cdp: the hidden-capture first try is skipped (gh-#6449)
+# ---------------------------------------------------------------------------
+
+
+def _cdp_stub(ua: str | None, capture_hangs: bool = True):
+	"""A stub daemon cdp whose Browser.getVersion reports `ua`; a hidden tab's captures hang."""
+	from browser_harness.helpers import _IPCResponseTimeout
+
+	state, calls = {'visibility': 'hidden'}, []
+
+	def raw_cdp(method, session_id=None, _response_timeout=5.0, **params):
+		calls.append((method, _response_timeout))
+		if method == 'Runtime.evaluate':
+			return {'result': {'type': 'string', 'value': state['visibility']}}
+		if method == 'Browser.getVersion':
+			return {'userAgent': ua} if ua is not None else {}
+		if method == 'Target.activateTarget':
+			state['visibility'] = 'visible'
+			return {}
+		if capture_hangs and state['visibility'] == 'hidden':
+			raise _IPCResponseTimeout(f'{method} timed out after {_response_timeout:g}s waiting for the daemon')
+		return {'data': 'AAAA'}
+
+	return raw_cdp, calls, state
+
+
+def test_a_headless_cdp_browser_skips_the_hidden_capture_first_try(monkeypatch, tmp_path):
+	"""gh-#6449: a cdp browser can be the user's own headless Chrome. It renders no frames for a hidden tab either, so
+	its 10 s first try burned on the first capture after every new_tab(): the HeadlessChrome user agent activates
+	without the try, as a cloud browser's tab does."""
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+	from browser_use.repl.capture import headless_via_ua
+
+	raw_cdp, calls, state = _cdp_stub(ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 HeadlessChrome/157.0.0.0')
+	monkeypatch.setattr(helpers, 'cdp', raw_cdp)
+	monkeypatch.setattr(helpers, 'current_tab', lambda: {'targetId': 'T'})
+	monkeypatch.setattr(admin, 'daemon_browser_kind', lambda name=None: 'cdp')
+	assert headless_via_ua(raw_cdp) is True
+
+	ns = cli_mcp.CLIMCPServer()._ensure_namespace()
+	path = ns['capture_screenshot'](str(tmp_path / 'shot.png'))
+	assert Path(path).read_bytes() == b'\x00\x00\x00'
+	assert state['visibility'] == 'visible'
+	# uncached: every hidden capture re-probes, so a reattach as a different browser is honored
+	assert [m for m, _ in calls] == [
+		'Browser.getVersion',
+		'Runtime.evaluate',
+		'Browser.getVersion',
+		'Target.activateTarget',
+		'Page.captureScreenshot',
+	]
+
+
+def test_a_headful_cdp_browser_keeps_the_hidden_capture_first_try(monkeypatch, tmp_path):
+	"""A headful Chrome has a visible tab to protect: the 10 s hidden-capture try runs before activating."""
+	from browser_harness import admin, helpers
+
+	from browser_use.mcp import cli_mcp
+	from browser_use.repl.capture import HIDDEN_CAPTURE_TRY_S, SCREENSHOT_TIMEOUT_S
+
+	raw_cdp, calls, state = _cdp_stub(ua='Mozilla/5.0 (Macintosh; Intel Mac OS X) Chrome/157.0.0.0')
+	monkeypatch.setattr(helpers, 'cdp', raw_cdp)
+	monkeypatch.setattr(helpers, 'current_tab', lambda: {'targetId': 'T'})
+	monkeypatch.setattr(admin, 'daemon_browser_kind', lambda name=None: 'cdp')
+
+	ns = cli_mcp.CLIMCPServer()._ensure_namespace()
+	path = ns['capture_screenshot'](str(tmp_path / 'shot.png'))
+	assert Path(path).read_bytes() == b'\x00\x00\x00'
+	assert state['visibility'] == 'visible'
+	assert [m for m, _ in calls] == [
+		'Runtime.evaluate',
+		'Browser.getVersion',
+		'Page.captureScreenshot',
+		'Target.activateTarget',
+		'Page.captureScreenshot',
+	]
+	assert calls[2] == ('Page.captureScreenshot', HIDDEN_CAPTURE_TRY_S)  # the 10 s first try
+	assert calls[-1] == ('Page.captureScreenshot', SCREENSHOT_TIMEOUT_S)
+
+
+def test_a_failed_headless_probe_is_not_cached():
+	"""A transient Browser.getVersion failure returns False without caching it: the next hidden tab probes again
+	instead of pinning the 10 s first try for the process lifetime."""
+	from browser_use.repl.capture import headless_via_ua
+
+	probes = {'n': 0}
+
+	def raw_cdp(method, session_id=None, _response_timeout=5.0, **params):
+		if method == 'Browser.getVersion':
+			probes['n'] += 1
+			raise TimeoutError('daemon busy')
+		return {}
+
+	assert headless_via_ua(raw_cdp) is False
+	assert headless_via_ua(raw_cdp) is False
+	assert probes['n'] == 2
