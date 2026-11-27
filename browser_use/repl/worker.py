@@ -110,6 +110,17 @@ def totp(seed: str, now: float | None = None) -> str:
 STATE = Path(os.environ.get('BU_STATE_DIR', '.browser-use'))
 images: list[dict] = []
 NAVIGATING = ('Page.navigate', 'Target.createTarget')
+TOKEN_DENIED_DOMAINS = ('Fetch.', 'Tracing.', 'IO.')
+TOKEN_DENIED = {
+	'Target.attachToBrowserTarget',
+	'Target.exposeDevToolsProtocol',
+	'Target.sendMessageToTarget',  # a session of its own, around this check
+	'Network.setRequestInterception',
+	'Network.loadNetworkResource',  # loads outside the page: Fetch does not see it, so nothing masks the response
+	'Network.getResponseBodyForInterception',
+	'Network.takeResponseBodyForInterceptionAsStream',
+}
+TOKEN_DENIED_URLS = ('chrome:', 'file:', 'devtools:', 'chrome-untrusted:', 'view-source:')
 STAT_EVENTS = {'BrowserUse.captchaSolverStarted': 'captcha_started'}
 NET_ERROR = re.compile(r'net::(ERR_[A-Z0-9_]{1,40})')  # Page.navigate's errorText: Chrome's net error names
 DOWNLOAD_EVENTS = ('Browser.downloadWillBegin', 'Page.downloadWillBegin')  # cloud browsers send both for one download
@@ -500,8 +511,23 @@ def _install(ns: dict, secrets: list) -> tuple[ax.AxHelpers | None, Captcha]:
 	os.environ.update(env)
 
 	raw_send = helpers._send
+	tokens = os.environ.get('BU_TOKENS') == '1'  # Browser(tokens=...): real values are written into requests
+
+	def refuse_token_leak(method, params) -> None:
+		"""Browser(tokens=...): the calls that would show a request after the real value was written into it (an
+		interceptor of its own, a browser-level session, a trace or net-export) or read the browser's files. Checked on
+		every request through helpers._send() (cdp(), helpers.cdp(), helpers._send()): a guard for an aligned model, not
+		a sandbox; code that talks to the daemon's socket itself gets past it (MIGRATING.md "Tokens")."""
+		url = str(params.get('url', '')).strip().lower() if method in NAVIGATING else ''
+		if method.startswith(TOKEN_DENIED_DOMAINS) or method in TOKEN_DENIED or url.startswith(TOKEN_DENIED_URLS):
+			raise PermissionError(
+				f'{method}{" " + url[:60] if url else ""} is refused while Browser(tokens=...) is on: it could show the real '
+				'values the browser substitutes for the stand-ins. Type the stand-ins and submit the form as usual.'
+			)
 
 	def send(req, *args, **kwargs):  # every drain_events() read, also bu's background one, feeds the event counts
+		if tokens and isinstance(req, dict) and req.get('method'):  # helpers.cdp() and helpers._send() both come here
+			refuse_token_leak(str(req['method']), req.get('params') or {})
 		if (size := len(json.dumps(req))) > MAX_IPC_REQUEST:
 			label = req.get('method') or req.get('meta') or 'request'
 			raise ValueError(

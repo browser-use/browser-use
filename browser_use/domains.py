@@ -278,7 +278,121 @@ class DomainRules:
 		return cls(tuple(d.get('allowed') or ()), tuple(d.get('prohibited') or ()), bool(d.get('block_ips')))
 
 
-class Guard:
+class BrowserFetch:
+	"""A browser-level Fetch interception on a CDP connection of its own, on a thread of its own: the agent's
+	cdp('Fetch.disable') through the daemon does not turn it off. When the connection drops, Chrome stops intercepting
+	until it reconnects. Subclasses list the commands that set it up (_setup) and handle its events (_handle)."""
+
+	what = 'Domain restrictions'  # in start()'s error
+	thread_name = 'browser-use-domains'
+
+	def __init__(self, ws_url: str):
+		self.ws_url = ws_url
+		self._replies: dict[int, tuple[Callable[[dict], object] | None, Callable[[dict], object] | None]] = {}
+		self._lock = threading.Lock()
+		self._ws: Any = None
+		self._id = 0
+		self._closed = threading.Event()
+		self._ready = threading.Event()
+		self._error: str | None = None
+		self._thread = threading.Thread(target=self._run, daemon=True, name=self.thread_name)
+
+	def start(self) -> None:
+		self._thread.start()
+		if not self._ready.wait(GUARD_START_S) or self._error:
+			self.close()
+			why = self._error or f'no answer within {GUARD_START_S:g}s'
+			raise RuntimeError(f'{self.what} could not start on this browser ({why}); nothing was left running.')
+
+	def close(self) -> None:
+		self._closed.set()
+		ws, self._ws = self._ws, None
+		if ws is not None:
+			with contextlib.suppress(Exception):
+				ws.close()
+
+	def _send(
+		self,
+		method: str,
+		session_id: str | None = None,
+		reply: Callable[[dict], object] | None = None,
+		error: Callable[[dict], object] | None = None,
+		**params: Any,
+	) -> int:
+		"""reply(result) on success, error(error) on a CDP error; both run on the connection's thread."""
+		self._id += 1
+		msg: dict[str, Any] = {'id': self._id, 'method': method, 'params': params}
+		if session_id:
+			msg['sessionId'] = session_id
+		if reply is not None or error is not None:
+			self._replies[self._id] = (reply, error)
+		self._ws.send(json.dumps(msg))
+		return self._id
+
+	def _setup(self) -> list[tuple[str, dict[str, Any]]]:
+		"""The commands sent on every (re)connect, answered before start() returns."""
+		raise NotImplementedError
+
+	def _connected(self) -> None:
+		"""Every setup command answered."""
+
+	def _connect(self) -> None:
+		from websockets.sync.client import connect
+
+		from browser_use.utils import tls_context
+
+		tls = tls_context() if self.ws_url.startswith('wss:') else None  # a ws:// URL refuses an ssl argument
+		self._ws = connect(self.ws_url, max_size=None, open_timeout=GUARD_START_S, close_timeout=1, ssl=tls)
+		self._replies.clear()
+		pending = {self._send(method, **params) for method, params in self._setup()}
+		deadline = time.monotonic() + GUARD_START_S
+		while pending:
+			msg = json.loads(self._ws.recv(timeout=max(0.1, deadline - time.monotonic())))
+			if msg.get('id') in pending:
+				if 'error' in msg:
+					raise RuntimeError(f'{msg["error"].get("message", msg["error"])}')
+				pending.discard(msg['id'])
+			else:
+				self._dispatch(msg)
+		self._connected()
+
+	def _run(self) -> None:
+		backoff = 0.5
+		while not self._closed.is_set():
+			try:
+				self._connect()
+				self._ready.set()
+				backoff = 0.5
+				for raw in self._ws:
+					self._dispatch(json.loads(raw))
+			except Exception as e:  # - start() reports the first failure; later ones reconnect
+				with contextlib.suppress(Exception):  # an open socket would keep its Fetch.enable with nobody answering
+					self._ws.close()
+				if not self._ready.is_set():
+					self._error = str(e) or type(e).__name__
+					self._ready.set()
+					return
+				if not self._closed.is_set():
+					logger.debug('%s connection lost (%s); reconnecting', self.thread_name, e)
+			if self._closed.wait(backoff):
+				return
+			backoff = min(backoff * 2, 5.0)
+
+	def _dispatch(self, msg: dict) -> None:
+		if 'id' in msg:  # a reply to one of its own commands
+			reply, error = self._replies.pop(msg['id'], (None, None))
+			if 'result' in msg and reply is not None:
+				reply(msg['result'])
+			elif 'error' in msg and error is not None:
+				error(msg['error'])
+			return
+		self._handle(msg)
+
+	def _handle(self, msg: dict) -> None:
+		raise NotImplementedError
+
+
+class Guard(BrowserFetch):
 	"""Fails main-frame document requests to disallowed hosts, for every tab: browser-level Fetch.enable (Document
 	requests, Request stage) on a CDP connection of its own. Catches link clicks, redirects, target=_blank,
 	window.open, meta refresh, JS location changes and Target.createTarget(url=...): the request never leaves the
@@ -290,34 +404,13 @@ class Guard:
 	reconnects (sweep() still runs after each cell)."""
 
 	def __init__(self, ws_url: str, rules: DomainRules):
-		self.ws_url, self.rules = ws_url, rules
+		super().__init__(ws_url)
+		self.rules = rules
 		self.pages: dict[str, str] = {}  # page target id (= its main frame id) -> the URL it last showed
 		self.blocks = 0
 		self._notices: list[str] = []
 		self._failed: dict[tuple[str, str], None] = {}  # (tab, url) this guard failed: its error page resets silently
-		self._replies: dict[int, Callable[[dict], object]] = {}
 		self._discovered = False
-		self._lock = threading.Lock()
-		self._ws: Any = None
-		self._id = 0
-		self._closed = threading.Event()
-		self._ready = threading.Event()
-		self._error: str | None = None
-		self._thread = threading.Thread(target=self._run, daemon=True, name='browser-use-domains')
-
-	def start(self) -> None:
-		self._thread.start()
-		if not self._ready.wait(GUARD_START_S) or self._error:
-			self.close()
-			why = self._error or f'no answer within {GUARD_START_S:g}s'
-			raise RuntimeError(f'Domain restrictions could not start on this browser ({why}); nothing was left running.')
-
-	def close(self) -> None:
-		self._closed.set()
-		ws, self._ws = self._ws, None
-		if ws is not None:
-			with contextlib.suppress(Exception):
-				ws.close()
 
 	def take(self) -> tuple[list[str], int]:
 		"""Notices for the model since the last call, and how many navigations were blocked or reset."""
@@ -329,71 +422,18 @@ class Guard:
 			unique = [*unique[:NOTICES_PER_CELL], f'[... {len(unique) - NOTICES_PER_CELL} more blocked navigations]']
 		return unique, blocks
 
-	def _send(
-		self, method: str, session_id: str | None = None, reply: Callable[[dict], object] | None = None, **params: Any
-	) -> int:
-		self._id += 1
-		msg: dict[str, Any] = {'id': self._id, 'method': method, 'params': params}
-		if session_id:
-			msg['sessionId'] = session_id
-		if reply is not None:
-			self._replies[self._id] = reply
-		self._ws.send(json.dumps(msg))
-		return self._id
-
-	def _connect(self) -> None:
-		from websockets.sync.client import connect
-
-		from browser_use.utils import tls_context
-
-		tls = tls_context() if self.ws_url.startswith('wss:') else None  # a ws:// URL refuses an ssl argument
-		self._ws = connect(self.ws_url, max_size=None, open_timeout=GUARD_START_S, close_timeout=1, ssl=tls)
+	def _setup(self) -> list[tuple[str, dict[str, Any]]]:
 		self.pages.clear()
-		self._replies.clear()
 		self._discovered = False  # until setDiscoverTargets answered: the targets it reports were already open
-		pending = {
-			self._send('Target.setDiscoverTargets', discover=True),
-			self._send('Fetch.enable', patterns=[{'urlPattern': '*', 'resourceType': 'Document', 'requestStage': 'Request'}]),
-		}
-		deadline = time.monotonic() + GUARD_START_S
-		while pending:
-			msg = json.loads(self._ws.recv(timeout=max(0.1, deadline - time.monotonic())))
-			if msg.get('id') in pending:
-				if 'error' in msg:
-					raise RuntimeError(f'{msg["error"].get("message", msg["error"])}')
-				pending.discard(msg['id'])
-			else:
-				self._handle(msg)
+		return [
+			('Target.setDiscoverTargets', {'discover': True}),
+			('Fetch.enable', {'patterns': [{'urlPattern': '*', 'resourceType': 'Document', 'requestStage': 'Request'}]}),
+		]
+
+	def _connected(self) -> None:
 		self._discovered = True
 
-	def _run(self) -> None:
-		backoff = 0.5
-		while not self._closed.is_set():
-			try:
-				self._connect()
-				self._ready.set()
-				backoff = 0.5
-				for raw in self._ws:
-					self._handle(json.loads(raw))
-			except Exception as e:  # - start() reports the first failure; later ones reconnect
-				with contextlib.suppress(Exception):  # an open socket would keep its Fetch.enable with nobody answering
-					self._ws.close()
-				if not self._ready.is_set():
-					self._error = str(e) or type(e).__name__
-					self._ready.set()
-					return
-				if not self._closed.is_set():
-					logger.debug('domain guard connection lost (%s); reconnecting', e)
-			if self._closed.wait(backoff):
-				return
-			backoff = min(backoff * 2, 5.0)
-
 	def _handle(self, msg: dict) -> None:
-		if 'id' in msg:  # a reply to one of the guard's own commands
-			reply = self._replies.pop(msg['id'], None)
-			if reply is not None and 'result' in msg:
-				reply(msg['result'])
-			return
 		method, params = msg.get('method'), msg.get('params') or {}
 		if method in ('Target.targetCreated', 'Target.targetInfoChanged'):
 			info = params.get('targetInfo') or {}
