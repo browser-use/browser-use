@@ -418,11 +418,15 @@ class ProductTelemetry:
 			return True
 
 	def _send(self, job: Job) -> None:
+		if not (self.enabled or job.consent):
+			self._pending.pop(job.run_id, None)
+			self._unmark(job.run_id)
+			return
 		data = self._body([self._event(job)])
 		ok = self._online() and self._post(data)
-		if not ok and not self._exiting:
+		if not ok and not self._exiting and (self.enabled or job.consent):
 			time.sleep(1)
-			ok = self._online() and self._post(data)
+			ok = self._online() and (self.enabled or job.consent) and self._post(data)
 		job.sent = ok
 		if ok:
 			self.send_failures = 0
@@ -591,6 +595,9 @@ class ProductTelemetry:
 				backlog = []
 			files: list[str] = []
 			for job in jobs:
+				if not (on or job.consent):
+					self._unmark(job.run_id)
+					continue
 				data = self._body([self._event(job)])
 				# off, or an outbox that cannot be written (a read-only HOME: the MCP error server's browser_feedback):
 				# a temp file the sender sends once or deletes
