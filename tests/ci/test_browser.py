@@ -481,28 +481,45 @@ def test_atexit_cleanup_stops_live_browsers(cloud):
 
 
 @pytest.mark.parametrize(
-	'task',
-	[
-		'Open http://localhost:3000 and check the title',
-		'test my app on 127.0.0.1:8000',
-		'go to http://192.168.1.20/admin',
-		'visit 10.0.0.5',
-		'check http://172.20.1.1',
-		'open http://[::1]:8080',
-		'open printer.local',
-	],
+    'task',
+    [
+        'Open http://localhost:3000',
+        'test my app on 127.0.0.1:8000',
+        'go to http://192.168.1.20/admin',
+        'visit 10.0.0.5',
+        'check http://172.20.1.1',
+        'open http://[::1]:8080',
+        'open printer.local',
+        'open http://169.254.10.20',
+        'open http://[fe80::1]',
+        'open http://[fd12:3456::1]',
+        'open http://[fc00::1]',
+		'Log into the router at 192.168.1.1.',
+        'open fe80::1',
+        'open fc00::1',
+    ],
 )
 def test_localhost_guard_spots_local_targets(task):
-	from browser_use.agent.service import LOCAL_TARGET
+    from browser_use.agent.service import _find_local_target
 
-	assert LOCAL_TARGET.search(task)  # a warning only (test_agent.py), never a refusal
+    assert _find_local_target(task)
 
 
-@pytest.mark.parametrize('task', ['find local restaurants', 'compare 10.5 and 10.25', 'version 172.15.0.1'])
+@pytest.mark.parametrize(
+    'task',
+    [
+        'find local restaurants',
+        'compare 10.5 and 10.25',
+        'version 172.15.0.1',
+        'visit https://8.8.8.8',
+        'visit https://[2001:4860:4860::8888]',
+        'open 2001:4860:4860::8888',
+    ],
+)
 def test_localhost_guard_ignores_normal_text(task):
-	from browser_use.agent.service import LOCAL_TARGET
+    from browser_use.agent.service import _find_local_target
 
-	assert not LOCAL_TARGET.search(task)
+    assert _find_local_target(task) is None
 
 
 async def test_missing_key_raises_and_never_falls_back_to_local(cloud, monkeypatch):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import itertools
 import logging
 import os
@@ -18,13 +19,13 @@ from urllib.parse import urlparse
 from genai_prices import calc_price
 from pydantic import TypeAdapter
 from pydantic_ai.messages import (
-	BinaryContent,
-	ModelMessage,
-	ModelRequest,
-	ModelResponse,
-	RetryPromptPart,
-	ToolCallPart,
-	ToolReturnPart,
+    BinaryContent,
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    ToolCallPart,
+    ToolReturnPart,
 )
 from pydantic_ai.usage import RequestUsage
 
@@ -38,14 +39,14 @@ from browser_use.browser import browser as browser_module
 from browser_use.config import load_env
 from browser_use.exceptions import BrowserConfigError, MissingAPIKeyError, removed
 from browser_use.llm import (
-	GATEWAY_URL,
-	KEY_REJECTED,
-	ChatBrowserUse,
-	as_chat_model,
-	gateway_alias,
-	gateway_llm,
-	provider_preflight,
-	resolve_model,
+    GATEWAY_URL,
+    KEY_REJECTED,
+    ChatBrowserUse,
+    as_chat_model,
+    gateway_alias,
+    gateway_llm,
+    provider_preflight,
+    resolve_model,
 )
 from browser_use.repl import Repl, check_mode, redact
 from browser_use.repl.session import SHORT_SECRET, check_loop, scoped_secrets, secret_forms
@@ -60,11 +61,51 @@ logger = logging.getLogger(__name__)
 load_env()  # 0.x read .env on import; credentials below resolve from it
 
 # Hosts a cloud browser cannot reach: localhost, loopback, RFC1918, link-local mDNS (.local).
-LOCAL_TARGET = re.compile(
-	r'\blocalhost\b|\b127(?:\.\d{1,3}){3}\b|\b0\.0\.0\.0\b|\b10(?:\.\d{1,3}){3}\b|\b192\.168(?:\.\d{1,3}){2}\b'
-	r'|\b172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}\b|\[::1\]|(?<![\w:])::1(?![\w:])|\b[a-z0-9-]+\.local\b',
-	re.I,
+_LOCAL_HOST = re.compile(
+    r'\blocalhost\b|\b[a-z0-9-]+\.local\b',
+    re.I,
 )
+
+_IP_CANDIDATE = re.compile(
+    r'(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.\d)'
+    r'|(?<![\w:])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?![\w:])'
+    r'|\[[0-9a-f:.]+\]',
+    re.I,
+)
+
+_LOCAL_NETWORKS = tuple(
+    ipaddress.ip_network(network)
+    for network in (
+        '0.0.0.0/32',
+        '10.0.0.0/8',
+        '127.0.0.0/8',
+        '169.254.0.0/16',
+        '172.16.0.0/12',
+        '192.168.0.0/16',
+        '::/128',
+        '::1/128',
+        'fc00::/7',
+        'fe80::/10',
+    )
+)
+
+
+def _find_local_target(task: str) -> str | None:
+    if match := _LOCAL_HOST.search(task):
+        return match.group()
+
+    for match in _IP_CANDIDATE.finditer(task):
+        candidate = match.group().strip('[]')
+        try:
+            address = ipaddress.ip_address(candidate)
+        except ValueError:
+            continue
+
+        if any(address.version == network.version and address in network for network in _LOCAL_NETWORKS):
+            return match.group()
+
+    return None
+
 REASONING = (None, 'low', 'medium', 'high')
 _RUNS = itertools.count(1)  # Agent.run() calls in this process (telemetry run_in_process)
 _ACTIVE = [0]  # runs in progress in this process (telemetry concurrent_runs)
@@ -371,9 +412,9 @@ class Agent:
 		self._tasks.append(task)
 
 	def _check_task(self) -> None:
-		if self.browser.use_cloud and (m := LOCAL_TARGET.search(self.task)):  # a hint, never a refusal
+		if self.browser.use_cloud and (m := _find_local_target(self.task)):  # a hint, never a refusal
 			logger.warning(
-				f'The task mentions {m.group()!r}; a cloud browser cannot reach your localhost or private network. '
+				f'The task mentions {m!r}; a cloud browser cannot reach your localhost or private network. '
 				"If that is the target, use a local browser: Agent(task, browser=Browser('chromium'))."
 			)
 
