@@ -172,7 +172,9 @@ def pattern_matches(pattern: str, u: Url, subdomains: bool = False) -> bool:
 	h = canonical_host(p_host)
 	if subdomains:
 		return u.host == h or u.host.endswith(f'.{h}')
-	return u.host == h or (p_host.count('.') == 1 and u.host == f'www.{h}')  # 0.x _is_root_domain: www for a.b only
+	# 0.x _is_root_domain: www for a.b only. Counted on the canonical host: a pattern written with the trailing dot of a
+	# fully qualified name ('example.com.') is the same host as 'example.com', and gets the same www.
+	return u.host == h or (h.count('.') == 1 and u.host == f'www.{h}')
 
 
 def is_ip(host: str) -> bool:

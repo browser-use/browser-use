@@ -102,6 +102,21 @@ def test_www_is_added_only_for_one_dot_domains():
 	assert not ok('https://www.example.com', a) and not ok('http://www.test.org', a)
 
 
+def test_a_trailing_dot_pattern_is_the_same_host():
+	"""A pattern written with the trailing dot of a fully qualified name names the host without it.
+
+	Every other comparison canonicalizes the host: 'https://example.com./' is example.com in a URL, 'faß.de' and
+	'xn--fa-hia.de' are one host. The www rule counted the dots of the pattern as written, so
+	allowed_domains=['example.com.'] let example.com through and silently blocked www.example.com.
+	"""
+	assert ok('https://example.com/', ['example.com.'])
+	assert ok('https://www.example.com/', ['example.com.'])  # was blocked
+	assert ok('https://www.example.com/', ['Example.COM.'])
+	assert not ok('https://notexample.com/', ['example.com.'])
+	assert not ok('https://mail.example.com/', ['example.com.'])
+	assert not ok('https://www.example.com/', prohibited=['example.com.'])  # the blocklist side already canonicalized
+
+
 def test_prohibited_domains():
 	p = ['example.com', 'test.org']
 	assert not ok('https://example.com', prohibited=p) and not ok('https://www.example.com', prohibited=p)
