@@ -32,6 +32,32 @@ async def test_worker_runs_cells_over_loopback(tmp_path):
 		await repl.close()
 
 
+async def test_future_imports_persist_until_worker_restarts(tmp_path):
+	repl = Repl(tmp_path)
+	try:
+		imported = await repl.call('exec', 'from __future__ import annotations', 30)
+		assert imported['error'] is None
+		defined = await repl.call('exec', 'def parse(value: Row): return value', 30)
+		assert defined['error'] is None
+		annotation = await repl.call('eval', "parse.__annotations__['value']", 30)
+		assert (annotation['value'], annotation['error']) == ('Row', None)
+
+		imported = await repl.call('exec', 'from __future__ import barry_as_FLUFL', 30)
+		assert imported['error'] is None
+		comparison = await repl.call('eval', '1 <> 2', 30)
+		assert (comparison['value'], comparison['error']) == ('true', None)
+
+		await repl.close()
+		fresh = await repl.call(
+			'exec',
+			"class Row: pass\ndef parse(value: Row): return value\nparse.__annotations__['value'] is Row",
+			30,
+		)
+		assert (fresh['output'].strip(), fresh['error']) == ('True', None)
+	finally:
+		await repl.close()
+
+
 async def test_worker_is_spawned_without_pass_fds(tmp_path, monkeypatch):
 	import subprocess
 
