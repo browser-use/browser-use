@@ -138,7 +138,7 @@ async def test_the_default_model_without_a_key_is_counted_with_its_gate(events, 
 		'agent',
 		True,
 	)
-	assert (gate['gate_count'], gate['seconds_since_first_gate'], gate['method'], gate['schema_version']) == (1, 0, '', 6)
+	assert (gate['gate_count'], gate['seconds_since_first_gate'], gate['method'], gate['schema_version']) == (1, 0, '', 7)
 	assert {'is_ssh', 'is_colab', 'has_display', 'is_notebook', 'is_ci', 'is_internal'} <= set(gate)
 	with pytest.raises(MissingAPIKeyError):  # the device's second gate: counted locally, the first time kept
 		await Agent('t', browser=Browser('chromium'), workspace=tmp_path).run()
