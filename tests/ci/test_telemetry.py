@@ -65,6 +65,8 @@ class Page(BaseHTTPRequestHandler):
 		title = parse_qs(urlsplit(self.path).query).get('t', ['form'])[0]  # a page title the agent reads
 		body = f'<title>{title}</title><input id=f>'.encode()
 		self.send_response(200)
+		if self.path == '/attachment':
+			self.send_header('Content-Disposition', 'attachment; filename="report.html"')
 		self.send_header('Content-Type', 'text/html')
 		self.send_header('Content-Length', str(len(body)))
 		self.end_headers()
@@ -2020,6 +2022,18 @@ async def test_a_failed_navigation_counts_on_the_host_that_failed_not_on_chromes
 	assert props['host_stats']['zq-nowhere.invalid'][5:] == [1, 1] and props['s_ev'][0] & 1024
 	assert props['urls_visited'] == ['http://zq-nowhere.invalid/zqpath']
 	assert_absent(props, 'zq=1', 'chromewebdata')
+
+
+async def test_navigation_that_starts_a_download_counts_no_failure(site, chrome_binary, sent, tmp_path):
+	model, _ = script(
+		('python', {'code': f"response = goto_url('{site}/attachment')"}),
+		('finish_from_repl', {'success': True, 'expression': "str(response['isDownload'])"}),
+	)
+	browser = Browser('chromium', headless=True, executable_path=chrome_binary)
+	result = await Agent('t', model, browser=browser, workspace=tmp_path).run()
+	assert result.final_result() == 'True', result.error
+	(props,) = sent
+	assert props['nav_failures'] == 0 and props['nav_errors'] == {}
 
 
 def test_a_step_whose_navigation_failed_is_not_progress():
