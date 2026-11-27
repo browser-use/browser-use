@@ -4,6 +4,7 @@ Run with: browser-use --cli-mcp
 
 import asyncio
 import base64
+import collections
 import contextvars
 import errno
 import functools
@@ -18,7 +19,7 @@ import time
 import traceback
 import webbrowser
 from contextlib import contextmanager
-from io import StringIO
+from io import StringIO, UnsupportedOperation
 from typing import Any
 
 import browser_harness
@@ -85,6 +86,8 @@ NO_CLOUD_WITH_DOMAINS = (
 	"{name}() is off: this server's allowed_domains / prohibited_domains hold only on its own Chromium, and a cloud "
 	'browser would open any site'
 )
+MAX_CELL_BUFFER_CHARS = 4_000_000  # memory cap on a cell's retained stdout/stderr buffer
+
 
 MCP_GUIDE = f"""# This MCP server
 
@@ -195,7 +198,7 @@ def _error_class(e: BaseException) -> str:
 	return name
 
 
-def _print_cell_traceback(e: BaseException, file: StringIO) -> None:
+def _print_cell_traceback(e: BaseException, file: Any) -> None:
 	"""The traceback from the cell's first frame (this server's exec() frame is noise to the model) to the last frame
 	outside browser-harness and browser-use: their internals (js() -> _js_evaluate -> _runtime_value) say nothing the
 	exception line does not."""
@@ -335,7 +338,7 @@ class _CellStream:
 
 
 @contextmanager
-def _capture(buffer: StringIO):
+def _capture(buffer: Any):
 	"""redirect_stdout/redirect_stderr for this thread only: a cell the client gave up on keeps printing into its own
 	buffer, never into the next call's."""
 	for name in ('stdout', 'stderr'):
@@ -348,22 +351,93 @@ def _capture(buffer: StringIO):
 		_cell.buffer = None
 
 
+class _CellBuffer:
+	"""Thread-safe, memory-bounded output buffer for a cell.
+
+	Retains at most MAX_CELL_BUFFER_CHARS in memory by dropping the oldest output when bounded,
+	and frees previously consumed output upon new_output() to prevent unbounded memory growth
+	during long-running cell execution or across repeated polls.
+	"""
+
+	encoding: str | None = None
+	errors: str | None = None
+
+	def __init__(self, max_chars: int = MAX_CELL_BUFFER_CHARS) -> None:
+		self._lock = threading.Lock()
+		self._chunks: collections.deque[str] = collections.deque()
+		self._total_chars = 0
+		self._max_chars = max_chars
+		self._dropped = 0
+
+	def write(self, s: str) -> int:
+		if not s:
+			return 0
+		with self._lock:
+			n = len(s)
+			if n > self._max_chars:
+				excess = n - self._max_chars
+				self._dropped += excess
+				s = s[-self._max_chars :]
+			self._chunks.append(s)
+			self._total_chars += len(s)
+			while self._total_chars > self._max_chars and len(self._chunks) > 1:
+				dropped_chunk = self._chunks.popleft()
+				dropped_len = len(dropped_chunk)
+				self._total_chars -= dropped_len
+				self._dropped += dropped_len
+			return n
+
+	def flush(self) -> None:
+		pass
+
+	def writable(self) -> bool:
+		return True
+
+	def isatty(self) -> bool:
+		return False
+
+	def fileno(self) -> int:
+		raise UnsupportedOperation('fileno')
+
+	def seekable(self) -> bool:
+		return False
+
+	def readable(self) -> bool:
+		return False
+
+	def getvalue(self) -> str:
+		with self._lock:
+			return ''.join(self._chunks)
+
+	def take(self) -> str:
+		with self._lock:
+			text = ''.join(self._chunks)
+			dropped = self._dropped
+			self._chunks.clear()
+			self._total_chars = 0
+			self._dropped = 0
+			if dropped > 0:
+				return f'[... {dropped} characters dropped ...]\n{text}'
+			return text
+
+	def __getattr__(self, name: str) -> Any:
+		with self._lock:
+			return getattr(self._chunks, name)
+
+
 class _Cell:
 	"""One browser_exec cell on its own thread, which no call can stop. One that outlives its call (CALL_SECONDS, or a
 	client that cancelled sooner) keeps running: later calls return what it prints from then on, and its end."""
 
 	def __init__(self) -> None:
-		self.buffer = StringIO()
+		self.buffer = _CellBuffer()
 		self.started = time.monotonic()
 		self.failed = True
 		self.done = threading.Event()
-		self._shown = 0
 
 	def new_output(self) -> str:
 		"""What it printed since the last call returned its output."""
-		text = self.buffer.getvalue()
-		text, self._shown = text[self._shown :], len(text)
-		return text
+		return self.buffer.take()
 
 
 def _clipped(output: str) -> str:
@@ -946,7 +1020,7 @@ class CLIMCPServer:
 			)
 		return browser
 
-	def _execute(self, code: str, connect: bool = True, buffer: StringIO | None = None) -> tuple[str, bool]:
+	def _execute(self, code: str, connect: bool = True, buffer: StringIO | _CellBuffer | None = None) -> tuple[str, bool]:
 		"""Run code in the persistent namespace, capturing stdout/stderr. Returns (output, whether it failed): a
 		failure is the tool result's is_error, not only a traceback in its text.
 
