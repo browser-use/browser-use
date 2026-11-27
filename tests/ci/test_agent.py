@@ -89,7 +89,12 @@ async def test_keep_alive_keeps_browser_and_repl_between_runs(chrome, tmp_path):
 	await agent.close()
 	assert admin.daemon_alive(name)  # keep_alive: the caller stops it
 	await browser.stop()
-	assert browser.name is None and not admin.daemon_alive(name)
+	assert browser.name is None
+	# stop() returns on acknowledgement; the daemon closes its endpoint asynchronously.
+	deadline = time.monotonic() + 5
+	while admin.daemon_alive(name):
+		assert time.monotonic() < deadline, f'daemon {name} still answers after stop()'
+		await asyncio.sleep(0.05)
 
 
 async def test_a_keep_alive_browser_whose_daemon_died_between_runs_starts_in_the_agents_tab(chrome, tmp_path):
