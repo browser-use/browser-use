@@ -179,7 +179,48 @@ def test_help_is_this_clis_own():
 		assert command in result.stdout
 	assert 'doctor --json' not in result.stdout and 'browser-harness' not in result.stdout and '--update' not in result.stdout
 	update = _run_browser_use_cli('--update', '-y')
-	assert update.returncode == 2 and 'uv tool upgrade browser-use' in update.stderr
+	from browser_use.update_check import upgrade_command_for_shell
+
+	assert update.returncode == 2
+	assert f'browser-use does not update itself: {upgrade_command_for_shell()}.' in update.stderr
+	assert 'uv tool upgrade browser-use' not in update.stderr
+	assert f'Update: {upgrade_command_for_shell()}.' in result.stdout
+	# CI's message guard (tests/ci/test_messages.py) rejects a returned message ending with a link, so the
+	# Library line, which ends in the repo URL, must stay before the Update paragraph, not last.
+	assert result.stdout.index('Library:') < result.stdout.index('Update:')
+
+
+def test_help_update_line_names_this_installs_upgrade_command(monkeypatch, tmp_path, capsys):
+	"""Cubic review on #6483: --help advertised a generic uv/pip command while --update selects the install's own
+	command, so the two drifted apart (a pipx install was told `uv tool install browser-use@latest`)."""
+	import browser_use.cli as browser_use_cli
+
+	pipx_dir = tmp_path / 'pipx_env'
+	pipx_dir.mkdir()
+	(pipx_dir / 'pipx_metadata.json').write_text('{}', encoding='utf-8')
+	monkeypatch.setattr(sys, 'prefix', str(pipx_dir))
+	from browser_use.update_check import upgrade_command
+
+	assert upgrade_command() == 'pipx upgrade browser-use'
+	code, command = browser_use_cli._dispatch(['--help'])
+	assert code == 0
+	assert 'pipx upgrade browser-use' in capsys.readouterr().out
+
+
+def test_update_message_is_a_copyable_shell_command(monkeypatch, capsys):
+	"""Cubic review on #6483: for a uvx install the --update message printed the upgrade command plus the unquoted
+	MCP-config note, which fails as a shell command when copied."""
+	import browser_use.cli as browser_use_cli
+
+	monkeypatch.setattr(sys, 'prefix', '/tmp/fake/archive-v0/xyz')
+	from browser_use.update_check import upgrade_command
+
+	assert '(in an MCP config:' in upgrade_command()
+	code, command = browser_use_cli._dispatch(['--update'])
+	assert code == 2
+	err = capsys.readouterr().err
+	assert '(in an MCP config:' not in err
+	assert 'uvx browser-use@latest' in err
 
 
 def test_0x_agent_task_commands_point_to_agent():

@@ -1096,7 +1096,12 @@ _EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Py
   PY"""
 
 
-HELP = """Browser Use CLI: your coding agent drives a browser with Python piped on stdin.
+def help_text() -> str:
+	"""The --help text. The Update line names this install's upgrade command, from the same source --update
+	prints, so the two cannot drift apart again."""
+	from browser_use.update_check import upgrade_command_for_shell
+
+	return f"""Browser Use CLI: your coding agent drives a browser with Python piped on stdin.
 
   browser-use <<'PY'
   new_tab("https://example.com")
@@ -1121,9 +1126,9 @@ Commands:
                                       send the Browser Use team your integration report, bug or feature request
   browser-use --cli-mcp               run the MCP server (browser_exec, browser_screenshot, browser_login, browser_feedback)
   browser-use --version               print the versions
-Update: uv tool install browser-use@latest (or pip install -U browser-use). A call that cannot reach a browser asks
-PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=1 turns that off.
-Library: from browser_use import Agent, see https://github.com/browser-use/browser-use"""
+Library: from browser_use import Agent, see https://github.com/browser-use/browser-use
+Update: {upgrade_command_for_shell()}. A call that cannot reach a browser asks
+PyPI (once a day) for a newer version and names it; BROWSER_USE_NO_UPDATE_CHECK=1 turns that off."""
 
 
 def _command_name(args: list[str]) -> str:
@@ -1165,10 +1170,12 @@ def _stdin_is_terminal() -> bool:
 
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	if args in (['--help'], ['-h'], ['help']):  # browser-harness's own help named its commands and flags, not ours
-		print(HELP)
+		print(help_text())
 		return 0, 'help'
 	if args and args[0] == '--update':  # browser-harness's self-update would update it, not browser-use
-		print('browser-use does not update itself: uv tool upgrade browser-use (or pip install -U browser-use).', file=sys.stderr)
+		from browser_use.update_check import upgrade_command_for_shell
+
+		print(f'browser-use does not update itself: {upgrade_command_for_shell()}.', file=sys.stderr)
 		return 2, 'update'
 	if args in (['--version'], ['-V']):
 		from importlib.metadata import version as package_version

@@ -70,6 +70,15 @@ def upgrade_command() -> str:
 	return f'{python} -m pip install -U browser-use'
 
 
+def upgrade_command_for_shell() -> str:
+	"""The upgrade command on its own, for messages the user copies into a shell.
+
+	`upgrade_command()` appends an MCP-config note for uvx installs; pasted as-is that note is a shell
+	syntax error, so CLI messages that print the command use this instead.
+	"""
+	return upgrade_command().split(' (in an MCP config:', 1)[0]
+
+
 def _key(v: str) -> tuple[int, ...] | None:
 	"""1.0.3rc1 < 1.0.3 < 1.0.10; None for 'unknown'."""
 	m = re.match(r'(\d+)\.(\d+)(?:\.(\d+))?(?:(a|b|rc)(\d+))?', v)
