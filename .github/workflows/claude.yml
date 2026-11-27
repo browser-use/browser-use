@@ -48,8 +48,8 @@ jobs:
         uses: anthropics/claude-code-action@28f83620103c48a57093dcc2837eec89e036bb9f # v0.0.63 (beta)
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: "claude-opus-4-20250514"
-          fallback_model: "claude-3-5-sonnet-20241022"
+          model: "claude-opus-4-8"
+          fallback_model: "claude-sonnet-5-5"
           custom_instructions: |
             when making any significant changes, start by adding one or two new failing test functions to the most relevant file you can find in tests/ci/*.py, then work on your changes until you get the tests passing.
             make sure all lint errors are fixed before committing: `uv run pre-commit --all-files`, you can also use mcp tools to check Github CI status.
