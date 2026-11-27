@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from conftest import SERVER_BIND_WITHOUT_FQDN
 
 ROOT = Path(__file__).resolve().parents[2]
 FAKE_KEY = 'bu_' + 'f' * 40  # shaped like a real key, so the redaction rule would catch a leak
@@ -111,8 +112,10 @@ def _cli(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess[st
 	env.update(DISPLAY=':0')
 	for var in ('SSH_CONNECTION', 'SSH_TTY'):
 		env.pop(var, None)
+	# `python -m browser_use`, with conftest's HTTPServer bind that skips the 35 s macOS reverse lookup
+	run = SERVER_BIND_WITHOUT_FQDN + "import runpy; runpy.run_module('browser_use', run_name='__main__', alter_sys=True)"
 	return subprocess.run(
-		[sys.executable, '-m', 'browser_use', *args], cwd=ROOT, env=env, input=stdin, capture_output=True, text=True, timeout=60
+		[sys.executable, '-c', run, *args], cwd=ROOT, env=env, input=stdin, capture_output=True, text=True, timeout=60
 	)
 
 
