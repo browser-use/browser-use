@@ -706,8 +706,9 @@ class CLIMCPServer:
 		await asyncio.to_thread(lambda: [c.done.wait(max(0.0, deadline - time.monotonic())) for c in waited])
 		blocks, failed = [], False
 		if cell is not None:
+			finished = cell.done.is_set()  # read before the output so a removed cell's buffer is complete
 			blocks.append(_clipped(cell.new_output()) or '(no output)')
-			if cell.done.is_set():
+			if finished:
 				self._running.remove(cell)
 				failed = cell.failed
 			else:
