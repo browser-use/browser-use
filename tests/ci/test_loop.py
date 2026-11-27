@@ -1234,3 +1234,103 @@ async def test_a_none_delivered_for_a_nullable_schema_is_the_result(tmp_path):
 	result = await run(build_agent(model, output_type=_Authors | None), 'task', session, 'function:x')
 	assert (len(seen), result.status, result.output, result.text, result.success) == (3, 'completed', None, 'null', False)
 	assert result.partial == {'authors': ['partial']}  # still there to read, never the result
+
+
+# ---------------------------------------------------------------------------
+# delivery file-reference checks (issue #6447): unit level, no Chrome needed
+# ---------------------------------------------------------------------------
+
+
+def test_percent_encoded_and_query_links_resolve_in_the_workspace(tmp_path):
+	"""Repeated downloads are saved as `report (1).csv` (utils.file_names) and web files often carry spaces: the
+	percent-encoded Markdown links a model writes for them, and query/fragment-bearing links, must resolve instead of
+	getting a false missing-file repair; a one-letter mark is a drive (C:/...), not a scheme."""
+	# bug 1: the old LINK regex kept the encoded name and the old check never decoded or stripped the query.
+	assert loop._file_refs('Saved [report](report%20%281%29.csv)') == ['report%20%281%29.csv']
+	assert loop._file_refs('See [page](page.html?tab=1#top) for details') == ['page.html?tab=1#top']
+	assert loop.URLISH.match('C:/workspace/page.html') is None  # a drive, not a scheme
+	assert loop.URLISH.match('https://example.com/x') is not None  # real URLs stay skipped
+
+	downloads = tmp_path / 'downloads'
+	downloads.mkdir()
+	(downloads / 'report (1).csv').write_text('a\n1\n', encoding='utf-8')
+	(downloads / 'page.html').write_text('<p>x</p>', encoding='utf-8')
+	assert loop._in_workspace(tmp_path, 'report%20%281%29.csv')
+	assert loop._in_workspace(tmp_path, 'page.html?tab=1#top')
+	assert not loop._in_workspace(tmp_path, 'never%20written.csv')
+
+
+def test_commonmark_link_forms_are_extracted(tmp_path):
+	"""Angle-bracket targets, balanced parentheses, and titled links (also JSON-escaped, as structured output renders
+	them) all name files the model claims exist: the old `]\\(([^)\\s>]+)>?\\)` missed every one of them, so missing
+	files were never repaired."""
+	assert loop._file_refs('Wrote [data](<never written.csv>)') == ['never written.csv']
+	assert loop._file_refs('Wrote [data](missing%20(1).csv)') == ['missing%20(1).csv']
+	assert loop._file_refs('Wrote [data](missing.csv "Summary")') == ['missing.csv']
+	assert loop._file_refs('Wrote [data](missing.csv \\"Summary\\")') == ['missing.csv']
+	assert loop._file_refs('Plain [a](b.csv) and [c](d.csv "t")') == ['b.csv', 'd.csv']
+
+
+def test_paths_outside_the_workspace_count_as_missing(tmp_path):
+	"""A link that escapes the workspace — absolute path, `..`, either form in inline code — passes existence on a file
+	that was never delivered: containment is checked, so it gets the missing-file repair like any other miss."""
+	outside = tmp_path.parent / 'outside.csv'
+	outside.write_text('a\n1\n', encoding='utf-8')
+	(tmp_path / 'in.csv').write_text('a\n1\n', encoding='utf-8')
+	try:
+		assert loop._in_workspace(tmp_path, str(outside)) is False  # absolute path, exists, outside
+		assert loop._in_workspace(tmp_path, '../outside.csv') is False  # .. escape, exists, outside
+		assert loop._in_workspace(tmp_path, 'in.csv') is True
+		assert loop._in_workspace(tmp_path, 'downloads/../in.csv') is True  # inside, even through a ..
+		assert loop._in_workspace(tmp_path, '#top') is True  # pure fragment: nothing to check
+	finally:
+		outside.unlink(missing_ok=True)
+
+
+def test_nested_paren_and_escaped_targets_are_extracted():
+	"""Destinations with deeper balanced parens, or \\-escaped parens/spaces, still name their file (CommonMark
+	destination parsing, not a one-level regex)."""
+	assert loop._file_refs('Wrote [data](missing(group(1)).csv)') == ['missing(group(1)).csv']
+	assert loop._file_refs('Wrote [data](missing\\(1\\).csv)') == ['missing(1).csv']
+	assert loop._file_refs('Wrote [data](my\\ file.csv)') == ['my file.csv']
+	assert loop._file_refs('Path C:\\Users\\x stays whole in `C:\\Users\\x.csv`') == ['C:\\Users\\x.csv']
+
+
+def test_an_outward_symlink_target_counts_as_missing(tmp_path):
+	"""A symlink inside the workspace pointing at an existing outside file is not a delivered file: containment is
+	judged after resolving."""
+	outside = tmp_path.parent / 'outside-symlink-target.csv'
+	outside.write_text('a\n1\n', encoding='utf-8')
+	(tmp_path / 'escape.csv').symlink_to(outside)
+	try:
+		assert loop._in_workspace(tmp_path, 'escape.csv') is False
+	finally:
+		outside.unlink(missing_ok=True)
+		(tmp_path / 'escape.csv').unlink(missing_ok=True)
+
+
+def test_a_downloads_symlink_to_an_outside_dir_cannot_smuggle_files(tmp_path):
+	"""If workspace/downloads itself is a symlink to an outside directory, an existing outside file behind it must
+	still count as missing: containment is judged against the workspace root, not the downloads root."""
+	outside_dir = tmp_path.parent / 'outside-downloads'
+	outside_dir.mkdir(exist_ok=True)
+	(outside_dir / 'smuggled.csv').write_text('a\n1\n', encoding='utf-8')
+	try:
+		(tmp_path / 'downloads').symlink_to(outside_dir, target_is_directory=True)
+		assert loop._in_workspace(tmp_path, 'downloads/smuggled.csv') is False
+	finally:
+		(tmp_path / 'downloads').unlink(missing_ok=True)
+		outside_dir.joinpath('smuggled.csv').unlink(missing_ok=True)
+		outside_dir.rmdir()
+
+
+def test_commonmark_destination_edge_cases():
+	"""Review follow-ups: whitespace after the paren is not a title separator, escaped punctuation unfolds, an escaped
+	`>` does not close an angle destination, and unterminated links are skipped entirely."""
+	assert loop._file_refs('Wrote [data]( report.csv )') == ['report.csv']
+	assert loop._file_refs('Wrote [data]( <missing.csv> )') == ['missing.csv']
+	assert loop._file_refs('Saved [report](report\\!2025.csv)') == ['report!2025.csv']
+	assert loop._file_refs('Wrote [data](<a\\>b.csv>)') == ['a>b.csv']
+	assert loop._file_refs('Wrote [data](<a.csv> no closing paren') == []
+	assert loop._file_refs('Empty [x]() stays silent') == []
+	assert loop._file_refs('Windows [p](C:\\Users\\x.csv) keeps the backslashes') == ['C:\\Users\\x.csv']

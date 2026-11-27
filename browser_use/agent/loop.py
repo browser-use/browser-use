@@ -18,7 +18,9 @@ import uuid
 from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Annotated, Any, cast
+from urllib.parse import unquote
 
 import httpx2
 from genai_prices import calc_price
@@ -121,8 +123,111 @@ STREAM_TIMEOUT_S = 930
 GATEWAY_MAX_TOKENS = 16_384
 NOT_RUN = 'Not run: this is the delivery-only turn. Call finish or finish_from_repl now with what you have.'
 NO_TIME = 'Not run: the time budget is spent. The next turn is delivery-only: finish or finish_from_repl with what you have.'
-LINK = re.compile(r'\]\(<?([^)\s>]+)>?\)')  # markdown link targets
-FILE = re.compile(r'`([\w./-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`')  # `basket_brief.md`
+FILE = re.compile(
+	r'`([\w.:\\/-]+\.(?:md|csv|json|jsonl|txt|tsv|xlsx|html|zip|pdf|png|jpe?g))`'
+)  # `basket_brief.md`, Windows paths too
+URLISH = re.compile(r'^(?:[a-z]{2,}[\w+.-]*:|#|//)', re.I)  # http:, mailto:, #fragment, //host — a one-letter mark is a drive
+
+
+_ESCAPED_PUNCTUATION = re.compile(r'\\([\x20\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e])')
+
+
+def _unescape_destination(dest: str) -> str:
+	"""CommonMark backslash escapes in a link destination: a backslash before ASCII punctuation — or the space that
+	would otherwise end the destination — is unfolded (`\\!`, `\\(`, `\\ ` …), so `report\\!2025.csv` and `my\\ file.csv`
+	resolve to their real names; a backslash before anything else (the `\\U` of a Windows path) is kept as written."""
+	return _ESCAPED_PUNCTUATION.sub(r'\1', dest)
+
+
+def _markdown_targets(text: str) -> list[str]:
+	"""Destinations of CommonMark inline links in `text`: `<angle targets>` (spaces allowed, `\\>` does not close),
+	plain targets with balanced (…) groups to any depth (`missing(group(1)).csv`), an optional "title" / 'title' —
+	also \\-escaped, as structured output strings render it (as_text JSON-escapes the quotes). Whitespace right after
+	the paren is not part of the destination, backslash-escaped punctuation is unfolded, and unterminated links are
+	skipped."""
+	targets: list[str] = []
+	i = 0
+	n = len(text)
+	while (start := text.find('](', i)) >= 0:
+		i = start + 2
+		while i < n and text[i] in ' \t\n':  # whitespace after the paren is not part of the destination
+			i += 1
+		raw: str | None = None
+		if i < n and text[i] == '<':  # angle destination: spaces and parens verbatim; \\> does not close it
+			j, chars, closed_angle = i + 1, [], False
+			while j < n:
+				if text[j] == '\\' and j + 1 < n:
+					chars.append(text[j : j + 2])
+					j += 2
+					continue
+				if text[j] == '>':
+					closed_angle = True
+					break
+				chars.append(text[j])
+				j += 1
+			close = text.find(')', j + 1) if closed_angle else -1  # an optional title may follow
+			if close >= 0:
+				i = close + 1
+				raw = ''.join(chars)
+		else:
+			depth, dest, closed = 0, [], False
+			while i < n:
+				ch = text[i]
+				if ch == '(':
+					depth += 1
+					dest.append(ch)
+				elif ch == ')':
+					if depth == 0:
+						closed = True
+						break  # the link's closing paren
+					depth -= 1
+					dest.append(ch)
+				elif ch.isspace() and depth == 0:  # destination ended; skip an optional title
+					close = text.find(')', i)
+					if close >= 0:
+						closed = True
+						i = close
+					break
+				elif ch == '\\' and i + 1 < n:
+					dest.append(text[i : i + 2])  # an escaped character, unfolded by _unescape_destination
+					i += 2
+					continue
+				else:
+					dest.append(ch)
+				i += 1
+			if closed:
+				i += 1
+				raw = ''.join(dest)
+		if raw and (target := _unescape_destination(raw)):
+			targets.append(target)
+	return targets
+
+
+def _file_refs(text: str) -> list[str]:
+	"""File references in a delivered answer: markdown link targets (CommonMark inline links, including <spaced
+	targets>, titles, percent-encoded or query-bearing URLs) and `backticked.ext` inline-code names."""
+	return _markdown_targets(text) + FILE.findall(text)
+
+
+def _in_workspace(workspace: Path, target: str) -> bool:
+	"""Whether `target`, as written in the answer, names an existing file inside the workspace or its downloads folder.
+	URL fragments and query strings are dropped and percent-encoding decoded first (a link may encode the very spaces
+	and parentheses `file_names` writes). A path that escapes the workspace — absolute, `..`, a symlink pointing out —
+	names a file that was not delivered, so it counts as missing; containment is judged against the workspace root
+	itself, so even a `downloads` symlink pointing out cannot smuggle an outside file in."""
+	name = unquote(target.split('#', 1)[0].split('?', 1)[0]).strip()
+	if not name:
+		return True  # a pure fragment or query link: nothing on disk to check
+	root = workspace.resolve()
+	for d in (workspace, workspace / 'downloads'):
+		try:
+			resolved = (d / name).resolve()
+			resolved.relative_to(root)
+		except (OSError, ValueError):  # outside the workspace
+			continue
+		if resolved.exists():
+			return True
+	return False
 
 
 @dataclass
@@ -264,15 +369,7 @@ def check_delivery(ctx: RunContext[Session], value: Any) -> None:
 	if not re.search(r'[^\W_]', text) or (not isinstance(value, str) and _holds_nothing(json.loads(text))):
 		problem = (f'The result {text[:20]!r} is a placeholder, not the answer.', 'delivery_placeholder')
 	else:
-		missing = sorted(
-			{
-				t
-				for t in LINK.findall(text) + FILE.findall(text)
-				if not re.match(r'^([a-z][\w+.-]*:|#|//)', t, re.I)
-				# downloads land in workspace/downloads; an answer names them by file name
-				and not any((d / t.split('#')[0]).exists() for d in (s.repl.workspace, s.repl.workspace / 'downloads'))
-			}
-		)
+		missing = sorted({t for t in _file_refs(text) if not URLISH.match(t) and not _in_workspace(s.repl.workspace, t)})
 		if missing:
 			problem = (f'These linked files do not exist in the workspace: {", ".join(missing[:10])}.', 'delivery_missing_files')
 	if problem is None:
