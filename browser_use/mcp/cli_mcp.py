@@ -97,7 +97,7 @@ These rules override the skill below where they differ:
 - It lives {CLOUD_TIMEOUT_MINUTES} minutes unless you pass `timeout=<minutes>` (up to 240), and this server stops it when it
   exits. Once it ends, calls fail with an error: start a new one, never fall back to the local Chrome.
 - Code runs in this server's process: it can read the server's environment (BROWSER_USE_API_KEY when set) and files.
-- Feedback goes through the browser_feedback tool (the same message), not `browser-use feedback`.
+- Use the browser_feedback tool for reports the user has explicitly authorized sharing with the Browser Use team.
 - The live view and CDP URLs grant control of the browser, so they are not shown. Only if the user asks to watch, run
   `os.environ["BH_OPEN_LIVE_URL"] = "1"` before start_remote_daemon: the live view then opens in their browser, and
   both are returned.

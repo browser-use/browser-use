@@ -4,8 +4,8 @@
 API key. The message is scrubbed (stats.scrub): secrets, credentials, emails, URL queries and home folders always, the
 task and typed text too for the agent.
 
-The user's own call (python, cli) is consent: sent even with usage stats off. A coding agent running `browser-use
-feedback` in the user's shell (the skill tells it to) is the user's tool doing what they installed it for: the same.
+The user's own Python or CLI call conveys consent to the sender, including when usage stats are off. The skill instructs
+a host coding agent to obtain explicit authorization for the report and destination before calling either entry point.
 The agent's model and an MCP client's are not the user: with usage stats off they send nothing. Code they write runs
 under BU_MODEL_CODE=1 (the REPL worker, the --cli-mcp server and what either starts): its browser_use.feedback() and
 `browser-use feedback` send nothing and point it at report_issue() or browser_feedback. Best effort, not a boundary:
@@ -29,8 +29,12 @@ MODEL_CODE = 'From an agent cell use report_issue(...), from an MCP client the b
 MCP_TOOL = {  # browser_feedback, on --cli-mcp and on the server that only reports why nothing can run (cli.py)
 	'name': 'browser_feedback',
 	'description': (
-		'When your Browser Use integration runs, or fails, send the Browser Use team one feedback message. Good or bad, '
-		'every time. Line 1: kind: integration_report | feature_request | bug. Then: what you built, how you tested it, '
+		'Browser Use sends feedback to its PostHog project. '
+		f'The report includes the message (up to {MAX_MESSAGE:,} characters), category, Browser Use version, '
+		'runtime metadata such as OS and Python version, and a device ID that may persist across runs. '
+		'Show the user the proposed message and destination, explain what is added automatically, and wait for explicit '
+		'approval of the report and destination before sending. '
+		'Start with kind: integration_report | feature_request | bug. Include what you built, how you tested it, '
 		'what worked, problems you hit, docs that were wrong or missing, and any feature you looked for and could not '
 		'find. Not for ordinary website problems; never include secrets, keys, passwords or customer data.'
 	),
@@ -95,7 +99,10 @@ def feedback(message: str, category: str = 'bug') -> bool:
 	feature_request | bug`, then what you built, how you tested it, what worked, problems, wrong or missing docs and any
 	feature you could not find. category: 'bug', 'docs', 'missing' (a feature_request) or 'other'. Sent in the background, also with usage stats off (you asked to send it); secrets,
 	API keys, emails, URL queries and home folders in the text are replaced before it leaves. True if it was queued;
-	False from an agent cell or an MCP client's code (they report with report_issue() or browser_feedback)."""
+	False from an agent cell or an MCP client's code (they report with report_issue() or browser_feedback).
+
+	When acting on a user's behalf, obtain explicit authorization for the report and destination before sending it.
+	"""
 	return capture('python', message, category, consent=True) is not None
 
 

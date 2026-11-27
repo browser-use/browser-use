@@ -66,6 +66,18 @@ def test_browser_use_doctor_help_prints_browser_use_usage():
 	assert result.stderr == ''
 
 
+def test_feedback_help_explains_direct_and_agent_authorization():
+	result = _run_browser_use_cli('feedback', '--help')
+
+	assert result.returncode == 0, result.stderr
+	help_text = ' '.join(result.stdout.split())
+	assert 'Running this command with your own feedback authorizes sending it.' in help_text
+	assert 'Agents must show the user the proposed message and destination and wait for explicit approval of both' in help_text
+	assert 'its PostHog project' in help_text
+	assert '2,000 characters' in help_text
+	assert 'runtime metadata' in help_text and 'distinct ID' in help_text
+
+
 def test_browser_use_doctor_names_browser_use_and_passes_without_a_daemon(tmp_path):
 	"""C48: --doctor ran browser-harness's doctor: header `browser-harness doctor`, its version, and exit 1 with
 	[FAIL] rows whenever the daemon was stopped (every call starts it) or nobody was signed in (optional)."""

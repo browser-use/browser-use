@@ -2330,7 +2330,11 @@ async def test_the_mcp_feedback_tool_is_listed_and_sends_one_event(posthog):
 
 	server = cli_mcp.CLIMCPServer()
 	(tool,) = (t for t in server._tool_definitions() if t.name == 'browser_feedback')
-	assert tool.input_schema['required'] == ['message'] and 'never include secrets' in tool.description  # pyright: ignore[reportOptionalOperand]
+	description = tool.description or ''
+	assert tool.input_schema['required'] == ['message'] and 'never include secrets' in description
+	assert 'PostHog project' in description and 'wait for explicit approval' in description
+	assert 'Browser Use version' in description and 'OS and Python version' in description
+	assert 'a device ID that may persist across runs' in description
 	handler = server.server._request_handlers['tools/call'].handler
 
 	async def call(arguments: dict):
@@ -2343,6 +2347,8 @@ async def test_the_mcp_feedback_tool_is_listed_and_sends_one_event(posthog):
 	(report,) = _feedback(events)
 	p = report['properties']
 	assert (p['source'], p['category'], p['message']) == ('mcp', 'missing', 'js() drops an async return value, see <email>')
+	assert report['distinct_id'] == 'bu-test-device'
+	assert p['version'] and p['os'] and p['python_version']
 	assert p['run_id'] is None and p['model'] is None
 	assert [e['properties']['tool_name'] for e in events if e['event'] == 'mcp_server_event'] == ['browser_feedback'] * 2
 
