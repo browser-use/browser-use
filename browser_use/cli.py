@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import sys
 import time
@@ -601,6 +602,7 @@ def _guard_cloud_browsers(run, code: str | None) -> None:
 
 	harness_cloud.install(vars(run))
 	vars(run)['ensure_daemon'] = _with_upgrade_hint(_with_own_chromium(harness_cloud.ensure_daemon, vars(run)))
+	vars(run)['use_my_chrome'] = _use_my_chrome(vars(run), vars(run)['ensure_daemon'])
 	if (
 		code
 		and harness_cloud.calls_cloud_admin(code)
@@ -732,6 +734,12 @@ def _with_own_chromium(ensure_daemon: Any, namespace: dict[str, Any]) -> Any:
 		if harness_cloud.was_cloud(base):  # a cloud browser's name never goes local: it fails closed once that one ends
 			return ensure_daemon(wait=wait)
 		unfit = _own_chromium_unfit(own)
+		if not unfit and _user_chrome_back(own):  # the user turned remote debugging on since the own Chromium started
+			if _own_pages(own):
+				_hint_user_chrome_once()
+			else:  # nothing the agent works on there: leave it now
+				_close_own_chromium()
+				print("browser-use: switched to your own Chrome; browser-use's temp Chromium is closed.", file=sys.stderr)
 		for attached in (base,) if unfit else (own, base):  # its own Chromium until --reload, else a daemon attached
 			try:
 				admin.require_existing_daemon(attached)
@@ -782,6 +790,67 @@ def _with_upgrade_hint(ensure: Any) -> Any:
 			raise
 
 	return ensure_or_hint
+
+
+def _user_chrome_back(own: str) -> bool:
+	"""The CLI's own Chromium runs and the user's Chrome now has remote debugging on: a live DevToolsActivePort, checked
+	with a port connect, not CDP (no Allow prompt)."""
+	from browser_harness import admin
+
+	from browser_use.browser import local
+
+	try:
+		admin.require_existing_daemon(own)
+	except RuntimeError:
+		return False
+	return bool(local.live_debug_dirs())
+
+
+def _own_pages(own: str) -> list[str]:
+	"""The real pages open in the CLI's own Chromium (blank and browser-internal tabs left out)."""
+	from browser_use.browser.browser import BLANK_OR_INTERNAL, _daemon_cdp
+
+	try:
+		targets = _daemon_cdp(own, 'Target.getTargets')['targetInfos']
+	except Exception:  # its daemon is gone: nothing to keep
+		return []
+	return [t['url'] for t in targets if t['type'] == 'page' and not t['url'].startswith(BLANK_OR_INTERNAL)]
+
+
+def _hint_user_chrome_once() -> None:
+	"""Once per own Chromium (a marker in its profile dir): the user's Chrome is ready, and how to switch."""
+	marker = _own_chromium_dir() / 'user-chrome-hinted'
+	if marker.exists():
+		return
+	with contextlib.suppress(OSError):
+		marker.touch()
+	print(
+		'browser-use: your Chrome now has remote debugging on. Call use_my_chrome() (or run `browser-use --reload`) to '
+		"switch to it; that closes browser-use's temp Chromium and the pages open in it.",
+		file=sys.stderr,
+	)
+
+
+def _use_my_chrome(namespace: dict[str, Any], ensure: Any) -> Any:
+	def use_my_chrome() -> str:
+		"""Switch from browser-use's temp Chromium to your own Chrome (its tabs and logins). The temp Chromium closes with
+		the pages open in it."""
+		import os
+
+		own = _own_chromium_name()
+		if _own_chromium_unfit(own) or not _own_chromium_ws():
+			return 'Already on your own Chrome.'
+		if not _user_chrome_back(own):
+			raise RuntimeError(
+				'Your Chrome is not ready yet: in Chrome open chrome://inspect/#remote-debugging and tick "Allow remote '
+				'debugging for this browser instance".'
+			)
+		_close_own_chromium()
+		_route(os.environ.get('BU_NAME') or 'default', namespace)
+		ensure()
+		return "Switched to your own Chrome (its tabs and logins); browser-use's temp Chromium is closed."
+
+	return use_my_chrome
 
 
 def _close_own_chromium() -> None:

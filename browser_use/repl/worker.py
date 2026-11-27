@@ -1,7 +1,8 @@
 """Persistent Python REPL for one agent. Runs as a child process so a hung cell can be killed.
 
 Namespace = browser-harness helpers + screenshot/show_image/checkpoint/type_secret/solve_captcha/report_issue (+ bu in
-ultrafast mode, see ax.py; + search when web search is on; + downloads for a cloud browser or a Chrome the Browser launched).
+ultrafast mode, see ax.py; + search when web search is on; + downloads for a cloud browser or a Chrome the Browser launched;
++ rotate_proxy on a Browser Use cloud browser).
 Protocol: connect to 127.0.0.1:BU_REPL_PORT, send BU_REPL_TOKEN, read one init line ({"secrets": [[name, value, domain|null], ...],
 "search": bool, "downloads": bool}), then one JSON line per message. search(), downloads() and report_issue() send
 {"type": "search" | "downloads" | "feedback", "args": {...}} mid-cell and read the parent's one-line answer. Cell stdout/stderr (including subprocesses) go to a per-cell file, so a killed cell still leaves its
@@ -988,6 +989,93 @@ def _downloads(ask):
 	return downloads
 
 
+CDP_ROTATE = 'BrowserUse.setProxy'  # custom CDP method of Browser Use cloud browsers: authorized by the CDP session
+
+
+def _cdp_rotate(cdp, country=None) -> dict:
+	"""New exit IP over CDP (docs.browser-use.com/cloud/browser/proxies). rotate=True is what changes the IP: a country
+	alone keeps the current IP when the browser is already there. A browser without a proxy (direct) takes no rotate; the
+	cloud says so, and then we turn the proxy on, which gives a new IP too."""
+	params = {'rotate': True, **({'country': country.strip().lower()} if country else {})}
+	try:
+		r = cdp(CDP_ROTATE, **params)
+	except Exception as e:
+		if 'direct browser' not in str(e):
+			raise
+		r = cdp(CDP_ROTATE, mode='managed', **({'country': params['country']} if country else {}))
+	return {'mode': r.get('mode', 'managed'), 'country': r.get('country'), 'exitIp': r.get('exitIp')}
+
+
+def _cdp_method_missing(e: Exception) -> bool:
+	"""A browser that does not serve the method (Chrome: -32601 "... wasn't found")."""
+	return '-32601' in str(e) or "wasn't found" in str(e)
+
+
+def _rotate_proxy(ask, cdp_first: bool, rest: bool):
+	"""rotate_proxy() for the cell. cdp_first: try the browser's own BrowserUse.setProxy over the CDP connection (no
+	API key needed). rest: else the parent calls the cloud API (Browser.rotate_proxy), so the key never enters this
+	process. Only defined on a Browser Use cloud browser."""
+
+	def rotate_proxy(country=None):
+		"""Give this cloud browser a new exit IP without restarting it: tabs, cookies and logins stay.
+
+		Use it only when the page itself is a block for this IP (an 'Access denied' / 403 / 429 error page, or a captcha
+		the solver failed) and it is still there after you waited and reloaded once: then call it once and reload. At
+		most once per site, never in the middle of a login or checkout, and not for rate limits on APIs or bulk
+		fetching (slow down instead).
+		country: a 2-letter code ('us', 'de') to also move the exit there; default keeps the country. A site that serves
+		one country (a .ru, .de, .co.uk or .kr site, or a local-only store) blocks far less from an exit in that country:
+		pass it (rotate_proxy(country='ru')) on the first block there.
+		-> {'mode', 'country', 'exitIp'}."""
+		if country is not None and not isinstance(country, str):
+			raise TypeError(f'country must be a str like "de", not {type(country).__name__}')
+		if cdp_first:
+			try:
+				from browser_harness import helpers
+
+				return _cdp_rotate(helpers.cdp, country)
+			except Exception as e:  # - the browser lacks the method or refused: the API path may still do it
+				if not rest:
+					if _cdp_method_missing(e):
+						raise RuntimeError(
+							'rotate_proxy(): this browser does not support it yet; set BROWSER_USE_API_KEY to rotate '
+							'through the API'
+						) from None
+					raise
+		return ask('rotate_proxy', {'country': country})
+
+	return rotate_proxy
+
+
+# A page that is itself a block for this IP: the cell output gets a pointer to rotate_proxy() (its docstring holds the
+# rules), so the system prompt stays the same and runs that are never blocked see nothing new.
+BLOCK_PAGE = re.compile(
+	r"Access Denied|You don't have permission to access|The request could not be satisfied|errors\.edgesuite\.net|"
+	r'HTTP ERROR 429|429 Too Many Requests|Pardon Our Interruption|captcha solver: [\w-]+ (?:stopped unsolved|no result)|'
+	r'Доступ ограничен|사용권한이 없습니다'
+)
+ROTATE_HINT = (
+	'[this page looks blocked for this IP. If the site serves one country (.ru, .de, .co.uk, .kr...), '
+	"rotate_proxy(country='xx') with that country is the best fix; otherwise, if it is still blocked after one wait "
+	'and reload, rotate_proxy() gives a new exit IP. Both keep tabs and logins; read help(rotate_proxy) first]'
+)
+
+
+def _rotate_hint(ns: dict, output: str, hinted: set) -> str:
+	"""ROTATE_HINT once per site, after a cell whose output shows a block page; '' otherwise."""
+	if 'rotate_proxy' not in ns or not BLOCK_PAGE.search(output):
+		return ''
+	try:
+		probe = getattr(ns['page_info'], '__wrapped__', ns['page_info'])  # uncounted: the agent did not call it
+		host = urllib.parse.urlparse(probe()['url']).hostname or ''
+	except Exception:  # - no tab or no page: still one hint
+		host = ''
+	if host in hinted:
+		return ''
+	hinted.add(host)
+	return ROTATE_HINT
+
+
 def _report_issue(ask):
 	"""report_issue() for the cell: the parent sends it (telemetry/feedback.py), scrubbed of the task, the secrets and
 	what the agent typed, this cell's typing included."""
@@ -1158,7 +1246,11 @@ def main() -> None:
 		ns['search'] = _counted('search', _search(ask))
 	if init.get('downloads'):
 		ns['downloads'] = _counted('downloads', _downloads(ask))
+	if init.get('rotate_proxy') or init.get('rotate_proxy_cdp'):
+		rotate = _rotate_proxy(ask, bool(init.get('rotate_proxy_cdp')), bool(init.get('rotate_proxy')))
+		ns['rotate_proxy'] = _counted('rotate_proxy', rotate)
 	ns['report_issue'] = _counted('report_issue', _report_issue(ask))
+	rotate_hinted: set = set()  # sites that got ROTATE_HINT
 	sys.path.append(os.getcwd())  # after the imports (-P kept it off sys.path[0]): modules the agent writes still import
 	loop = asyncio.new_event_loop()
 	asyncio.set_event_loop(loop)
@@ -1223,6 +1315,8 @@ def main() -> None:
 		with open(out_path, encoding='utf-8', errors='replace') as f:
 			raw = f.read(MAX_OUTPUT_CHARS + 1)
 		output = clip(raw, out_path)
+		if hint := _rotate_hint(ns, raw, rotate_hinted):
+			output = f'{output}\n{hint}'.strip()
 		cell_stats = stats.take()
 		cell_stats['cut'] = len(raw) > MAX_OUTPUT_CHARS
 		send(
