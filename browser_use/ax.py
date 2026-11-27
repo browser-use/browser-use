@@ -509,6 +509,16 @@ class AxHelpers:
 			files = files_job.result() if files_job else []
 		except Exception:
 			files = []
+		selected_options: set[int] = set()
+		if any(val(n.get('role')) == 'listbox' and prop(n, 'disabled') for frame in frames for n in frame['nodes']):
+			# Chrome omits selected from the AX options of disabled multi-selects. The DOM snapshot contains
+			# their live selection, including changes made by JavaScript, keyed by the same backend node IDs.
+			try:
+				for document in self.cdp('DOMSnapshot.captureSnapshot', computedStyles=[])['documents']:
+					nodes = document['nodes']
+					selected_options.update(nodes['backendNodeId'][i] for i in nodes.get('optionSelected', {}).get('index', []))
+			except Exception:
+				selected_options.clear()  # A snapshot failure must not hide the rest of the page state.
 		previous = self.last
 		self.last = {}
 		lines: list[str] = []
@@ -523,16 +533,17 @@ class AxHelpers:
 			by_id = {n['nodeId']: n for n in frame['nodes']}
 			start = len(lines)
 
-			def walk(n: dict | None, inside: str) -> None:
+			def walk(n: dict | None, inside: str, disabled_listbox: bool = False) -> None:
 				if not n:
 					return
 				role = val(n.get('role'))
 				role = '' if role is None else str(role)
+				disabled_listbox = disabled_listbox or (role == 'listbox' and bool(prop(n, 'disabled')))
 				name = norm(val(n.get('name')))
 				kids = n.get('childIds') or []
 				if n.get('ignored'):
 					for c in kids:
-						walk(by_id.get(c), inside)
+						walk(by_id.get(c), inside, disabled_listbox)
 					return
 				if role == 'StaticText':
 					t = fold(name)
@@ -543,7 +554,7 @@ class AxHelpers:
 					flush()
 					lines.append(f'## {name}')
 					for c in kids:
-						walk(by_id.get(c), fold(name))
+						walk(by_id.get(c), fold(name), disabled_listbox)
 					return
 				id = n.get('backendDOMNodeId')
 				# Focusable wrappers (tabindex=-1 dialogs, <main>) are only controls if they carry a name, value or editing.
@@ -553,11 +564,11 @@ class AxHelpers:
 				if not id or not (role in CONTROLS or focusable):
 					if role not in BLOCKS:
 						for c in kids:
-							walk(by_id.get(c), inside)
+							walk(by_id.get(c), inside, disabled_listbox)
 						return
 					flush()
 					for c in kids:
-						walk(by_id.get(c), inside)
+						walk(by_id.get(c), inside, disabled_listbox)
 					return flush()
 				flush()
 				if lines and lines[-1].lower() == name.lower():
@@ -569,7 +580,9 @@ class AxHelpers:
 					for s in [
 						'' if checked is None else 'unchecked' if checked == 'false' else 'checked',
 						'' if expanded is None else 'expanded' if expanded else 'collapsed',
-						'selected' if prop(n, 'selected') else '',
+						'selected'
+						if prop(n, 'selected') or (role == 'option' and disabled_listbox and id in selected_options)
+						else '',
 						# Chrome flags aria-disabled too, but only native disabled stops input: those are never focusable.
 						'disabled' if prop(n, 'disabled') and not prop(n, 'focusable') else '',
 						'focused' if prop(n, 'focused') else '',
@@ -614,7 +627,7 @@ class AxHelpers:
 				# Only what the line showed counts as said: a card link's text past the clipped name still prints.
 				inside = fold(f'{inside} {clip(name, 150)} {value}')
 				for c in kids:
-					walk(by_id.get(c), inside)
+					walk(by_id.get(c), inside, disabled_listbox)
 				flush()
 
 			walk(frame['nodes'][0] if frame['nodes'] else None, '')

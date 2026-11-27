@@ -31,6 +31,9 @@ PAGES = {
 	'/locked': """<title>Locked</title><select id=a disabled><option>A<option>B</select>
 <fieldset disabled><input id=b type=date></fieldset><div inert><select id=c><option>A<option>B</select></div>
 <select id=d style="display:none"><option>A<option>B</select><span aria-disabled=true><input id=e type=time></span>""",
+	'/disabled-multiple': """<title>Selections</title><label for=items>Selected items</label>
+<select id=items multiple disabled><optgroup label=Group><option selected>Alpha<option>Beta</optgroup><option selected>Gamma</select>""",
+	'/disabled-multiple-frame': '<title>Frame</title><iframe src="/disabled-multiple"></iframe>',
 	'/act': """<title>Act</title>
 <form action="/next"><input aria-label="Query" name=q></form>
 <button onclick="document.getElementById('out').textContent = 'Clicked'">Go</button>
@@ -204,6 +207,45 @@ Pick a city and a date.
 	# Pi: console.log(await bu.state()) prints an empty line, not the state again.
 	out, err = await cell(repl, "print(bu.state()); print('x', bu.state(), 'y')")
 	assert err is None and out.count('[state]') == 2 and '[/state]\n\n[state]' in out and out.endswith('[/state]\nx  y\n'), out
+
+
+async def test_disabled_multiple_select_shows_live_selections(repl, site):
+	"""Visible disabled options retain their live selection in the browser state."""
+	out, err = await cell(repl, f"new_tab('{site}/disabled-multiple'); bu.state()")
+	assert err is None, err
+	assert re.search(r'option "Alpha".*\bselected\b', out), out
+	assert not re.search(r'option "Beta".*\bselected\b', out), out
+	assert re.search(r'option "Gamma".*\bselected\b', out), out
+	select_id = re.search(r'\[(\d+)\] listbox "Selected items" disabled', out)
+	assert select_id, out
+	_, err = await cell(repl, f"bu.type({select_id.group(1)}, 'Beta')")
+	assert err and 'Target disabled' in err
+	out, err = await cell(
+		repl,
+		"js(\"document.querySelector('select').options[0].selected = false; document.querySelector('select').options[1].selected = true\"); bu.state()",
+	)
+	assert err is None, err
+	assert not re.search(r'option "Alpha".*\bselected\b', out), out
+	assert re.search(r'option "Beta".*\bselected\b', out), out
+	assert re.search(r'option "Gamma".*\bselected\b', out), out
+	out, err = await cell(repl, f"goto_url('{site}/disabled-multiple-frame'); bu.state()")
+	assert err is None, err
+	assert f'--- frame {site}/disabled-multiple ---' in out, out
+	assert re.search(r'option "Alpha".*\bselected\b', out), out
+	assert not re.search(r'option "Beta".*\bselected\b', out), out
+	# A missing snapshot must not prevent the remaining accessibility state from being read.
+	out, err = await cell(
+		repl,
+		'original_cdp = bu.cdp\n'
+		'def cdp_without_snapshot(method, **kwargs):\n'
+		"    if method == 'DOMSnapshot.captureSnapshot': raise RuntimeError('snapshot unavailable')\n"
+		'    return original_cdp(method, **kwargs)\n'
+		'bu.cdp = cdp_without_snapshot\n'
+		'try: bu.state()\n'
+		'finally: bu.cdp = original_cdp',
+	)
+	assert err is None, err
+	assert 'listbox "Selected items" disabled' in out and 'option "Alpha"' in out, out
 
 
 async def test_state_marks_new_ids_and_truncates(repl, site):
