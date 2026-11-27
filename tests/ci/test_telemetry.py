@@ -2554,3 +2554,34 @@ def test_masked_key_scrub_stays_linear_on_runs_of_key_prefixes():
 	for text in ('sk-' * 12000, 'AIza-' * 7000, 'sk-.' * 9000):
 		scrub(text, [], 500)
 	assert time.perf_counter() - start < 5
+
+
+def test_flush_waits_for_inflight_marker_removal_on_send_and_error(posthog, monkeypatch):
+	"""flush() polls _pending; _unmark must run before popping _pending so flush() never returns with a marker still on disk."""
+	from browser_use.telemetry.service import Job
+
+	t = posthog.telemetry
+	orig_unmark = t._unmark
+
+	def slow_unmark(run_id: str) -> None:
+		time.sleep(0.05)
+		orig_unmark(run_id)
+
+	monkeypatch.setattr(t, '_unmark', slow_unmark)
+	inflight = posthog.config / 'telemetry' / 'inflight'
+
+	ok_run_id = uuid.uuid4().hex
+	t.run_started(ok_run_id, lambda: {'timeout_s': 60}, lambda: {'steps': 0})
+	t.capture_run(Job('agent_event', lambda steps, keys: {'model': 'm'}, run_id=ok_run_id))
+	assert t.flush(10)
+	assert not (inflight / f'{ok_run_id}.json').exists()
+
+	err_run_id = uuid.uuid4().hex
+	t.run_started(err_run_id, lambda: {'timeout_s': 60}, lambda: {'steps': 0})
+
+	def explode(steps, keys):
+		raise RuntimeError('boom')
+
+	t.capture_run(Job('agent_event', explode, run_id=err_run_id))
+	assert t.flush(10)
+	assert not (inflight / f'{err_run_id}.json').exists()
