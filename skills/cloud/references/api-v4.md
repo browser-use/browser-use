@@ -126,7 +126,7 @@ before downloading.
 The v4 REST API can create a browser for direct CDP control:
 
 1. `POST /browsers` returns the browser `id` (its session ID) and `cdpUrl`.
-2. Connect Browser Use, Playwright, Puppeteer, or Selenium to `cdpUrl`.
+2. Connect Browser Use, Playwright, or Puppeteer (`browserWSEndpoint`) to `cdpUrl`, exactly as returned. It holds a secret access token in its query.
 3. `PATCH /browsers/{session_id}` with `{"action":"stop"}` stops the browser;
    replace `session_id` with the returned `id`.
 

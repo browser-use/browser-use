@@ -1310,8 +1310,8 @@ class Browser:
 		browser_id = self.cloud_id
 		if not browser_id:
 			raise RuntimeError(
-				'rotate_proxy() over the API needs the cloud browser id: a Browser(), or a cdp_url like '
-				'https://<id>.cdp.browser-use.com (the CDP path needs neither)'
+				'rotate_proxy() over the API needs the cloud browser id: a Browser(), or the cdpUrl that the '
+				'Browser Use API returned for a cloud browser (the CDP path needs neither)'
 			)
 		if country is not None and not (isinstance(country, str) and re.fullmatch(r'[A-Za-z]{2}', country.strip())):
 			raise ValueError(f'country must be a 2-letter code like "us" or "de", not {country!r}')

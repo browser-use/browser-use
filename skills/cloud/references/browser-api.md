@@ -49,12 +49,16 @@ browser = await client.browsers.create(
     timeout=60,
 )
 
-print(browser.cdp_url)   # wss://... for CDP connection
+print(browser.cdp_url)   # CDP URL, a secret
 print(browser.live_url)  # View in browser
 
 # Stop (unused time refunded)
 await client.browsers.stop(browser.id)
 ```
+
+`cdp_url` is a secret: it holds an access token in its query, and anyone with it controls the browser.
+Pass it to your CDP client exactly as returned. Never build a CDP URL from the browser ID, and never remove its query.
+For Puppeteer, use `browserWSEndpoint`, because `browserURL` drops the query.
 
 ## Playwright Integration
 
@@ -98,22 +102,8 @@ await client.browsers.stop(browser.id);
 
 ## Selenium Integration
 
-```python
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-
-browser_session = await client.browsers.create(proxy_country_code="us")
-
-options = Options()
-options.debugger_address = browser_session.cdp_url.replace("wss://", "").replace("ws://", "").replace("/devtools/browser/", "")
-driver = webdriver.Chrome(options=options)
-
-driver.get("https://example.com")
-# ... normal Selenium code
-
-driver.quit()
-await client.browsers.stop(browser_session.id)
-```
+Selenium's `debugger_address` only supports local `host:port` connections, so it cannot attach to a cloud browser.
+Use Playwright or Puppeteer for remote CDP.
 
 ### Session Limits
 
