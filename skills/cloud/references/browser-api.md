@@ -49,15 +49,12 @@ browser = await client.browsers.create(
     timeout=60,
 )
 
-print(browser.cdp_url)   # CDP URL, a secret
-print(browser.live_url)  # View in browser
-
 # Stop (unused time refunded)
 await client.browsers.stop(browser.id)
 ```
 
-`cdp_url` is a secret: it holds an access token in its query, and anyone with it controls the browser.
-Pass it to your CDP client exactly as returned. Never build a CDP URL from the browser ID, and never remove its query.
+`browser.cdp_url` is the CDP URL, and `browser.live_url` is the live view URL. Both are secrets, because each one gives control of the browser.
+`cdp_url` holds an access token in its query. Pass it to your CDP client exactly as returned, and do not log it. Never build a CDP URL from the browser ID, and never remove its query.
 For Puppeteer, use `browserWSEndpoint`, because `browserURL` drops the query.
 
 ## Playwright Integration
@@ -102,7 +99,7 @@ await client.browsers.stop(browser.id);
 
 ## Selenium Integration
 
-Selenium's `debugger_address` only supports local `host:port` connections, so it cannot attach to a cloud browser.
+Selenium's `debugger_address` takes only `host:port` over plain HTTP, so it cannot carry the token of a cloud CDP URL.
 Use Playwright or Puppeteer for remote CDP.
 
 ### Session Limits
