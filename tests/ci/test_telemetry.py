@@ -768,6 +768,16 @@ def test_cli_event_is_marked_internal_like_the_agent_event(monkeypatch, internal
 	assert props['is_internal'] is bool(internal)
 
 
+def test_cli_event_drops_process_person_profile():
+	"""#6541: browser-harness sets $process_person_profile True on its cli_event; our telemetry is anonymized,
+	so the scrubber must not forward the directive."""
+	props = scrub_cli_event({'event': 'cli_event', 'properties': {'command': 'script', '$process_person_profile': True}})[
+		'properties'
+	]
+	assert '$process_person_profile' not in props
+	assert props['command'] == 'script'
+
+
 @pytest.mark.parametrize('value, sends', [('n', False), ('disable', False), ('on', False), ('0', False), ('yes', True)])
 def test_cli_opt_out_values_match_the_library(monkeypatch, sent, value, sends):
 	"""Any value not starting with t, y or 1 turns it off. browser-harness alone sent with n, disable."""
